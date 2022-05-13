@@ -302,7 +302,7 @@ cmi_inj_tainted(void)
 
 #define	CMI_MSRI_HASHSZ		16
 #define	CMI_MSRI_HASHIDX(hdl, msr) \
-	(((uintptr_t)(hdl) >> 3 + (msr)) % (CMI_MSRI_HASHSZ - 1))
+	((((uintptr_t)(hdl) >> 3) + (msr)) % (CMI_MSRI_HASHSZ - 1))
 
 struct cmi_msri_bkt {
 	kmutex_t msrib_lock;
@@ -1272,6 +1272,7 @@ cmi_hdl_create(enum cmi_hdl_class class, uint_t chipid, uint_t coreid,
 	switch (vendor) {
 	case X86_VENDOR_Intel:
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_HYGON:
 		if (cmi_ext_topo_check == 0) {
 			cpuid_get_ext_topo((cpu_t *)priv, &cmi_core_nbits,
 			    &cmi_strand_nbits);

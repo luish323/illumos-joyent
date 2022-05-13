@@ -34,6 +34,7 @@ __FBSDID("$FreeBSD$");
 
 #include "pci_hda.h"
 #include "bhyverun.h"
+#include "config.h"
 #include "pci_emul.h"
 #include "hdac_reg.h"
 
@@ -147,13 +148,11 @@ static inline uint32_t hda_get_reg_by_offset(struct hda_softc *sc,
 static inline void hda_set_field_by_offset(struct hda_softc *sc,
     uint32_t offset, uint32_t mask, uint32_t value);
 
-static uint8_t hda_parse_config(const char *opts, const char *key, char *val);
-static struct hda_softc *hda_init(const char *opts);
+static struct hda_softc *hda_init(nvlist_t *nvl);
 static void hda_update_intr(struct hda_softc *sc);
 static void hda_response_interrupt(struct hda_softc *sc);
 static int hda_codec_constructor(struct hda_softc *sc,
-    struct hda_codec_class *codec, const char *play, const char *rec,
-    const char *opts);
+    struct hda_codec_class *codec, const char *play, const char *rec);
 static struct hda_codec_class *hda_find_codec_class(const char *name);
 
 static int hda_send_command(struct hda_softc *sc, uint32_t verb);
@@ -210,7 +209,7 @@ static uint64_t hda_get_clock_ns(void);
 /*
  * PCI HDA function declarations
  */
-static int pci_hda_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts);
+static int pci_hda_init(struct vmctx *ctx, struct pci_devinst *pi, nvlist_t *nvl);
 static void pci_hda_write(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
     int baridx, uint64_t offset, int size, uint64_t value);
 static uint64_t pci_hda_read(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
@@ -318,66 +317,19 @@ hda_set_field_by_offset(struct hda_softc *sc, uint32_t offset,
 	hda_set_reg_by_offset(sc, offset, reg_value);
 }
 
-static uint8_t
-hda_parse_config(const char *opts, const char *key, char *val)
-{
-	char buf[64];
-	char *s = buf;
-	char *tmp = NULL;
-	size_t len;
-	int i;
-
-	if (!opts)
-		return (0);
-
-	len = strlen(opts);
-	if (len >= sizeof(buf)) {
-		DPRINTF("Opts too big\n");
-		return (0);
-	}
-
-	DPRINTF("opts: %s\n", opts);
-
-	strcpy(buf, opts);
-
-	for (i = 0; i < len; i++)
-		if (buf[i] == ',') {
-			buf[i] = 0;
-			tmp = buf + i + 1;
-			break;
-		}
-
-	if (!memcmp(s, key, strlen(key))) {
-		strncpy(val, s + strlen(key), 64);
-		return (1);
-	}
-
-	if (!tmp)
-		return (0);
-
-	s = tmp;
-	if (!memcmp(s, key, strlen(key))) {
-		strncpy(val, s + strlen(key), 64);
-		return (1);
-	}
-
-	return (0);
-}
-
 static struct hda_softc *
-hda_init(const char *opts)
+hda_init(nvlist_t *nvl)
 {
 	struct hda_softc *sc = NULL;
 	struct hda_codec_class *codec = NULL;
-	char play[64];
-	char rec[64];
-	int err, p, r;
+	const char *value;
+	char *play;
+	char *rec;
+	int err;
 
 #if DEBUG_HDA == 1
 	dbg = fopen("/tmp/bhyve_hda.log", "w+");
 #endif
-
-	DPRINTF("opts: %s\n", opts);
 
 	sc = calloc(1, sizeof(*sc));
 	if (!sc)
@@ -386,19 +338,28 @@ hda_init(const char *opts)
 	hda_reset_regs(sc);
 
 	/*
-	 * TODO search all the codecs declared in opts
+	 * TODO search all configured codecs
 	 * For now we play with one single codec
 	 */
 	codec = hda_find_codec_class("hda_codec");
 	if (codec) {
-		p = hda_parse_config(opts, "play=", play);
-		r = hda_parse_config(opts, "rec=", rec);
-		DPRINTF("play: %s rec: %s\n", play, rec);
-		if (p | r) {
-			err = hda_codec_constructor(sc, codec, p ?	\
-				play : NULL, r ? rec : NULL, NULL);
+		value = get_config_value_node(nvl, "play");
+		if (value == NULL)
+			play = NULL;
+		else
+			play = strdup(value);
+		value = get_config_value_node(nvl, "rec");
+		if (value == NULL)
+			rec = NULL;
+		else
+			rec = strdup(value);
+		DPRINTF("play: %s rec: %s", play, rec);
+		if (play != NULL || rec != NULL) {
+			err = hda_codec_constructor(sc, codec, play, rec);
 			assert(!err);
 		}
+		free(play);
+		free(rec);
 	}
 
 	return (sc);
@@ -470,7 +431,7 @@ hda_response_interrupt(struct hda_softc *sc)
 
 static int
 hda_codec_constructor(struct hda_softc *sc, struct hda_codec_class *codec,
-    const char *play, const char *rec, const char *opts)
+    const char *play, const char *rec)
 {
 	struct hda_codec_inst *hci = NULL;
 
@@ -489,11 +450,11 @@ hda_codec_constructor(struct hda_softc *sc, struct hda_codec_class *codec,
 	sc->codecs[sc->codecs_no++] = hci;
 
 	if (!codec->init) {
-		DPRINTF("This codec does not implement the init function\n");
+		DPRINTF("This codec does not implement the init function");
 		return (-1);
 	}
 
-	return (codec->init(hci, play, rec, opts));
+	return (codec->init(hci, play, rec));
 }
 
 static struct hda_codec_class *
@@ -522,13 +483,13 @@ hda_send_command(struct hda_softc *sc, uint32_t verb)
 	if (!hci)
 		return (-1);
 
-	DPRINTF("cad: 0x%x verb: 0x%x\n", cad, verb);
+	DPRINTF("cad: 0x%x verb: 0x%x", cad, verb);
 
 	codec = hci->codec;
 	assert(codec);
 
 	if (!codec->command) {
-		DPRINTF("This codec does not implement the command function\n");
+		DPRINTF("This codec does not implement the command function");
 		return (-1);
 	}
 
@@ -592,7 +553,7 @@ hda_reset_regs(struct hda_softc *sc)
 	uint32_t off = 0;
 	uint8_t i;
 
-	DPRINTF("Reset the HDA controller registers ...\n");
+	DPRINTF("Reset the HDA controller registers ...");
 
 	memset(sc->regs, 0, sizeof(sc->regs));
 
@@ -620,7 +581,7 @@ hda_stream_reset(struct hda_softc *sc, uint8_t stream_ind)
 	struct hda_stream_desc *st = &sc->streams[stream_ind];
 	uint32_t off = hda_get_offset_stream(stream_ind);
 
-	DPRINTF("Reset the HDA stream: 0x%x\n", stream_ind);
+	DPRINTF("Reset the HDA stream: 0x%x", stream_ind);
 
 	/* Reset the Stream Descriptor registers */
 	memset(sc->regs + HDA_STREAM_REGS_BASE + off, 0, HDA_STREAM_REGS_LEN);
@@ -670,11 +631,11 @@ hda_stream_start(struct hda_softc *sc, uint8_t stream_ind)
 	bdl_vaddr = hda_dma_get_vaddr(sc, bdl_paddr,
 	    HDA_BDL_ENTRY_LEN * bdl_cnt);
 	if (!bdl_vaddr) {
-		DPRINTF("Fail to get the guest virtual address\n");
+		DPRINTF("Fail to get the guest virtual address");
 		return (-1);
 	}
 
-	DPRINTF("stream: 0x%x bdl_cnt: 0x%x bdl_paddr: 0x%lx\n",
+	DPRINTF("stream: 0x%x bdl_cnt: 0x%x bdl_paddr: 0x%lx",
 	    stream_ind, bdl_cnt, bdl_paddr);
 
 	st->bdl_cnt = bdl_cnt;
@@ -690,7 +651,7 @@ hda_stream_start(struct hda_softc *sc, uint8_t stream_ind)
 		bdle_paddr = bdle_addrl | (bdle_addrh << 32);
 		bdle_vaddr = hda_dma_get_vaddr(sc, bdle_paddr, bdle_sz);
 		if (!bdle_vaddr) {
-			DPRINTF("Fail to get the guest virtual address\n");
+			DPRINTF("Fail to get the guest virtual address");
 			return (-1);
 		}
 
@@ -699,14 +660,14 @@ hda_stream_start(struct hda_softc *sc, uint8_t stream_ind)
 		bdle_desc->len = bdle_sz;
 		bdle_desc->ioc = bdle->ioc;
 
-		DPRINTF("bdle: 0x%x bdle_sz: 0x%x\n", i, bdle_sz);
+		DPRINTF("bdle: 0x%x bdle_sz: 0x%x", i, bdle_sz);
 	}
 
 	sdctl = hda_get_reg_by_offset(sc, off + HDAC_SDCTL0);
 	strm = (sdctl >> 20) & 0x0f;
 	dir = stream_ind >= HDA_ISS_NO;
 
-	DPRINTF("strm: 0x%x, dir: 0x%x\n", strm, dir);
+	DPRINTF("strm: 0x%x, dir: 0x%x", strm, dir);
 
 	sc->stream_map[dir][strm] = stream_ind;
 	st->stream = strm;
@@ -730,7 +691,7 @@ hda_stream_stop(struct hda_softc *sc, uint8_t stream_ind)
 	uint8_t strm = st->stream;
 	uint8_t dir = st->dir;
 
-	DPRINTF("stream: 0x%x, strm: 0x%x, dir: 0x%x\n", stream_ind, strm, dir);
+	DPRINTF("stream: 0x%x, strm: 0x%x, dir: 0x%x", stream_ind, strm, dir);
 
 	st->run = 0;
 
@@ -771,10 +732,10 @@ hda_print_cmd_ctl_data(struct hda_codec_cmd_ctl *p)
 #if DEBUG_HDA == 1
 	char *name = p->name;
 #endif
-	DPRINTF("%s size: %d\n", name, p->size);
-	DPRINTF("%s dma_vaddr: %p\n", name, p->dma_vaddr);
-	DPRINTF("%s wp: 0x%x\n", name, p->wp);
-	DPRINTF("%s rp: 0x%x\n", name, p->rp);
+	DPRINTF("%s size: %d", name, p->size);
+	DPRINTF("%s dma_vaddr: %p", name, p->dma_vaddr);
+	DPRINTF("%s wp: 0x%x", name, p->wp);
+	DPRINTF("%s rp: 0x%x", name, p->rp);
 }
 
 static int
@@ -793,7 +754,7 @@ hda_corb_start(struct hda_softc *sc)
 	corb->size = hda_corb_sizes[corbsize];
 
 	if (!corb->size) {
-		DPRINTF("Invalid corb size\n");
+		DPRINTF("Invalid corb size");
 		return (-1);
 	}
 
@@ -801,12 +762,12 @@ hda_corb_start(struct hda_softc *sc)
 	corbubase = hda_get_reg_by_offset(sc, HDAC_CORBUBASE);
 
 	corbpaddr = corblbase | (corbubase << 32);
-	DPRINTF("CORB dma_paddr: %p\n", (void *)corbpaddr);
+	DPRINTF("CORB dma_paddr: %p", (void *)corbpaddr);
 
 	corb->dma_vaddr = hda_dma_get_vaddr(sc, corbpaddr,
 			HDA_CORB_ENTRY_LEN * corb->size);
 	if (!corb->dma_vaddr) {
-		DPRINTF("Fail to get the guest virtual address\n");
+		DPRINTF("Fail to get the guest virtual address");
 		return (-1);
 	}
 
@@ -864,7 +825,7 @@ hda_rirb_start(struct hda_softc *sc)
 	rirb->size = hda_rirb_sizes[rirbsize];
 
 	if (!rirb->size) {
-		DPRINTF("Invalid rirb size\n");
+		DPRINTF("Invalid rirb size");
 		return (-1);
 	}
 
@@ -872,12 +833,12 @@ hda_rirb_start(struct hda_softc *sc)
 	rirbubase = hda_get_reg_by_offset(sc, HDAC_RIRBUBASE);
 
 	rirbpaddr = rirblbase | (rirbubase << 32);
-	DPRINTF("RIRB dma_paddr: %p\n", (void *)rirbpaddr);
+	DPRINTF("RIRB dma_paddr: %p", (void *)rirbpaddr);
 
 	rirb->dma_vaddr = hda_dma_get_vaddr(sc, rirbpaddr,
 			HDA_RIRB_ENTRY_LEN * rirb->size);
 	if (!rirb->dma_vaddr) {
-		DPRINTF("Fail to get the guest virtual address\n");
+		DPRINTF("Fail to get the guest virtual address");
 		return (-1);
 	}
 
@@ -1022,18 +983,18 @@ hda_set_dpiblbase(struct hda_softc *sc, uint32_t offset, uint32_t old)
 			dpibubase = hda_get_reg_by_offset(sc, HDAC_DPIBUBASE);
 
 			dpibpaddr = dpiblbase | (dpibubase << 32);
-			DPRINTF("DMA Position In Buffer dma_paddr: %p\n",
+			DPRINTF("DMA Position In Buffer dma_paddr: %p",
 			    (void *)dpibpaddr);
 
 			sc->dma_pib_vaddr = hda_dma_get_vaddr(sc, dpibpaddr,
 					HDA_DMA_PIB_ENTRY_LEN * HDA_IOSS_NO);
 			if (!sc->dma_pib_vaddr) {
 				DPRINTF("Fail to get the guest \
-					 virtual address\n");
+					 virtual address");
 				assert(0);
 			}
 		} else {
-			DPRINTF("DMA Position In Buffer Reset\n");
+			DPRINTF("DMA Position In Buffer Reset");
 			sc->dma_pib_vaddr = NULL;
 		}
 	}
@@ -1046,7 +1007,7 @@ hda_set_sdctl(struct hda_softc *sc, uint32_t offset, uint32_t old)
 	uint32_t value = hda_get_reg_by_offset(sc, offset);
 	int err;
 
-	DPRINTF("stream_ind: 0x%x old: 0x%x value: 0x%x\n",
+	DPRINTF("stream_ind: 0x%x old: 0x%x value: 0x%x",
 	    stream_ind, old, value);
 
 	if (value & HDAC_SDCTL_SRST) {
@@ -1094,7 +1055,7 @@ hda_signal_state_change(struct hda_codec_inst *hci)
 	assert(hci);
 	assert(hci->hda);
 
-	DPRINTF("cad: 0x%x\n", hci->cad);
+	DPRINTF("cad: 0x%x", hci->cad);
 
 	sc = hci->hda;
 	sdiwake = 1 << hci->cad;
@@ -1164,7 +1125,7 @@ hda_transfer(struct hda_codec_inst *hci, uint8_t stream, uint8_t dir,
 	assert(!(count % HDA_DMA_ACCESS_LEN));
 
 	if (!stream) {
-		DPRINTF("Invalid stream\n");
+		DPRINTF("Invalid stream");
 		return (-1);
 	}
 
@@ -1180,7 +1141,7 @@ hda_transfer(struct hda_codec_inst *hci, uint8_t stream, uint8_t dir,
 
 	st = &sc->streams[stream_ind];
 	if (!st->run) {
-		DPRINTF("Stream 0x%x stopped\n", stream);
+		DPRINTF("Stream 0x%x stopped", stream);
 		return (-1);
 	}
 
@@ -1263,7 +1224,7 @@ static uint64_t hda_get_clock_ns(void)
  * PCI HDA function definitions
  */
 static int
-pci_hda_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts)
+pci_hda_init(struct vmctx *ctx, struct pci_devinst *pi, nvlist_t *nvl)
 {
 	struct hda_softc *sc = NULL;
 
@@ -1285,7 +1246,7 @@ pci_hda_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts)
 	/* allocate an IRQ pin for our slot */
 	pci_lintr_request(pi);
 
-	sc = hda_init(opts);
+	sc = hda_init(nvl);
 	if (!sc)
 		return (-1);
 
@@ -1306,7 +1267,7 @@ pci_hda_write(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
 	assert(baridx == 0);
 	assert(size <= 4);
 
-	DPRINTF("offset: 0x%lx value: 0x%lx\n", offset, value);
+	DPRINTF("offset: 0x%lx value: 0x%lx", offset, value);
 
 	err = hda_write(sc, offset, size, value);
 	assert(!err);
@@ -1325,7 +1286,7 @@ pci_hda_read(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
 
 	value = hda_read(sc, offset);
 
-	DPRINTF("offset: 0x%lx value: 0x%lx\n", offset, value);
+	DPRINTF("offset: 0x%lx value: 0x%lx", offset, value);
 
 	return (value);
 }

@@ -24,6 +24,7 @@
  * Copyright (c) 1993, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2011 by Delphix. All rights reserved.
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2020 Oxide Computer Company
  */
 /*
  * Copyright (c) 2010, Intel Corporation.
@@ -265,46 +266,23 @@ mlsetup(struct regs *rp)
 	 * time-stamp counter while ensuring no out-of-order execution.
 	 * Patch it while the kernel text is still writable.
 	 *
-	 * Note: tsc_read is not patched for intel processors whose family
-	 * is >6 and for amd whose family >f (in case they don't support rdtscp
-	 * instruction, unlikely). By default tsc_read will use cpuid for
-	 * serialization in such cases. The following code needs to be
-	 * revisited if intel processors of family >= f retains the
-	 * instruction serialization nature of mfence instruction.
-	 * Note: tsc_read is not patched for x86 processors which do
-	 * not support "mfence". By default tsc_read will use cpuid for
-	 * serialization in such cases.
-	 *
 	 * The Xen hypervisor does not correctly report whether rdtscp is
 	 * supported or not, so we must assume that it is not.
 	 */
 	if ((get_hwenv() & HW_XEN_HVM) == 0 &&
-	    is_x86_feature(x86_featureset, X86FSET_TSCP))
+	    is_x86_feature(x86_featureset, X86FSET_TSCP)) {
 		patch_tsc_read(TSC_TSCP);
-	else if (cpuid_getvendor(CPU) == X86_VENDOR_AMD &&
-	    cpuid_getfamily(CPU) <= 0xf &&
-	    is_x86_feature(x86_featureset, X86FSET_SSE2))
-		patch_tsc_read(TSC_RDTSC_MFENCE);
-	else if (cpuid_getvendor(CPU) == X86_VENDOR_Intel &&
-	    cpuid_getfamily(CPU) <= 6 &&
-	    is_x86_feature(x86_featureset, X86FSET_SSE2))
+	} else if (is_x86_feature(x86_featureset, X86FSET_LFENCE_SER)) {
+		ASSERT(is_x86_feature(x86_featureset, X86FSET_SSE2));
 		patch_tsc_read(TSC_RDTSC_LFENCE);
+	}
 
 #endif	/* !__xpv */
 
-#if defined(__i386) && !defined(__xpv)
-	/*
-	 * Some i386 processors do not implement the rdtsc instruction,
-	 * or at least they do not implement it correctly. Patch them to
-	 * return 0.
-	 */
-	if (!is_x86_feature(x86_featureset, X86FSET_TSC))
-		patch_tsc_read(TSC_NONE);
-#endif	/* __i386 && !__xpv */
 
-#if defined(__amd64) && !defined(__xpv)
+#if !defined(__xpv)
 	patch_memops(cpuid_getvendor(CPU));
-#endif	/* __amd64 && !__xpv */
+#endif	/* !__xpv */
 
 #if !defined(__xpv)
 	/* XXPV	what, if anything, should be dorked with here under xen? */
@@ -449,11 +427,6 @@ mlsetup(struct regs *rp)
 #else	/* __xpv */
 	/* Flag PLAT_DR_FEATURE_ENABLED should only be set by DR driver. */
 	plat_dr_options &= ~PLAT_DR_FEATURE_ENABLED;
-#ifndef	__amd64
-	/* Only enable CPU/memory DR on 64 bits kernel. */
-	plat_dr_options &= ~PLAT_DR_FEATURE_MEMORY;
-	plat_dr_options &= ~PLAT_DR_FEATURE_CPU;
-#endif	/* __amd64 */
 #endif	/* __xpv */
 
 	/*

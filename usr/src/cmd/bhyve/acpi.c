@@ -74,9 +74,10 @@ __FBSDID("$FreeBSD$");
 #include "bhyverun.h"
 #include "acpi.h"
 #include "pci_emul.h"
+#include "vmgenc.h"
 
 /*
- * Define the base address of the ACPI tables, the sizes of some tables, 
+ * Define the base address of the ACPI tables, the sizes of some tables,
  * and the offsets to the individual tables,
  */
 #define BHYVE_ACPI_BASE		0xf2400
@@ -88,10 +89,10 @@ __FBSDID("$FreeBSD$");
  *	44		Fixed Header
  *	8 * maxcpu	Processor Local APIC entries
  *	12		I/O APIC entry
- *	2 * 10		Interrupt Source Override entires
+ *	2 * 10		Interrupt Source Override entries
  *	6		Local APIC NMI entry
  */
-#define	MADT_SIZE		(44 + VM_MAXCPU*8 + 12 + 2*10 + 6)
+#define	MADT_SIZE		roundup2((44 + basl_ncpu*8 + 12 + 2*10 + 6), 0x100)
 #define	FADT_OFFSET		(MADT_OFFSET + MADT_SIZE)
 #define	FADT_SIZE		0x140
 #define	HPET_OFFSET		(FADT_OFFSET + FADT_SIZE)
@@ -321,11 +322,11 @@ basl_fwrite_madt(FILE *fp)
 	/* Local APIC NMI is connected to LINT 1 on all CPUs */
 	EFPRINTF(fp, "[0001]\t\tSubtable Type : 04\n");
 	EFPRINTF(fp, "[0001]\t\tLength : 06\n");
-	EFPRINTF(fp, "[0001]\t\tProcessorId : FF\n");
+	EFPRINTF(fp, "[0001]\t\tProcessor ID : FF\n");
 	EFPRINTF(fp, "[0002]\t\tFlags (decoded below) : 0005\n");
 	EFPRINTF(fp, "\t\t\tPolarity : 1\n");
 	EFPRINTF(fp, "\t\t\tTrigger Mode : 1\n");
-	EFPRINTF(fp, "[0001]\t\tInterrupt : 01\n");
+	EFPRINTF(fp, "[0001]\t\tInterrupt Input LINT : 01\n");
 	EFPRINTF(fp, "\n");
 
 	EFFLUSH(fp);
@@ -379,13 +380,13 @@ basl_fwrite_fadt(FILE *fp)
 	EFPRINTF(fp, "[0004]\t\tPM2 Control Block Address : 00000000\n");
 	EFPRINTF(fp, "[0004]\t\tPM Timer Block Address : %08X\n",
 	    IO_PMTMR);
-	EFPRINTF(fp, "[0004]\t\tGPE0 Block Address : 00000000\n");
+	EFPRINTF(fp, "[0004]\t\tGPE0 Block Address : %08X\n", IO_GPE0_BLK);
 	EFPRINTF(fp, "[0004]\t\tGPE1 Block Address : 00000000\n");
 	EFPRINTF(fp, "[0001]\t\tPM1 Event Block Length : 04\n");
 	EFPRINTF(fp, "[0001]\t\tPM1 Control Block Length : 02\n");
 	EFPRINTF(fp, "[0001]\t\tPM2 Control Block Length : 00\n");
 	EFPRINTF(fp, "[0001]\t\tPM Timer Block Length : 04\n");
-	EFPRINTF(fp, "[0001]\t\tGPE0 Block Length : 00\n");
+	EFPRINTF(fp, "[0001]\t\tGPE0 Block Length : %02x\n", IO_GPE0_LEN);
 	EFPRINTF(fp, "[0001]\t\tGPE1 Block Length : 00\n");
 	EFPRINTF(fp, "[0001]\t\tGPE1 Base Offset : 00\n");
 	EFPRINTF(fp, "[0001]\t\t_CST Support : 00\n");
@@ -458,7 +459,7 @@ basl_fwrite_fadt(FILE *fp)
 	EFPRINTF(fp, "[0008]\t\tAddress : 00000000%08X\n",
 	    PM1A_EVT_ADDR);
 	EFPRINTF(fp, "\n");
-	
+
 	EFPRINTF(fp,
 	    "[0012]\t\tPM1B Event Block : [Generic Address Structure]\n");
 	EFPRINTF(fp, "[0001]\t\tSpace ID : 01 [SystemIO]\n");
@@ -513,10 +514,10 @@ basl_fwrite_fadt(FILE *fp)
 
 	EFPRINTF(fp, "[0012]\t\tGPE0 Block : [Generic Address Structure]\n");
 	EFPRINTF(fp, "[0001]\t\tSpace ID : 01 [SystemIO]\n");
-	EFPRINTF(fp, "[0001]\t\tBit Width : 00\n");
+	EFPRINTF(fp, "[0001]\t\tBit Width : %02x\n", IO_GPE0_LEN * 8);
 	EFPRINTF(fp, "[0001]\t\tBit Offset : 00\n");
 	EFPRINTF(fp, "[0001]\t\tEncoded Access Width : 01 [Byte Access:8]\n");
-	EFPRINTF(fp, "[0008]\t\tAddress : 0000000000000000\n");
+	EFPRINTF(fp, "[0008]\t\tAddress : %016X\n", IO_GPE0_BLK);
 	EFPRINTF(fp, "\n");
 
 	EFPRINTF(fp, "[0012]\t\tGPE1 Block : [Generic Address Structure]\n");
@@ -572,7 +573,7 @@ basl_fwrite_hpet(FILE *fp)
 	EFPRINTF(fp, "[0004]\t\tAsl Compiler Revision : 00000000\n");
 	EFPRINTF(fp, "\n");
 
-	EFPRINTF(fp, "[0004]\t\tTimer Block ID : %08X\n", hpet_capabilities);
+	EFPRINTF(fp, "[0004]\t\tHardware Block ID : %08X\n", hpet_capabilities);
 	EFPRINTF(fp,
 	    "[0012]\t\tTimer Block Register : [Generic Address Structure]\n");
 	EFPRINTF(fp, "[0001]\t\tSpace ID : 00 [SystemMemory]\n");
@@ -583,7 +584,7 @@ basl_fwrite_hpet(FILE *fp)
 	EFPRINTF(fp, "[0008]\t\tAddress : 00000000FED00000\n");
 	EFPRINTF(fp, "\n");
 
-	EFPRINTF(fp, "[0001]\t\tHPET Number : 00\n");
+	EFPRINTF(fp, "[0001]\t\tSequence Number : 00\n");
 	EFPRINTF(fp, "[0002]\t\tMinimum Clock Ticks : 0000\n");
 	EFPRINTF(fp, "[0004]\t\tFlags (decoded below) : 00000001\n");
 	EFPRINTF(fp, "\t\t\t4K Page Protect : 1\n");
@@ -619,9 +620,9 @@ basl_fwrite_mcfg(FILE *fp)
 	EFPRINTF(fp, "\n");
 
 	EFPRINTF(fp, "[0008]\t\tBase Address : %016lX\n", pci_ecfg_base());
-	EFPRINTF(fp, "[0002]\t\tSegment Group: 0000\n");
-	EFPRINTF(fp, "[0001]\t\tStart Bus: 00\n");
-	EFPRINTF(fp, "[0001]\t\tEnd Bus: FF\n");
+	EFPRINTF(fp, "[0002]\t\tSegment Group Number : 0000\n");
+	EFPRINTF(fp, "[0001]\t\tStart Bus Number : 00\n");
+	EFPRINTF(fp, "[0001]\t\tEnd Bus Number : FF\n");
 	EFPRINTF(fp, "[0004]\t\tReserved : 0\n");
 	EFFLUSH(fp);
 	return (0);
@@ -653,7 +654,7 @@ basl_fwrite_facs(FILE *fp)
 	EFFLUSH(fp);
 
 	return (0);
-	
+
 err_exit:
 	return (errno);
 }
@@ -768,6 +769,9 @@ basl_fwrite_dsdt(FILE *fp)
 	dsdt_line("      })");
 	dsdt_line("    }");
 	dsdt_line("  }");
+
+	vmgenc_write_dsdt();
+
 	dsdt_line("}");
 
 	if (dsdt_error != 0)
@@ -850,7 +854,7 @@ basl_load(struct vmctx *ctx, int fd, uint64_t off)
 
 	if (fstat(fd, &sb) < 0)
 		return (errno);
-		
+
 	gaddr = paddr_guest2host(ctx, basl_acpi_base + off, sb.st_size);
 	if (gaddr == NULL)
 		return (EFAULT);
@@ -884,7 +888,7 @@ basl_compile(struct vmctx *ctx, int (*fwrite_section)(FILE *), uint64_t offset)
 			fmt = basl_verbose_iasl ?
 				"%s -p %s %s" :
 				"/bin/sh -c \"%s -p %s %s\" 1> /dev/null";
-				
+
 			snprintf(iaslbuf, sizeof(iaslbuf),
 				 fmt,
 				 BHYVE_ASL_COMPILER,
@@ -915,7 +919,7 @@ basl_make_templates(void)
 	err = 0;
 
 	/*
-	 * 
+	 *
 	 */
 	if ((tmpdir = getenv("BHYVE_TMPDIR")) == NULL || *tmpdir == '\0' ||
 	    (tmpdir = getenv("TMPDIR")) == NULL || *tmpdir == '\0') {
@@ -951,28 +955,10 @@ basl_make_templates(void)
 	return (err);
 }
 
-static struct {
-	int	(*wsect)(FILE *fp);
-	uint64_t  offset;
-} basl_ftables[] =
-{
-	{ basl_fwrite_rsdp, 0},
-	{ basl_fwrite_rsdt, RSDT_OFFSET },
-	{ basl_fwrite_xsdt, XSDT_OFFSET },
-	{ basl_fwrite_madt, MADT_OFFSET },
-	{ basl_fwrite_fadt, FADT_OFFSET },
-	{ basl_fwrite_hpet, HPET_OFFSET },
-	{ basl_fwrite_mcfg, MCFG_OFFSET },
-	{ basl_fwrite_facs, FACS_OFFSET },
-	{ basl_fwrite_dsdt, DSDT_OFFSET },
-	{ NULL }
-};
-
 int
 acpi_build(struct vmctx *ctx, int ncpu)
 {
 	int err;
-	int i;
 
 	basl_ncpu = ncpu;
 
@@ -994,18 +980,30 @@ acpi_build(struct vmctx *ctx, int ncpu)
 	if (getenv("BHYVE_ACPI_KEEPTMPS"))
 		basl_keep_temps = 1;
 
-	i = 0;
 	err = basl_make_templates();
 
 	/*
 	 * Run through all the ASL files, compiling them and
 	 * copying them into guest memory
 	 */
-	while (!err && basl_ftables[i].wsect != NULL) {
-		err = basl_compile(ctx, basl_ftables[i].wsect,
-				   basl_ftables[i].offset);
-		i++;
-	}
+	if (err == 0)
+		err = basl_compile(ctx, basl_fwrite_rsdp, 0);
+	if (err == 0)
+		err = basl_compile(ctx, basl_fwrite_rsdt, RSDT_OFFSET);
+	if (err == 0)
+		err = basl_compile(ctx, basl_fwrite_xsdt, XSDT_OFFSET);
+	if (err == 0)
+		err = basl_compile(ctx, basl_fwrite_madt, MADT_OFFSET);
+	if (err == 0)
+		err = basl_compile(ctx, basl_fwrite_fadt, FADT_OFFSET);
+	if (err == 0)
+		err = basl_compile(ctx, basl_fwrite_hpet, HPET_OFFSET);
+	if (err == 0)
+		err = basl_compile(ctx, basl_fwrite_mcfg, MCFG_OFFSET);
+	if (err == 0)
+		err = basl_compile(ctx, basl_fwrite_facs, FACS_OFFSET);
+	if (err == 0)
+		err = basl_compile(ctx, basl_fwrite_dsdt, DSDT_OFFSET);
 
 	return (err);
 }

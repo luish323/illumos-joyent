@@ -24,18 +24,6 @@
  * Use is subject to license terms.
  */
 
-#pragma ident	"%Z%%M%	%I%	%E% SMI"
-
-#if defined(__lint)
-
-/*
- * Stop lint complaining about an empty compilation unit!
- * Sigh.  There should be a better way to handle this.
- */
-int __lint_xen_guest;
-
-#else	/* __lint */
-
 #include <xen/public/elfnote.h>
 
 /*
@@ -60,8 +48,4 @@ int __lint_xen_guest;
 	NOTE("Xen", XEN_ELFNOTE_GUEST_OS, .string, "Solaris")
 	NOTE("Xen", XEN_ELFNOTE_VIRT_BASE, .4byte, 0x40000000)
 	NOTE("Xen", XEN_ELFNOTE_PADDR_OFFSET, .4byte, 0x40000000)
-#if defined(__i386)
-	NOTE("Xen", XEN_ELFNOTE_PAE_MODE, .string, "yes,bimodal")
-#endif
 
-#endif /* __lint */

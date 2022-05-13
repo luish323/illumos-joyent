@@ -70,6 +70,8 @@
 
 #include "statcommon.h"
 
+libzfs_handle_t *g_zfs;
+
 static int zpool_do_create(int, char **);
 static int zpool_do_destroy(int, char **);
 
@@ -501,7 +503,7 @@ usage(boolean_t requested)
 		(void) fprintf(fp, "YES   disabled | enabled | active\n");
 
 		(void) fprintf(fp, gettext("\nThe feature@ properties must be "
-		    "appended with a feature name.\nSee zpool-features(5).\n"));
+		    "appended with a feature name.\nSee zpool-features(7).\n"));
 	}
 
 	/*
@@ -1082,6 +1084,7 @@ errout:
  *		'/<pool>'
  *	-t	Use the temporary name until the pool is exported.
  *	-o	Set property=value.
+ *	-o	Set feature@feature=enabled|disabled.
  *	-d	Don't automatically enable all supported pool features
  *		(individual features can be enabled with -o).
  *	-O	Set fsproperty=value in the pool's root file system
@@ -1415,22 +1418,26 @@ zpool_do_create(int argc, char **argv)
 		/*
 		 * Hand off to libzfs.
 		 */
-		if (enable_all_pool_feat) {
-			spa_feature_t i;
-			for (i = 0; i < SPA_FEATURES; i++) {
-				char propname[MAXPATHLEN];
-				zfeature_info_t *feat = &spa_feature_table[i];
 
-				(void) snprintf(propname, sizeof (propname),
-				    "feature@%s", feat->fi_uname);
+		spa_feature_t i;
+		for (i = 0; i < SPA_FEATURES; i++) {
+			char propname[MAXPATHLEN];
+			char *propval;
+			zfeature_info_t *feat = &spa_feature_table[i];
+			(void) snprintf(propname, sizeof (propname),
+			    "feature@%s", feat->fi_uname);
 
-				/*
-				 * Skip feature if user specified it manually
-				 * on the command line.
-				 */
-				if (nvlist_exists(props, propname))
-					continue;
-
+			/*
+			 * Only features contained in props will be enabled:
+			 * remove from the nvlist every ZFS_FEATURE_DISABLED
+			 * value and add every missing ZFS_FEATURE_ENABLED if
+			 * enable_all_pool_feat is set.
+			 */
+			if (!nvlist_lookup_string(props, propname, &propval)) {
+				if (strcmp(propval, ZFS_FEATURE_DISABLED) == 0)
+					(void) nvlist_remove_all(props,
+					    propname);
+			} else if (enable_all_pool_feat) {
 				ret = add_prop_list(propname,
 				    ZFS_FEATURE_ENABLED, &props, B_TRUE);
 				if (ret != 0)
@@ -3411,20 +3418,20 @@ print_iostat_labels(iostat_cbdata_t *cb, unsigned int force_column_width,
 /*
  * Utility function to print out a line of dashes like:
  *
- * 	--------------------------------  -----  -----  -----  -----  -----
+ *	--------------------------------  -----  -----  -----  -----  -----
  *
  * ...or a dashed named-row line like:
  *
- * 	logs                                  -      -      -      -      -
+ *	logs                                  -      -      -      -      -
  *
  * @cb:				iostat data
  *
  * @force_column_width		If non-zero, use the value as the column width.
- * 				Otherwise use the default column widths.
+ *				Otherwise use the default column widths.
  *
  * @name:			Print a dashed named-row line starting
- * 				with @name.  Otherwise, print a regular
- * 				dashed line.
+ *				with @name.  Otherwise, print a regular
+ *				dashed line.
  */
 static void
 print_iostat_dashes(iostat_cbdata_t *cb, unsigned int force_column_width,
@@ -5145,7 +5152,7 @@ print_pool(zpool_handle_t *zhp, list_cbdata_t *cb)
 
 static void
 print_one_column(zpool_prop_t prop, uint64_t value, boolean_t scripted,
-    boolean_t valid)
+    boolean_t valid, enum zfs_nicenum_format format)
 {
 	char propval[64];
 	boolean_t fixed;
@@ -5157,23 +5164,32 @@ print_one_column(zpool_prop_t prop, uint64_t value, boolean_t scripted,
 		if (value == 0)
 			(void) strlcpy(propval, "-", sizeof (propval));
 		else
-			zfs_nicenum(value, propval, sizeof (propval));
+			zfs_nicenum_format(value, propval, sizeof (propval),
+			    format);
 		break;
 	case ZPOOL_PROP_FRAGMENTATION:
 		if (value == ZFS_FRAG_INVALID) {
 			(void) strlcpy(propval, "-", sizeof (propval));
+		} else if (format == ZFS_NICENUM_RAW) {
+			(void) snprintf(propval, sizeof (propval), "%llu",
+			    (unsigned long long)value);
 		} else {
 			(void) snprintf(propval, sizeof (propval), "%llu%%",
-			    value);
+			    (unsigned long long)value);
 		}
 		break;
 	case ZPOOL_PROP_CAPACITY:
-		(void) snprintf(propval, sizeof (propval),
-		    value < 1000 ? "%1.2f%%" : value < 10000 ?
-		    "%2.1f%%" : "%3.0f%%", value / 100.0);
+		if (format == ZFS_NICENUM_RAW)
+			(void) snprintf(propval, sizeof (propval), "%llu",
+			    (unsigned long long)value / 100);
+
+		else
+			(void) snprintf(propval, sizeof (propval),
+			    value < 1000 ? "%1.2f%%" : value < 10000 ?
+			    "%2.1f%%" : "%3.0f%%", value / 100.0);
 		break;
 	default:
-		zfs_nicenum(value, propval, sizeof (propval));
+		zfs_nicenum_format(value, propval, sizeof (propval), format);
 	}
 
 	if (!valid)
@@ -5206,6 +5222,12 @@ print_list_stats(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 	if (name != NULL) {
 		boolean_t toplevel = (vs->vs_space != 0);
 		uint64_t cap;
+		enum zfs_nicenum_format format;
+
+		if (cb->cb_literal)
+			format = ZFS_NICENUM_RAW;
+		else
+			format = ZFS_NICENUM_1024;
 
 		if (strcmp(name, VDEV_TYPE_INDIRECT) == 0)
 			return;
@@ -5225,21 +5247,23 @@ print_list_stats(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 		 * to indicate that the value is valid.
 		 */
 		print_one_column(ZPOOL_PROP_SIZE, vs->vs_space, scripted,
-		    toplevel);
+		    toplevel, format);
 		print_one_column(ZPOOL_PROP_ALLOCATED, vs->vs_alloc, scripted,
-		    toplevel);
+		    toplevel, format);
 		print_one_column(ZPOOL_PROP_FREE, vs->vs_space - vs->vs_alloc,
-		    scripted, toplevel);
+		    scripted, toplevel, format);
 		print_one_column(ZPOOL_PROP_CHECKPOINT,
-		    vs->vs_checkpoint_space, scripted, toplevel);
+		    vs->vs_checkpoint_space, scripted, toplevel, format);
 		print_one_column(ZPOOL_PROP_EXPANDSZ, vs->vs_esize, scripted,
-		    B_TRUE);
+		    B_TRUE, format);
 		print_one_column(ZPOOL_PROP_FRAGMENTATION,
 		    vs->vs_fragmentation, scripted,
-		    (vs->vs_fragmentation != ZFS_FRAG_INVALID && toplevel));
+		    (vs->vs_fragmentation != ZFS_FRAG_INVALID && toplevel),
+		    format);
 		cap = (vs->vs_space == 0) ? 0 :
 		    (vs->vs_alloc * 10000 / vs->vs_space);
-		print_one_column(ZPOOL_PROP_CAPACITY, cap, scripted, toplevel);
+		print_one_column(ZPOOL_PROP_CAPACITY, cap, scripted, toplevel,
+		    format);
 		(void) printf("\n");
 	}
 
@@ -6393,9 +6417,10 @@ zpool_do_trim(int argc, char **argv)
 				    "combined with the -c or -s options\n"));
 				usage(B_FALSE);
 			}
-			if (zfs_nicestrtonum(NULL, optarg, &rate) == -1) {
-				(void) fprintf(stderr,
-				    gettext("invalid value for rate\n"));
+			if (zfs_nicestrtonum(g_zfs, optarg, &rate) == -1) {
+				(void) fprintf(stderr, "%s: %s\n",
+				    gettext("invalid value for rate"),
+				    libzfs_error_description(g_zfs));
 				usage(B_FALSE);
 			}
 			break;
@@ -7169,7 +7194,7 @@ status_callback(zpool_handle_t *zhp, void *data)
 		(void) printf(gettext("action: Enable all features using "
 		    "'zpool upgrade'. Once this is done,\n\tthe pool may no "
 		    "longer be accessible by software that does not support\n\t"
-		    "the features. See zpool-features(5) for details.\n"));
+		    "the features. See zpool-features(7) for details.\n"));
 		break;
 
 	case ZPOOL_STATUS_UNSUP_FEAT_READ:
@@ -7690,7 +7715,7 @@ upgrade_list_disabled_cb(zpool_handle_t *zhp, void *arg)
 					    "pool may become incompatible with "
 					    "software\nthat does not support "
 					    "the feature. See "
-					    "zpool-features(5) for "
+					    "zpool-features(7) for "
 					    "details.\n\n"));
 					(void) printf(gettext("POOL  "
 					    "FEATURE\n"));

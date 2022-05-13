@@ -22,7 +22,7 @@
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2020 Joyent, Inc.
- * Copyright (c) 2011, 2017 by Delphix. All rights reserved.
+ * Copyright (c) 2011, 2018 by Delphix. All rights reserved.
  * Copyright 2016 Igor Kozhukhov <ikozhukhov@gmail.com>
  * Copyright (c) 2017 Datto Inc.
  */
@@ -142,9 +142,9 @@ libzfs_error_description(libzfs_handle_t *hdl)
 	case EZFS_UMOUNTFAILED:
 		return (dgettext(TEXT_DOMAIN, "umount failed"));
 	case EZFS_UNSHARENFSFAILED:
-		return (dgettext(TEXT_DOMAIN, "unshare(1M) failed"));
+		return (dgettext(TEXT_DOMAIN, "unshare(8) failed"));
 	case EZFS_SHARENFSFAILED:
-		return (dgettext(TEXT_DOMAIN, "share(1M) failed"));
+		return (dgettext(TEXT_DOMAIN, "share(8) failed"));
 	case EZFS_UNSHARESMBFAILED:
 		return (dgettext(TEXT_DOMAIN, "smb remove share failed"));
 	case EZFS_SHARESMBFAILED:
@@ -205,6 +205,9 @@ libzfs_error_description(libzfs_handle_t *hdl)
 	case EZFS_NOTSUP:
 		return (dgettext(TEXT_DOMAIN, "operation not supported "
 		    "on this dataset"));
+	case EZFS_IOC_NOTSUPPORTED:
+		return (dgettext(TEXT_DOMAIN, "operation not supported by "
+		    "zfs kernel module"));
 	case EZFS_ACTIVE_SPARE:
 		return (dgettext(TEXT_DOMAIN, "pool has active shared spare "
 		    "device"));
@@ -442,6 +445,22 @@ zfs_standard_error_fmt(libzfs_handle_t *hdl, int error, const char *fmt, ...)
 	case EREMOTEIO:
 		zfs_verror(hdl, EZFS_ACTIVE_POOL, fmt, ap);
 		break;
+	case ZFS_ERR_IOC_CMD_UNAVAIL:
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "the loaded zfs "
+		    "module does not support this operation. A reboot may "
+		    "be required to enable this operation."));
+		zfs_verror(hdl, EZFS_IOC_NOTSUPPORTED, fmt, ap);
+		break;
+	case ZFS_ERR_IOC_ARG_UNAVAIL:
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "the loaded zfs "
+		    "module does not support an option for this operation. "
+		    "A reboot may be required to enable this option."));
+		zfs_verror(hdl, EZFS_IOC_NOTSUPPORTED, fmt, ap);
+		break;
+	case ZFS_ERR_IOC_ARG_REQUIRED:
+	case ZFS_ERR_IOC_ARG_BADTYPE:
+		zfs_verror(hdl, EZFS_IOC_NOTSUPPORTED, fmt, ap);
+		break;
 	default:
 		zfs_error_aux(hdl, strerror(error));
 		zfs_verror(hdl, EZFS_UNKNOWN, fmt, ap);
@@ -546,6 +565,22 @@ zpool_standard_error_fmt(libzfs_handle_t *hdl, int error, const char *fmt, ...)
 		break;
 	case ZFS_ERR_VDEV_TOO_BIG:
 		zfs_verror(hdl, EZFS_VDEV_TOO_BIG, fmt, ap);
+		break;
+	case ZFS_ERR_IOC_CMD_UNAVAIL:
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "the loaded zfs "
+		    "module does not support this operation. A reboot may "
+		    "be required to enable this operation."));
+		zfs_verror(hdl, EZFS_IOC_NOTSUPPORTED, fmt, ap);
+		break;
+	case ZFS_ERR_IOC_ARG_UNAVAIL:
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "the loaded zfs "
+		    "module does not support an option for this operation. "
+		    "A reboot may be required to enable this option."));
+		zfs_verror(hdl, EZFS_IOC_NOTSUPPORTED, fmt, ap);
+		break;
+	case ZFS_ERR_IOC_ARG_REQUIRED:
+	case ZFS_ERR_IOC_ARG_BADTYPE:
+		zfs_verror(hdl, EZFS_IOC_NOTSUPPORTED, fmt, ap);
 		break;
 	default:
 		zfs_error_aux(hdl, strerror(error));
@@ -679,18 +714,27 @@ libzfs_handle_t *
 libzfs_init(void)
 {
 	libzfs_handle_t *hdl;
+	int error;
+	char *env;
 
 	if ((hdl = calloc(1, sizeof (libzfs_handle_t))) == NULL) {
 		return (NULL);
 	}
 
+	if (regcomp(&hdl->libzfs_urire, URI_REGEX, REG_EXTENDED) != 0) {
+		free(hdl);
+		return (NULL);
+	}
+
 	if ((hdl->libzfs_fd = open(ZFS_DEV, O_RDWR)) < 0) {
+		regfree(&hdl->libzfs_urire);
 		free(hdl);
 		return (NULL);
 	}
 
 	if ((hdl->libzfs_mnttab = fopen(MNTTAB, "rF")) == NULL) {
 		(void) close(hdl->libzfs_fd);
+		regfree(&hdl->libzfs_urire);
 		free(hdl);
 		return (NULL);
 	}
@@ -701,6 +745,7 @@ libzfs_init(void)
 		(void) close(hdl->libzfs_fd);
 		(void) fclose(hdl->libzfs_mnttab);
 		(void) fclose(hdl->libzfs_sharetab);
+		regfree(&hdl->libzfs_urire);
 		free(hdl);
 		return (NULL);
 	}
@@ -713,6 +758,20 @@ libzfs_init(void)
 	hdl->libzfs_cachedprops = B_FALSE;
 	if (getenv("ZFS_PROP_DEBUG") != NULL) {
 		hdl->libzfs_prop_debug = B_TRUE;
+	}
+	if ((env = getenv("ZFS_SENDRECV_MAX_NVLIST")) != NULL) {
+		if ((error = zfs_nicestrtonum(hdl, env,
+		    &hdl->libzfs_max_nvlist))) {
+			errno = error;
+			(void) close(hdl->libzfs_fd);
+			(void) fclose(hdl->libzfs_mnttab);
+			(void) fclose(hdl->libzfs_sharetab);
+			regfree(&hdl->libzfs_urire);
+			free(hdl);
+			return (NULL);
+		}
+	} else {
+		hdl->libzfs_max_nvlist = (SPA_MAXBLOCKSIZE * 4);
 	}
 
 	return (hdl);
@@ -734,6 +793,7 @@ libzfs_fini(libzfs_handle_t *hdl)
 	namespace_clear(hdl);
 	libzfs_mnttab_fini(hdl);
 	libzfs_core_fini();
+	regfree(&hdl->libzfs_urire);
 	free(hdl);
 }
 
@@ -1135,8 +1195,9 @@ str2shift(libzfs_handle_t *hdl, const char *buf)
 			break;
 	}
 	if (i == strlen(ends)) {
-		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
-		    "invalid numeric suffix '%s'"), buf);
+		if (hdl != NULL)
+			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+			    "invalid numeric suffix '%s'"), buf);
 		return (-1);
 	}
 
@@ -1146,10 +1207,11 @@ str2shift(libzfs_handle_t *hdl, const char *buf)
 	 */
 	if (buf[1] == '\0' || (toupper(buf[1]) == 'B' && buf[2] == '\0' &&
 	    toupper(buf[0]) != 'B'))
-		return (10*i);
+		return (10 * i);
 
-	zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
-	    "invalid numeric suffix '%s'"), buf);
+	if (hdl != NULL)
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+		    "invalid numeric suffix '%s'"), buf);
 	return (-1);
 }
 

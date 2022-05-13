@@ -1067,6 +1067,15 @@ sadb_sa2msg(ipsa_t *ipsa, sadb_msg_t *samsg)
 	int srcidsize, dstidsize, senslen, osenslen;
 	sa_family_t fam, pfam;	/* Address family for SADB_EXT_ADDRESS */
 				/* src/dst and proxy sockaddrs. */
+
+	authsize = 0;
+	encrsize = 0;
+	pfam = 0;
+	srcidsize = 0;
+	dstidsize = 0;
+	paddrsize = 0;
+	senslen = 0;
+	osenslen = 0;
 	/*
 	 * The following are pointers into the PF_KEY message this PF_KEY
 	 * message creates.
@@ -1100,6 +1109,7 @@ sadb_sa2msg(ipsa_t *ipsa, sadb_msg_t *samsg)
 	 */
 	alloclen = sizeof (sadb_msg_t) + sizeof (sadb_sa_t) +
 	    sizeof (sadb_lifetime_t);
+	otherspi = 0;
 
 	fam = ipsa->ipsa_addrfam;
 	switch (fam) {
@@ -1769,6 +1779,8 @@ sadb_addrcheck(queue_t *pfkey_q, mblk_t *mp, sadb_ext_t *ext, uint_t serial,
 	    (ext->sadb_ext_type == SADB_X_EXT_ADDRESS_INNER_DST) ||
 	    (ext->sadb_ext_type == SADB_X_EXT_ADDRESS_NATT_LOC) ||
 	    (ext->sadb_ext_type == SADB_X_EXT_ADDRESS_NATT_REM));
+
+	diagnostic = 0;
 
 	/* Assign both sockaddrs, the compiler will do the right thing. */
 	sin = (struct sockaddr_in *)(addr + 1);
@@ -3227,7 +3239,7 @@ sadb_common_add(queue_t *pfkey_q, mblk_t *mp, sadb_msg_t *samsg,
 			/*
 			 * An error here indicates that alg is the wrong type
 			 * (IE: not authentication) or its not in the alg tables
-			 * created by ipsecalgs(1m), or Kcf does not like the
+			 * created by ipsecalgs(8), or Kcf does not like the
 			 * parameters passed in with this algorithm, which is
 			 * probably a coding error!
 			 */
@@ -6855,8 +6867,8 @@ ipsec_tun_pol(ipsec_selector_t *sel, ipsec_policy_t **ppp,
 			return (ENOENT);
 		}
 		/*
-		 * Else, this is a tunnel policy configured with ifconfig(1m)
-		 * or "negotiate transport" with ipsecconf(1m).  We have an
+		 * Else, this is a tunnel policy configured with ifconfig(8)
+		 * or "negotiate transport" with ipsecconf(8).  We have an
 		 * itp with policy set based on any match, so don't bother
 		 * changing fields in "sel".
 		 */

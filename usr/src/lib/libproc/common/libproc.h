@@ -721,6 +721,7 @@ extern int proc_get_secflags(pid_t, prsecflags_t **);
 extern prfdinfo_t *proc_get_fdinfo(pid_t, int);
 extern const void *proc_fdinfo_misc(const prfdinfo_t *, uint_t, size_t *);
 extern void proc_fdinfo_free(prfdinfo_t *);
+extern int proc_get_lwpsinfo(pid_t, uint_t, lwpsinfo_t *);
 
 /*
  * Utility functions for debugging tools to convert numeric fault,
@@ -791,6 +792,12 @@ extern int proc_finistdio(void);
  */
 typedef int proc_fdinfo_f(void *, const prfdinfo_t *);
 extern int Pfdinfo_iter(struct ps_prochandle *, proc_fdinfo_f *, void *);
+
+/*
+ * NT_UPANIC information.
+ */
+extern int Pupanic(struct ps_prochandle *, prupanic_t **);
+extern void Pupanic_free(prupanic_t *);
 
 #ifdef	__cplusplus
 }

@@ -39,13 +39,12 @@
  */
 
 /* If you modify this file, you must increment CW_VERSION */
-#define	CW_VERSION	"5.0"
+#define	CW_VERSION	"6.1"
 
 /*
  * -#		Verbose mode
  * -###		Show compiler commands built by driver, no compilation
  * -A<name[(tokens)]>	Preprocessor predicate assertion
- * -B<[static|dynamic]>	Specify dynamic or static binding
  * -C		Prevent preprocessor from removing comments
  * -c		Compile only - produce .o files, suppress linking
  * -cg92	Alias for -xtarget=ss1000
@@ -66,7 +65,6 @@
  * -fsingle	Use single-precision arithmetic (-Xt and -Xs modes only)
  * -ftrap=<t>	Select floating-point trapping mode in effect at startup
  * -fstore	force floating pt. values to target precision on assignment
- * -G		Build a dynamic shared library
  * -g		Compile for debugging
  * -H		Print path name of each file included during compilation
  * -h <name>	Assign <name> to generated dynamic shared library
@@ -158,7 +156,6 @@
  * -c				pass-thru
  * -cg92			-m32 -mcpu=v8 -mtune=supersparc (SPARC only)
  * -D<name[=token]>		pass-thru
- * -dy or -dn			-Wl,-dy or -Wl,-dn
  * -E				pass-thru
  * -erroff=E_EMPTY_TRANSLATION_UNIT ignore
  * -errtags=%all		-Wall
@@ -173,10 +170,8 @@
  * -fsingle[=<n>]		error
  * -ftrap=<t>			error
  * -fstore			error
- * -G				pass-thru
  * -g				pass-thru
  * -H				pass-thru
- * -h <name>			pass-thru
  * -I<dir>			pass-thru
  * -i				pass-thru
  * -keeptmp			-save-temps
@@ -197,8 +192,6 @@
  * -Q[y|n]			error
  * -R<dir[:dir]>		pass-thru
  * -S				pass-thru
- * -s				-Wl,-s
- * -t				-Wl,-t
  * -U<name>			pass-thru
  * -V				--version
  * -v				-Wall
@@ -243,8 +236,6 @@
  * -xtime			error
  * -xtransition			-Wtransition
  * -xunroll=n			error
- * -W0,-xdbggen=no%usedonly	-fno-eliminate-unused-debug-symbols
- *				-fno-eliminate-unused-debug-types
  * -Y<c>,<dir>			error
  * -YA,<dir>			error
  * -YI,<dir>			-nostdinc -I<dir>
@@ -259,6 +250,7 @@
 #include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
 #include <dirent.h>
@@ -594,13 +586,13 @@ discard_file_name(cw_ictx_t *ctx, const char *path)
 	return (ret);
 }
 
-static boolean_t
+static bool
 is_source_file(const char *path)
 {
 	char *ext = strrchr(path, '.');
 
 	if ((ext == NULL) || (*(ext + 1) == '\0'))
-		return (B_FALSE);
+		return (false);
 
 	ext += 1;
 
@@ -609,10 +601,10 @@ is_source_file(const char *path)
 	    (strcmp(ext, "i") == 0) ||
 	    (strcasecmp(ext, "s") == 0) ||
 	    (strcmp(ext, "cpp") == 0)) {
-		return (B_TRUE);
+		return (true);
 	}
 
-	return (B_FALSE);
+	return (false);
 }
 
 
@@ -790,7 +782,6 @@ do_gcc(cw_ictx_t *ctx)
 			break;
 		case 'A':
 		case 'g':
-		case 'h':
 		case 'I':
 		case 'i':
 		case 'L':
@@ -823,16 +814,6 @@ do_gcc(cw_ictx_t *ctx)
 				newae(ctx->i_ae, "-ffreestanding");
 			break;
 		case 'd':
-			if (arglen == 2) {
-				if (strcmp(arg, "-dy") == 0) {
-					newae(ctx->i_ae, "-Wl,-dy");
-					break;
-				}
-				if (strcmp(arg, "-dn") == 0) {
-					newae(ctx->i_ae, "-Wl,-dn");
-					break;
-				}
-			}
 			if (strcmp(arg, "-dalign") == 0) {
 				/*
 				 * -dalign forces alignment in some cases;
@@ -865,10 +846,6 @@ do_gcc(cw_ictx_t *ctx)
 			}
 			error(arg);
 			break;
-		case 'G':
-			newae(ctx->i_ae, "-shared");
-			nolibc = 1;
-			break;
 		case 'k':
 			if (strcmp(arg, "-keeptmp") == 0) {
 				newae(ctx->i_ae, "-save-temps");
@@ -896,30 +873,6 @@ do_gcc(cw_ictx_t *ctx)
 			}
 			error(arg);
 			break;
-		case 'B':	/* linker options */
-		case 'M':
-		case 'z':
-			{
-				char *opt;
-				size_t len;
-				char *s;
-
-				if (arglen == 1) {
-					opt = *++ctx->i_oldargv;
-					if (opt == NULL || *opt == '\0')
-						error(arg);
-					ctx->i_oldargc--;
-				} else {
-					opt = arg + 2;
-				}
-				len = strlen(opt) + 7;
-				if ((s = malloc(len)) == NULL)
-					nomem();
-				(void) snprintf(s, len, "-Wl,-%c%s", c, opt);
-				newae(ctx->i_ae, s);
-				free(s);
-			}
-			break;
 		case 'O':
 			if (arglen == 1) {
 				newae(ctx->i_ae, "-O");
@@ -940,19 +893,14 @@ do_gcc(cw_ictx_t *ctx)
 			nolibc = 1;
 			break;
 		case 's':
-			if (arglen == 1) {
-				newae(ctx->i_ae, "-Wl,-s");
+			if (strcmp(arg, "-shared") == 0) {
+				newae(ctx->i_ae, "-shared");
+				nolibc = 1;
 				break;
 			}
 			error(arg);
 			break;
-		case 't':
-			if (arglen == 1) {
-				newae(ctx->i_ae, "-Wl,-t");
-				break;
-			}
-			error(arg);
-			break;
+
 		case 'V':
 			if (arglen == 1) {
 				ctx->i_flags &= ~CW_F_ECHO;
@@ -995,13 +943,6 @@ do_gcc(cw_ictx_t *ctx)
 				 * Generate tests at the top of loops.
 				 * There is no direct gcc equivalent, ignore.
 				 */
-				break;
-			}
-			if (strcmp(arg, "-W0,-xdbggen=no%usedonly") == 0) {
-				newae(ctx->i_ae,
-				    "-fno-eliminate-unused-debug-symbols");
-				newae(ctx->i_ae,
-				    "-fno-eliminate-unused-debug-types");
 				break;
 			}
 			if (strcmp(arg, "-W2,-xwrap_int") == 0) {
@@ -1488,13 +1429,33 @@ prepctx(cw_ictx_t *ctx)
 static int
 invoke(cw_ictx_t *ctx)
 {
-	char **newargv;
+	char **newargv, *makeflags;
 	int ac;
 	struct ae *a;
 
-	if ((newargv = calloc(sizeof (*newargv), ctx->i_ae->ael_argc + 1)) ==
-	    NULL)
+	newargv = calloc(ctx->i_ae->ael_argc + 1, sizeof (*newargv));
+	if (newargv == NULL)
 		nomem();
+
+	/*
+	 * Check to see if the silent make flag is present (-s), if so, do not
+	 * echo. The MAKEFLAGS environment variable is set by dmake. By
+	 * observation it appears to place short flags without any arguments
+	 * first followed by any long form flags or flags with arguments.
+	 */
+	makeflags = getenv("MAKEFLAGS");
+	if (makeflags != NULL) {
+		size_t makeflags_len = strlen(makeflags);
+		for (size_t i = 0; i < makeflags_len; i++) {
+			if (makeflags[i] == 's') {
+				ctx->i_flags &= ~CW_F_ECHO;
+				break;
+			}
+			/* end of short flags */
+			if (makeflags[i] == ' ')
+				break;
+		}
+	}
 
 	if (ctx->i_flags & CW_F_ECHO)
 		(void) fprintf(stderr, "+ ");
@@ -1716,12 +1677,12 @@ main(int argc, char **argv)
 	cw_compiler_t shadows[10];
 	int nshadows = 0;
 	int ret = 0;
-	boolean_t do_serial = B_FALSE;
-	boolean_t do_exec = B_FALSE;
-	boolean_t vflg = B_FALSE;
-	boolean_t Cflg = B_FALSE;
-	boolean_t cflg = B_FALSE;
-	boolean_t nflg = B_FALSE;
+	bool do_serial;
+	bool do_exec;
+	bool vflg = false;
+	bool Cflg = false;
+	bool cflg = false;
+	bool nflg = false;
 	char *tmpdir;
 
 	cw_ictx_t *main_ctx;
@@ -1743,17 +1704,17 @@ main(int argc, char **argv)
 	while ((ch = getopt_long(argc, argv, "C", longopts, NULL)) != -1) {
 		switch (ch) {
 		case 'c':
-			cflg = B_TRUE;
+			cflg = true;
 			break;
 		case 'C':
-			Cflg = B_TRUE;
+			Cflg = true;
 			break;
 		case 'l':
 			if ((main_ctx->i_linker = strdup(optarg)) == NULL)
 				nomem();
 			break;
 		case 'n':
-			nflg = B_TRUE;
+			nflg = true;
 			break;
 		case 'p':
 			if (primary.c_path != NULL) {
@@ -1772,7 +1733,7 @@ main(int argc, char **argv)
 			nshadows++;
 			break;
 		case 'v':
-			vflg = B_TRUE;
+			vflg = true;
 			break;
 		default:
 			(void) fprintf(stderr, "Did you forget '--'?\n");
@@ -1785,8 +1746,8 @@ main(int argc, char **argv)
 		usage();
 	}
 
-	do_serial = (getenv("CW_SHADOW_SERIAL") == NULL) ? B_FALSE : B_TRUE;
-	do_exec = (getenv("CW_NO_EXEC") == NULL) ? B_TRUE : B_FALSE;
+	do_serial = getenv("CW_SHADOW_SERIAL") != NULL;
+	do_exec = getenv("CW_NO_EXEC") == NULL;
 
 	/* Leave room for argv[0] */
 	argc -= (optind - 1);

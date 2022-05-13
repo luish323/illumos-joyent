@@ -38,7 +38,6 @@ UTSBASE	= ../..
 #
 MODULE		= hme
 OBJECTS		= $(HME_OBJS:%=$(OBJS_DIR)/%)
-LINTS		= $(HME_OBJS:%.o=$(LINTS_DIR)/%.ln)
 ROOTMODULE	= $(ROOT_DRV_DIR)/$(MODULE)
 
 #
@@ -50,14 +49,13 @@ include $(UTSBASE)/sparc/Makefile.sparc
 #	Define targets
 #
 ALL_TARGET	= $(BINARY)
-LINT_TARGET	= $(MODULE).lint
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 
 #
 #	Overrides.
 #
 CFLAGS		+= $(CCVERBOSE)
-LDFLAGS		+= -dy -Nmisc/mii -Nmisc/mac
+LDFLAGS		+= -Nmisc/mii -Nmisc/mac
 
 CERRWARN	+= -_gcc=-Wno-switch
 CERRWARN	+= -_gcc=-Wno-unused-label
@@ -75,12 +73,6 @@ all:		$(ALL_DEPS)
 clean:		$(CLEAN_DEPS)
 
 clobber:	$(CLOBBER_DEPS)
-
-lint:		$(LINT_DEPS)
-
-modlintlib:	$(MODLINTLIB_DEPS)
-
-clean.lint:	$(CLEAN_LINT_DEPS)
 
 install:	$(INSTALL_DEPS)
 

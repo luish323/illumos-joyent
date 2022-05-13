@@ -135,6 +135,7 @@
 #include "startd.h"
 #include "protocol.h"
 
+uu_list_pool_t *contract_list_pool;
 static uu_list_pool_t *restarter_instance_pool;
 static restarter_instance_list_t instance_list;
 
@@ -2271,7 +2272,7 @@ restarter_contracts_event_thread(void *unused)
 		startd_close(sfd);
 
 		/*
-		 * svc.configd(1M) restart handling performed by the
+		 * svc.configd(8) restart handling performed by the
 		 * fork_configd_thread.  We don't acknowledge, as that thread
 		 * will do so.
 		 */

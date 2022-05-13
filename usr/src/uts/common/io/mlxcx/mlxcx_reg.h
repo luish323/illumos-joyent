@@ -12,6 +12,7 @@
 /*
  * Copyright 2020, The University of Queensland
  * Copyright (c) 2018, Joyent, Inc.
+ * Copyright 2020 RackTop Systems, Inc.
  */
 
 #ifndef _MLXCX_REG_H
@@ -58,6 +59,11 @@
 #define	MLXCX_CMD_TRANSPORT_PCI		7
 #define	MLXCX_CMD_HW_OWNED		0x01
 #define	MLXCX_CMD_STATUS(x)		((x) >> 1)
+
+/*
+ * You can't have more commands pending, than bit size of a doorbell
+ */
+#define	MLXCX_CMD_MAX		(sizeof (uint32_t) * NBBY)
 
 #define	MLXCX_UAR_CQ_ARM	0x0020
 #define	MLXCX_UAR_EQ_ARM	0x0040
@@ -151,6 +157,11 @@ typedef struct {
 	uint24be_t	mled_completion_cqn;
 } mlxcx_evdata_completion_t;
 
+typedef struct {
+	uint32be_t	mled_cmd_completion_vec;
+	uint8_t		mled_cmd_completion_rsvd[24];
+} mlxcx_evdata_cmd_completion_t;
+
 typedef enum {
 	MLXCX_EV_QUEUE_TYPE_QP	= 0x0,
 	MLXCX_EV_QUEUE_TYPE_RQ	= 0x1,
@@ -174,6 +185,7 @@ typedef struct {
 	uint8_t		mleqe_rsvd3[28];
 	union {
 		uint8_t				mleqe_unknown_data[28];
+		mlxcx_evdata_cmd_completion_t	mleqe_cmd_completion;
 		mlxcx_evdata_completion_t	mleqe_completion;
 		mlxcx_evdata_page_request_t	mleqe_page_request;
 		mlxcx_evdata_port_state_t	mleqe_port_state;
@@ -389,8 +401,16 @@ typedef enum {
 	MLXCX_WQE_OP_RDMA_R		= 0x10,
 } mlxcx_wqe_opcode_t;
 
+#define	MLXCX_WQE_OCTOWORD	16
 #define	MLXCX_SQE_MAX_DS	((1 << 6) - 1)
-#define	MLXCX_SQE_MAX_PTRS	61
+/*
+ * Calculate the max number of address pointers in a single ethernet
+ * send message. This is the remainder from MLXCX_SQE_MAX_DS
+ * after accounting for the Control and Ethernet segements.
+ */
+#define	MLXCX_SQE_MAX_PTRS	(MLXCX_SQE_MAX_DS - \
+	(sizeof (mlxcx_wqe_eth_seg_t) + sizeof (mlxcx_wqe_control_seg_t)) / \
+	MLXCX_WQE_OCTOWORD)
 
 typedef enum {
 	MLXCX_SQE_FENCE_NONE		= 0x0,
@@ -1284,22 +1304,25 @@ typedef struct {
 
 /*
  * This is an artificial limit that we're imposing on our actions.
+ * Large enough to limit the number of manage pages calls we have to
+ * make, but not so large that it will overflow any of the command
+ * mailboxes.
  */
-#define	MLXCX_MANAGE_PAGES_MAX_PAGES	512
+#define	MLXCX_MANAGE_PAGES_MAX_PAGES	4096
 
 typedef struct {
 	mlxcx_cmd_in_t	mlxi_manage_pages_head;
 	uint8_t		mlxi_manage_pages_rsvd[2];
 	uint16be_t	mlxi_manage_pages_func;
 	uint32be_t	mlxi_manage_pages_npages;
-	uint64be_t	mlxi_manage_pages_pas[MLXCX_MANAGE_PAGES_MAX_PAGES];
+	uint64be_t	mlxi_manage_pages_pas[];
 } mlxcx_cmd_manage_pages_in_t;
 
 typedef struct {
 	mlxcx_cmd_out_t	mlxo_manage_pages_head;
 	uint32be_t	mlxo_manage_pages_npages;
 	uint8_t		mlxo_manage_pages_rsvd[4];
-	uint64be_t	mlxo_manage_pages_pas[MLXCX_MANAGE_PAGES_MAX_PAGES];
+	uint64be_t	mlxo_manage_pages_pas[];
 } mlxcx_cmd_manage_pages_out_t;
 
 typedef enum {
@@ -2059,6 +2082,10 @@ typedef struct {
 	uint8_t		mlxi_set_flow_table_root_rsvd3[4];
 	uint24be_t	mlxi_set_flow_table_root_table_id;
 	uint8_t		mlxi_set_flow_table_root_rsvd4[4];
+	uint8_t		mlxi_set_flow_table_root_esw_owner_vhca_id_valid;
+	uint8_t		mlxi_set_flow_table_root_rsvd5;
+	uint16be_t	mlxi_set_flow_table_root_esw_owner_vhca_id;
+	uint8_t		mlxi_set_flow_table_root_rsvd6[32];
 } mlxcx_cmd_set_flow_table_root_in_t;
 
 typedef struct {
@@ -2259,6 +2286,28 @@ typedef enum {
 	MLXCX_PROTO_50GBASE_KR2			= 1UL << 31,
 } mlxcx_eth_proto_t;
 
+#define	MLXCX_PROTO_100M	MLXCX_PROTO_SGMII_100BASE
+
+#define	MLXCX_PROTO_1G		(MLXCX_PROTO_1000BASE_KX | MLXCX_PROTO_SGMII)
+
+#define	MLXCX_PROTO_10G		(MLXCX_PROTO_10GBASE_CX4 | \
+	MLXCX_PROTO_10GBASE_KX4 | MLXCX_PROTO_10GBASE_KR | \
+	MLXCX_PROTO_10GBASE_CR | MLXCX_PROTO_10GBASE_SR | \
+	MLXCX_PROTO_10GBASE_ER_LR)
+
+#define	MLXCX_PROTO_25G		(MLXCX_PROTO_25GBASE_CR | \
+	MLXCX_PROTO_25GBASE_KR | MLXCX_PROTO_25GBASE_SR)
+
+#define	MLXCX_PROTO_40G		(MLXCX_PROTO_40GBASE_SR4 | \
+	MLXCX_PROTO_40GBASE_LR4_ER4 | MLXCX_PROTO_40GBASE_CR4 | \
+	MLXCX_PROTO_40GBASE_KR4)
+
+#define	MLXCX_PROTO_50G		(MLXCX_PROTO_50GBASE_CR2 | \
+	MLXCX_PROTO_50GBASE_KR2 | MLXCX_PROTO_50GBASE_SR2)
+
+#define	MLXCX_PROTO_100G	(MLXCX_PROTO_100GBASE_CR4 | \
+	MLXCX_PROTO_100GBASE_SR4 | MLXCX_PROTO_100GBASE_KR4)
+
 typedef enum {
 	MLXCX_AUTONEG_DISABLE_CAP	= 1 << 5,
 	MLXCX_AUTONEG_DISABLE		= 1 << 6
@@ -2433,6 +2482,83 @@ typedef struct {
 } mlxcx_reg_ppcnt_t;
 
 typedef enum {
+	MLXCX_PPLM_FEC_CAP_AUTO			= 0,
+	MLXCX_PPLM_FEC_CAP_NONE			= (1 << 0),
+	MLXCX_PPLM_FEC_CAP_FIRECODE		= (1 << 1),
+	MLXCX_PPLM_FEC_CAP_RS			= (1 << 2),
+} mlxcx_pplm_fec_caps_t;
+
+typedef enum {
+	MLXCX_PPLM_FEC_ACTIVE_NONE		= (1 << 0),
+	MLXCX_PPLM_FEC_ACTIVE_FIRECODE		= (1 << 1),
+	MLXCX_PPLM_FEC_ACTIVE_RS528		= (1 << 2),
+	MLXCX_PPLM_FEC_ACTIVE_RS271		= (1 << 3),
+	MLXCX_PPLM_FEC_ACTIVE_RS544		= (1 << 7),
+	MLXCX_PPLM_FEC_ACTIVE_RS272		= (1 << 9),
+} mlxcx_pplm_fec_active_t;
+
+/* CSTYLED */
+#define	MLXCX_PPLM_CAP_56G		(bitdef_t){ 16, 0x000f0000 }
+/* CSTYLED */
+#define	MLXCX_PPLM_CAP_100G		(bitdef_t){ 12, 0x0000f000 }
+/* CSTYLED */
+#define	MLXCX_PPLM_CAP_50G		(bitdef_t){ 8, 0x00000f00 }
+/* CSTYLED */
+#define	MLXCX_PPLM_CAP_25G		(bitdef_t){ 4, 0x000000f0 }
+/* CSTYLED */
+#define	MLXCX_PPLM_CAP_10_40G		(bitdef_t){ 0, 0x0000000f }
+
+typedef struct {
+	uint8_t		mlrd_pplm_rsvd;
+	uint8_t		mlrd_pplm_local_port;
+	uint8_t		mlrd_pplm_rsvd1[11];
+	uint24be_t	mlrd_pplm_fec_mode_active;
+	bits32_t	mlrd_pplm_fec_override_cap;
+	bits32_t	mlrd_pplm_fec_override_admin;
+	uint16be_t	mlrd_pplm_fec_override_cap_400g_8x;
+	uint16be_t	mlrd_pplm_fec_override_cap_200g_4x;
+	uint16be_t	mlrd_pplm_fec_override_cap_100g_2x;
+	uint16be_t	mlrd_pplm_fec_override_cap_50g_1x;
+	uint16be_t	mlrd_pplm_fec_override_admin_400g_8x;
+	uint16be_t	mlrd_pplm_fec_override_admin_200g_4x;
+	uint16be_t	mlrd_pplm_fec_override_admin_100g_2x;
+	uint16be_t	mlrd_pplm_fec_override_admin_50g_1x;
+	uint8_t		mlrd_pplm_rsvd2[8];
+	uint16be_t	mlrd_pplm_fec_override_cap_hdr;
+	uint16be_t	mlrd_pplm_fec_override_cap_edr;
+	uint16be_t	mlrd_pplm_fec_override_cap_fdr;
+	uint16be_t	mlrd_pplm_fec_override_cap_fdr10;
+	uint16be_t	mlrd_pplm_fec_override_admin_hdr;
+	uint16be_t	mlrd_pplm_fec_override_admin_edr;
+	uint16be_t	mlrd_pplm_fec_override_admin_fdr;
+	uint16be_t	mlrd_pplm_fec_override_admin_fdr10;
+} mlxcx_reg_pplm_t;
+
+typedef struct {
+	uint8_t		mlrd_mtcap_rsvd[3];
+	uint8_t		mlrd_mtcap_sensor_count;
+	uint8_t		mlrd_mtcap_rsvd1[4];
+	uint64be_t	mlrd_mtcap_sensor_map;
+} mlxcx_reg_mtcap_t;
+
+#define	MLXCX_MTMP_NAMELEN	8
+
+typedef struct {
+	uint8_t		mlrd_mtmp_rsvd[2];
+	uint16be_t	mlrd_mtmp_sensor_index;
+	uint8_t		mlrd_mtmp_rsvd1[2];
+	uint16be_t	mlrd_mtmp_temperature;
+	bits16_t	mlrd_mtmp_max_flags;
+	uint16be_t	mlrd_mtmp_max_temperature;
+	bits16_t	mlrd_mtmp_tee;
+	uint16be_t	mlrd_mtmp_temp_thresh_hi;
+	uint8_t		mlrd_mtmp_rsvd2[2];
+	uint16be_t	mlrd_mtmp_temp_thresh_lo;
+	uint8_t		mlrd_mtmp_rsvd3[4];
+	uint8_t		mlrd_mtmp_name[MLXCX_MTMP_NAMELEN];
+} mlxcx_reg_mtmp_t;
+
+typedef enum {
 	MLXCX_REG_PMTU		= 0x5003,
 	MLXCX_REG_PTYS		= 0x5004,
 	MLXCX_REG_PAOS		= 0x5006,
@@ -2441,6 +2567,9 @@ typedef enum {
 	MLXCX_REG_MLCR		= 0x902B,
 	MLXCX_REG_MCIA		= 0x9014,
 	MLXCX_REG_PPCNT		= 0x5008,
+	MLXCX_REG_PPLM		= 0x5023,
+	MLXCX_REG_MTCAP		= 0x9009,
+	MLXCX_REG_MTMP		= 0x900A
 } mlxcx_register_id_t;
 
 typedef union {
@@ -2451,6 +2580,9 @@ typedef union {
 	mlxcx_reg_pmaos_t		mlrd_pmaos;
 	mlxcx_reg_mcia_t		mlrd_mcia;
 	mlxcx_reg_ppcnt_t		mlrd_ppcnt;
+	mlxcx_reg_pplm_t		mlrd_pplm;
+	mlxcx_reg_mtcap_t		mlrd_mtcap;
+	mlxcx_reg_mtmp_t		mlrd_mtmp;
 } mlxcx_register_data_t;
 
 typedef enum {
@@ -2473,6 +2605,8 @@ typedef struct {
 } mlxcx_cmd_access_register_out_t;
 
 #pragma pack()
+
+CTASSERT(MLXCX_SQE_MAX_PTRS > 0);
 
 #ifdef __cplusplus
 }

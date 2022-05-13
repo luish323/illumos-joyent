@@ -21,7 +21,7 @@
 
 /*
  * Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2019 Joyent, Inc.
+ * Copyright 2020 Joyent, Inc.
  * Copyright (c) 2015, 2016 by Delphix. All rights reserved.
  */
 
@@ -88,12 +88,8 @@
 
 #define	LEGACY_UNKNOWN	"unknown"
 
-/* Flags for pg_get_single_val() */
-#define	EMPTY_OK	0x01
-#define	MULTI_OK	0x02
-
 /*
- * Per proc(4) when pr_nlwp, pr_nzomb, and pr_lwp.pr_lwpid are all 0,
+ * Per proc(5) when pr_nlwp, pr_nzomb, and pr_lwp.pr_lwpid are all 0,
  * the process is a zombie.
  */
 #define	IS_ZOMBIE(_psip) \
@@ -431,7 +427,13 @@ pg_get_single_val(scf_propertygroup_t *pg, const char *propname, scf_type_t ty,
 
 	switch (ty) {
 	case SCF_TYPE_ASTRING:
-		r = scf_value_get_astring(g_val, vp, sz) > 0 ? SCF_SUCCESS : -1;
+		r = scf_value_get_astring(g_val, vp, sz);
+		if (r == 0 && !(flags & EMPTY_OK)) {
+			uu_die(gettext("Unexpected empty string for property "
+			    "%s.  Exiting.\n"), propname);
+		}
+		if (r >= 0)
+			r = SCF_SUCCESS;
 		break;
 
 	case SCF_TYPE_BOOLEAN:
@@ -1822,7 +1824,7 @@ description_of_column(int c)
 
 	switch (c) {
 	case 0:
-		s = gettext("contract ID for service (see contract(4))");
+		s = gettext("contract ID for service (see contract(5))");
 		break;
 	case 1:
 		s = gettext("human-readable description of the service");
@@ -1919,7 +1921,7 @@ print_help(const char *progname)
 	"\t-z  from global zone, show services in a specified zone\n"
 	"\t-Z  from global zone, show services in all zones\n"
 	"\n\t"
-	"Services can be specified using an FMRI, abbreviation, or fnmatch(5)\n"
+	"Services can be specified using an FMRI, abbreviation, or fnmatch(7)\n"
 	"\tpattern, as shown in these examples for svc:/network/smtp:sendmail\n"
 	"\n"
 	"\t%1$s [opts] svc:/network/smtp:sendmail\n"
@@ -2497,6 +2499,21 @@ print_detailed(void *unused, scf_walkinfo_t *wip)
 	} else if (perm != -1) {
 		(void) printf(fmt, DETAILED_WIDTH, gettext("enabled"),
 		    perm ? gettext("true") : gettext("false"));
+	}
+
+	if (temp == 0 || (temp == -1 && perm == 0)) {
+		char comment[SCF_COMMENT_MAX_LENGTH] = "";
+		const char *pg = (temp != -1 && temp != perm) ?
+		    SCF_PG_GENERAL_OVR : SCF_PG_GENERAL;
+
+		(void) inst_get_single_val(wip->inst, pg, SCF_PROPERTY_COMMENT,
+		    SCF_TYPE_ASTRING, &comment, sizeof (comment),
+		    EMPTY_OK, 0, 0);
+
+		if (comment[0] != '\0') {
+			printf(fmt, DETAILED_WIDTH, gettext("comment"),
+			    comment);
+		}
 	}
 
 	/*

@@ -1675,6 +1675,7 @@ flash_fw(struct adapter *sc, void *data, int flags)
 		mbox = sc->mbox;
 
 	rc = -t4_fw_upgrade(sc, mbox, ptr, fw.len, true);
+	ddi_ufm_update(sc->ufm_hdl);
 
 	kmem_free(ptr, fw.len);
 
@@ -1706,7 +1707,7 @@ get_cudbg(struct adapter *sc, void *data, int flags)
 
 	cudbg = cudbg_get_init(handle);
 	cudbg->adap = sc;
-	cudbg->print = (cudbg_print_cb)cxgb_printf;
+	cudbg->print = cxgb_printf;
 
 	memcpy(cudbg->dbg_bitmap, dump.bitmap, sizeof(cudbg->dbg_bitmap));
 

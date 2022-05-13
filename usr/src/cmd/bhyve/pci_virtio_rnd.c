@@ -58,6 +58,7 @@ __FBSDID("$FreeBSD$");
 #include <sysexits.h>
 
 #include "bhyverun.h"
+#include "debug.h"
 #include "pci_emul.h"
 #include "virtio.h"
 
@@ -65,8 +66,8 @@ __FBSDID("$FreeBSD$");
 
 
 static int pci_vtrnd_debug;
-#define DPRINTF(params) if (pci_vtrnd_debug) printf params
-#define WPRINTF(params) printf params
+#define DPRINTF(params) if (pci_vtrnd_debug) PRINTLN params
+#define WPRINTF(params) PRINTLN params
 
 /*
  * Per-device softc
@@ -102,7 +103,7 @@ pci_vtrnd_reset(void *vsc)
 
 	sc = vsc;
 
-	DPRINTF(("vtrnd: device reset requested !\n"));
+	DPRINTF(("vtrnd: device reset requested !"));
 	vi_reset_dev(&sc->vrsc_vs);
 }
 
@@ -112,8 +113,8 @@ pci_vtrnd_notify(void *vsc, struct vqueue_info *vq)
 {
 	struct iovec iov;
 	struct pci_vtrnd_softc *sc;
-	int len;
-	uint16_t idx;
+	struct vi_req req;
+	int len, n;
 
 	sc = vsc;
 
@@ -123,11 +124,12 @@ pci_vtrnd_notify(void *vsc, struct vqueue_info *vq)
 	}
 
 	while (vq_has_descs(vq)) {
-		vq_getchain(vq, &idx, &iov, 1, NULL);
+		n = vq_getchain(vq, &iov, 1, &req);
+		assert(n == 1);
 
 		len = read(sc->vrsc_fd, iov.iov_base, iov.iov_len);
 
-		DPRINTF(("vtrnd: vtrnd_notify(): %d\r\n", len));
+		DPRINTF(("vtrnd: vtrnd_notify(): %d", len));
 
 		/* Catastrophe if unable to read from /dev/random */
 		assert(len > 0);
@@ -135,14 +137,14 @@ pci_vtrnd_notify(void *vsc, struct vqueue_info *vq)
 		/*
 		 * Release this chain and handle more
 		 */
-		vq_relchain(vq, idx, len);
+		vq_relchain(vq, req.idx, len);
 	}
 	vq_endchains(vq, 1);	/* Generate interrupt if appropriate. */
 }
 
 
 static int
-pci_vtrnd_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts)
+pci_vtrnd_init(struct vmctx *ctx, struct pci_devinst *pi, nvlist_t *nvl)
 {
 	struct pci_vtrnd_softc *sc;
 	int fd;
@@ -177,6 +179,8 @@ pci_vtrnd_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts)
 
 	sc = calloc(1, sizeof(struct pci_vtrnd_softc));
 
+	pthread_mutex_init(&sc->vrsc_mtx, NULL);
+
 	vi_softc_linkup(&sc->vrsc_vs, &vtrnd_vi_consts, sc, pi, &sc->vrsc_vq);
 	sc->vrsc_vs.vs_mtx = &sc->vrsc_mtx;
 
@@ -189,7 +193,7 @@ pci_vtrnd_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts)
 	pci_set_cfgdata16(pi, PCIR_DEVICE, VIRTIO_DEV_RANDOM);
 	pci_set_cfgdata16(pi, PCIR_VENDOR, VIRTIO_VENDOR);
 	pci_set_cfgdata8(pi, PCIR_CLASS, PCIC_CRYPTO);
-	pci_set_cfgdata16(pi, PCIR_SUBDEV_0, VIRTIO_TYPE_ENTROPY);
+	pci_set_cfgdata16(pi, PCIR_SUBDEV_0, VIRTIO_ID_ENTROPY);
 	pci_set_cfgdata16(pi, PCIR_SUBVEND_0, VIRTIO_VENDOR);
 
 	if (vi_intr_init(&sc->vrsc_vs, 1, fbsdrun_virtio_msix()))
@@ -204,6 +208,6 @@ struct pci_devemu pci_de_vrnd = {
 	.pe_emu =	"virtio-rnd",
 	.pe_init =	pci_vtrnd_init,
 	.pe_barwrite =	vi_pci_write,
-	.pe_barread =	vi_pci_read
+	.pe_barread =	vi_pci_read,
 };
 PCI_EMUL_SET(pci_de_vrnd);

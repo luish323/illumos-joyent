@@ -32,13 +32,11 @@
 __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
-#ifndef WITHOUT_CAPSICUM
-#include <sys/capsicum.h>
-#endif
 #include <sys/types.h>
 #include <sys/mman.h>
 #include <sys/pciio.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 
 #include <sys/pci.h>
 
@@ -47,9 +45,6 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/iodev.h>
 
-#ifndef WITHOUT_CAPSICUM
-#include <capsicum_helpers.h>
-#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -62,7 +57,10 @@ __FBSDID("$FreeBSD$");
 #include <machine/vmm.h>
 #include <vmmapi.h>
 #include <sys/ppt_dev.h>
-#include "pci_emul.h"
+
+#include "config.h"
+#include "debug.h"
+#include "pci_passthru.h"
 #include "mem.h"
 
 #define	LEGACY_SUPPORT	1
@@ -72,7 +70,8 @@ __FBSDID("$FreeBSD$");
 
 struct passthru_softc {
 	struct pci_devinst *psc_pi;
-	struct pcibar psc_bar[PCI_BARMAX + 1];
+	/* ROM is handled like a BAR */
+	struct pcibar psc_bar[PCI_BARMAX_WITH_ROM + 1];
 	struct {
 		int		capoff;
 		int		msgctrl;
@@ -109,7 +108,7 @@ msi_caplen(int msgctrl)
 }
 
 static uint32_t
-read_config(const struct passthru_softc *sc, long reg, int width)
+passthru_read_config(const struct passthru_softc *sc, long reg, int width)
 {
 	struct ppt_cfg_io pi;
 
@@ -123,7 +122,7 @@ read_config(const struct passthru_softc *sc, long reg, int width)
 }
 
 static void
-write_config(const struct passthru_softc *sc, long reg, int width,
+passthru_write_config(const struct passthru_softc *sc, long reg, int width,
     uint32_t data)
 {
 	struct ppt_cfg_io pi;
@@ -133,6 +132,22 @@ write_config(const struct passthru_softc *sc, long reg, int width,
 	pi.pci_data = data;
 
 	(void) ioctl(sc->pptfd, PPT_CFG_WRITE, &pi);
+}
+
+uint32_t
+read_config(struct pci_devinst *pi, long reg, int width)
+{
+	struct passthru_softc *sc = pi->pi_arg;
+
+	return (passthru_read_config(sc, reg, width));
+}
+
+void
+write_config(struct pci_devinst *pi, long reg, int width, uint32_t data)
+{
+	struct passthru_softc *sc = pi->pi_arg;
+
+	passthru_write_config(sc, reg, width, data);
 }
 
 static int
@@ -255,24 +270,25 @@ cfginitmsi(struct passthru_softc *sc)
 	 * Parse the capabilities and cache the location of the MSI
 	 * and MSI-X capabilities.
 	 */
-	sts = read_config(sc, PCIR_STATUS, 2);
+	sts = passthru_read_config(sc, PCIR_STATUS, 2);
 	if (sts & PCIM_STATUS_CAPPRESENT) {
-		ptr = read_config(sc, PCIR_CAP_PTR, 1);
+		ptr = passthru_read_config(sc, PCIR_CAP_PTR, 1);
 		while (ptr != 0 && ptr != 0xff) {
-			cap = read_config(sc, ptr + PCICAP_ID, 1);
+			cap = passthru_read_config(sc, ptr + PCICAP_ID, 1);
 			if (cap == PCIY_MSI) {
 				/*
 				 * Copy the MSI capability into the config
 				 * space of the emulated pci device
 				 */
 				sc->psc_msi.capoff = ptr;
-				sc->psc_msi.msgctrl = read_config(sc,
+				sc->psc_msi.msgctrl = passthru_read_config(sc,
 				    ptr + 2, 2);
 				sc->psc_msi.emulated = 0;
 				caplen = msi_caplen(sc->psc_msi.msgctrl);
 				capptr = ptr;
 				while (caplen > 0) {
-					u32 = read_config(sc, capptr, 4);
+					u32 = passthru_read_config(sc,
+					    capptr, 4);
 					pci_set_cfgdata32(pi, capptr, u32);
 					caplen -= 4;
 					capptr += 4;
@@ -286,7 +302,8 @@ cfginitmsi(struct passthru_softc *sc)
 				msixcap_ptr = (uint32_t*) &msixcap;
 				capptr = ptr;
 				while (caplen > 0) {
-					u32 = read_config(sc, capptr, 4);
+					u32 = passthru_read_config(sc,
+					    capptr, 4);
 					*msixcap_ptr = u32;
 					pci_set_cfgdata32(pi, capptr, u32);
 					caplen -= 4;
@@ -294,7 +311,7 @@ cfginitmsi(struct passthru_softc *sc)
 					msixcap_ptr++;
 				}
 			}
-			ptr = read_config(sc, ptr + PCICAP_NEXTPTR, 1);
+			ptr = passthru_read_config(sc, ptr + PCICAP_NEXTPTR, 1);
 		}
 	}
 
@@ -331,7 +348,7 @@ cfginitmsi(struct passthru_softc *sc)
 	 */
 	if ((sts & PCIM_STATUS_CAPPRESENT) != 0 && sc->psc_msi.capoff == 0) {
 		int origptr, msiptr;
-		origptr = read_config(sc, PCIR_CAP_PTR, 1);
+		origptr = passthru_read_config(sc, PCIR_CAP_PTR, 1);
 		msiptr = passthru_add_msicap(pi, 1, origptr);
 		sc->psc_msi.capoff = msiptr;
 		sc->psc_msi.msgctrl = pci_get_cfgdata16(pi, msiptr + 2);
@@ -341,15 +358,14 @@ cfginitmsi(struct passthru_softc *sc)
 #endif
 
 	/* Make sure one of the capabilities is present */
-	if (sc->psc_msi.capoff == 0 && sc->psc_msix.capoff == 0) {
+	if (sc->psc_msi.capoff == 0 && sc->psc_msix.capoff == 0)
 		return (-1);
-	} else {
+	else
 		return (0);
-	}
 }
 
 static uint64_t
-passthru_msix_table_read(struct passthru_softc *sc, uint64_t offset, int size)
+msix_table_read(struct passthru_softc *sc, uint64_t offset, int size)
 {
 	struct pci_devinst *pi;
 	struct msix_table_entry *entry;
@@ -359,30 +375,30 @@ passthru_msix_table_read(struct passthru_softc *sc, uint64_t offset, int size)
 	uint64_t *src64;
 	uint64_t data;
 	size_t entry_offset;
-	int index;
+	uint32_t table_offset;
+	int index, table_count;
 
 	pi = sc->psc_pi;
-	if (offset >= pi->pi_msix.pba_offset &&
-	    offset < pi->pi_msix.pba_offset + pi->pi_msix.pba_size) {
-		switch(size) {
+
+	table_offset = pi->pi_msix.table_offset;
+	table_count = pi->pi_msix.table_count;
+	if (offset < table_offset ||
+	    offset >= table_offset + table_count * MSIX_TABLE_ENTRY_SIZE) {
+		switch (size) {
 		case 1:
-			src8 = (uint8_t *)(pi->pi_msix.pba_page + offset -
-			    pi->pi_msix.pba_page_offset);
+			src8 = (uint8_t *)(pi->pi_msix.mapped_addr + offset);
 			data = *src8;
 			break;
 		case 2:
-			src16 = (uint16_t *)(pi->pi_msix.pba_page + offset -
-			    pi->pi_msix.pba_page_offset);
+			src16 = (uint16_t *)(pi->pi_msix.mapped_addr + offset);
 			data = *src16;
 			break;
 		case 4:
-			src32 = (uint32_t *)(pi->pi_msix.pba_page + offset -
-			    pi->pi_msix.pba_page_offset);
+			src32 = (uint32_t *)(pi->pi_msix.mapped_addr + offset);
 			data = *src32;
 			break;
 		case 8:
-			src64 = (uint64_t *)(pi->pi_msix.pba_page + offset -
-			    pi->pi_msix.pba_page_offset);
+			src64 = (uint64_t *)(pi->pi_msix.mapped_addr + offset);
 			data = *src64;
 			break;
 		default:
@@ -391,32 +407,28 @@ passthru_msix_table_read(struct passthru_softc *sc, uint64_t offset, int size)
 		return (data);
 	}
 
-	if (offset < pi->pi_msix.table_offset)
-		return (-1);
-
-	offset -= pi->pi_msix.table_offset;
+	offset -= table_offset;
 	index = offset / MSIX_TABLE_ENTRY_SIZE;
-	if (index >= pi->pi_msix.table_count)
-		return (-1);
+	assert(index < table_count);
 
 	entry = &pi->pi_msix.table[index];
 	entry_offset = offset % MSIX_TABLE_ENTRY_SIZE;
 
-	switch(size) {
+	switch (size) {
 	case 1:
-		src8 = (uint8_t *)((void *)entry + entry_offset);
+		src8 = (uint8_t *)((uint8_t *)entry + entry_offset);
 		data = *src8;
 		break;
 	case 2:
-		src16 = (uint16_t *)((void *)entry + entry_offset);
+		src16 = (uint16_t *)((uint8_t *)entry + entry_offset);
 		data = *src16;
 		break;
 	case 4:
-		src32 = (uint32_t *)((void *)entry + entry_offset);
+		src32 = (uint32_t *)((uint8_t *)entry + entry_offset);
 		data = *src32;
 		break;
 	case 8:
-		src64 = (uint64_t *)((void *)entry + entry_offset);
+		src64 = (uint64_t *)((uint8_t *)entry + entry_offset);
 		data = *src64;
 		break;
 	default:
@@ -427,8 +439,8 @@ passthru_msix_table_read(struct passthru_softc *sc, uint64_t offset, int size)
 }
 
 static void
-passthru_msix_table_write(struct vmctx *ctx, int vcpu,
-    struct passthru_softc *sc, uint64_t offset, int size, uint64_t data)
+msix_table_write(struct vmctx *ctx, int vcpu, struct passthru_softc *sc,
+		 uint64_t offset, int size, uint64_t data)
 {
 	struct pci_devinst *pi;
 	struct msix_table_entry *entry;
@@ -437,46 +449,39 @@ passthru_msix_table_write(struct vmctx *ctx, int vcpu,
 	uint32_t *dest32;
 	uint64_t *dest64;
 	size_t entry_offset;
-	uint32_t vector_control;
-	int index;
+	uint32_t table_offset, vector_control;
+	int index, table_count;
 
 	pi = sc->psc_pi;
-	if (offset >= pi->pi_msix.pba_offset &&
-	    offset < pi->pi_msix.pba_offset + pi->pi_msix.pba_size) {
-		switch(size) {
+
+	table_offset = pi->pi_msix.table_offset;
+	table_count = pi->pi_msix.table_count;
+	if (offset < table_offset ||
+	    offset >= table_offset + table_count * MSIX_TABLE_ENTRY_SIZE) {
+		switch (size) {
 		case 1:
-			dest8 = (uint8_t *)(pi->pi_msix.pba_page + offset -
-			    pi->pi_msix.pba_page_offset);
+			dest8 = (uint8_t *)(pi->pi_msix.mapped_addr + offset);
 			*dest8 = data;
 			break;
 		case 2:
-			dest16 = (uint16_t *)(pi->pi_msix.pba_page + offset -
-			    pi->pi_msix.pba_page_offset);
+			dest16 = (uint16_t *)(pi->pi_msix.mapped_addr + offset);
 			*dest16 = data;
 			break;
 		case 4:
-			dest32 = (uint32_t *)(pi->pi_msix.pba_page + offset -
-			    pi->pi_msix.pba_page_offset);
+			dest32 = (uint32_t *)(pi->pi_msix.mapped_addr + offset);
 			*dest32 = data;
 			break;
 		case 8:
-			dest64 = (uint64_t *)(pi->pi_msix.pba_page + offset -
-			    pi->pi_msix.pba_page_offset);
+			dest64 = (uint64_t *)(pi->pi_msix.mapped_addr + offset);
 			*dest64 = data;
-			break;
-		default:
 			break;
 		}
 		return;
 	}
 
-	if (offset < pi->pi_msix.table_offset)
-		return;
-
-	offset -= pi->pi_msix.table_offset;
+	offset -= table_offset;
 	index = offset / MSIX_TABLE_ENTRY_SIZE;
-	if (index >= pi->pi_msix.table_count)
-		return;
+	assert(index < table_count);
 
 	entry = &pi->pi_msix.table[index];
 	entry_offset = offset % MSIX_TABLE_ENTRY_SIZE;
@@ -501,90 +506,64 @@ passthru_msix_table_write(struct vmctx *ctx, int vcpu,
 }
 
 static int
-init_msix_table(struct vmctx *ctx, struct passthru_softc *sc, uint64_t base)
+init_msix_table(struct vmctx *ctx, struct passthru_softc *sc)
 {
-	int error, idx;
-	size_t len, remaining;
-	uint32_t table_size, table_offset;
-	uint32_t pba_size, pba_offset;
-	vm_paddr_t start;
 	struct pci_devinst *pi = sc->psc_pi;
+	uint32_t table_size, table_offset;
+	int i;
 
-	assert(pci_msix_table_bar(pi) >= 0 && pci_msix_pba_bar(pi) >= 0);
+	i = pci_msix_table_bar(pi);
+	assert(i >= 0);
+
+        /*
+         * Map the region of the BAR containing the MSI-X table.  This is
+         * necessary for two reasons:
+         * 1. The PBA may reside in the first or last page containing the MSI-X
+         *    table.
+         * 2. While PCI devices are not supposed to use the page(s) containing
+         *    the MSI-X table for other purposes, some do in practice.
+         */
 
 	/*
-	 * If the MSI-X table BAR maps memory intended for
-	 * other uses, it is at least assured that the table
-	 * either resides in its own page within the region,
-	 * or it resides in a page shared with only the PBA.
+	 * Mapping pptfd provides access to the BAR containing the MSI-X
+	 * table. See ppt_devmap() in usr/src/uts/intel/io/vmm/io/ppt.c
+	 *
+	 * This maps the whole BAR and then mprotect(PROT_NONE) is used below
+	 * to prevent access to pages that don't contain the MSI-X table.
+	 * When porting this, it was tempting to just map the MSI-X table pages
+	 * but that would mean updating everywhere that assumes that
+	 * pi->pi_msix.mapped_addr points to the start of the BAR. For now,
+	 * keep closer to upstream.
 	 */
+	pi->pi_msix.mapped_size = sc->psc_bar[i].size;
+	pi->pi_msix.mapped_addr = (uint8_t *)mmap(NULL, pi->pi_msix.mapped_size,
+	    PROT_READ | PROT_WRITE, MAP_SHARED, sc->pptfd, 0);
+	if (pi->pi_msix.mapped_addr == MAP_FAILED) {
+		warn("Failed to map MSI-X table BAR on %d", sc->pptfd);
+		return (-1);
+	}
+
 	table_offset = rounddown2(pi->pi_msix.table_offset, 4096);
 
 	table_size = pi->pi_msix.table_offset - table_offset;
 	table_size += pi->pi_msix.table_count * MSIX_TABLE_ENTRY_SIZE;
 	table_size = roundup2(table_size, 4096);
 
-	idx = pi->pi_msix.table_bar;
-	start = pi->pi_bar[idx].addr;
-	remaining = pi->pi_bar[idx].size;
-
-	if (pi->pi_msix.pba_bar == pi->pi_msix.table_bar) {
-		pba_offset = pi->pi_msix.pba_offset;
-		pba_size = pi->pi_msix.pba_size;
-		if (pba_offset >= table_offset + table_size ||
-		    table_offset >= pba_offset + pba_size) {
-			/*
-			 * If the PBA does not share a page with the MSI-x
-			 * tables, no PBA emulation is required.
-			 */
-			pi->pi_msix.pba_page = NULL;
-			pi->pi_msix.pba_page_offset = 0;
-		} else {
-			/*
-			 * The PBA overlaps with either the first or last
-			 * page of the MSI-X table region.  Map the
-			 * appropriate page.
-			 */
-			if (pba_offset <= table_offset)
-				pi->pi_msix.pba_page_offset = table_offset;
-			else
-				pi->pi_msix.pba_page_offset = table_offset +
-				    table_size - 4096;
-			pi->pi_msix.pba_page = mmap(NULL, 4096, PROT_READ |
-			    PROT_WRITE, MAP_SHARED, sc->pptfd,
-			    pi->pi_msix.pba_page_offset);
-			if (pi->pi_msix.pba_page == MAP_FAILED) {
-				warn("Failed to map PBA page for MSI-X on %d",
-				    sc->pptfd);
-				return (-1);
-			}
-		}
-	}
-
-	/* Map everything before the MSI-X table */
-	if (table_offset > 0) {
-		len = table_offset;
-		error = vm_map_pptdev_mmio(ctx, sc->pptfd, start, len, base);
-		if (error)
-			return (error);
-
-		base += len;
-		start += len;
-		remaining -= len;
-	}
-
-	/* Skip the MSI-X table */
-	base += table_size;
-	start += table_size;
-	remaining -= table_size;
-
-	/* Map everything beyond the end of the MSI-X table */
-	if (remaining > 0) {
-		len = remaining;
-		error = vm_map_pptdev_mmio(ctx, sc->pptfd, start, len, base);
-		if (error)
-			return (error);
-	}
+	/*
+	 * Unmap any pages not containing the table, we do not need to emulate
+	 * accesses to them.  Avoid releasing address space to help ensure that
+	 * a buggy out-of-bounds access causes a crash.
+	 */
+	if (table_offset != 0)
+		if (mprotect((caddr_t)pi->pi_msix.mapped_addr, table_offset,
+		    PROT_NONE) != 0)
+			warn("Failed to unmap MSI-X table BAR region");
+	if (table_offset + table_size != pi->pi_msix.mapped_size)
+		if (mprotect((caddr_t)
+		    pi->pi_msix.mapped_addr + table_offset + table_size,
+		    pi->pi_msix.mapped_size - (table_offset + table_size),
+		    PROT_NONE) != 0)
+			warn("Failed to unmap MSI-X table BAR region");
 
 	return (0);
 }
@@ -620,24 +599,22 @@ cfginitbar(struct vmctx *ctx, struct passthru_softc *sc)
 		sc->psc_bar[i].type = bartype;
 		sc->psc_bar[i].size = size;
 		sc->psc_bar[i].addr = base;
+		sc->psc_bar[i].lobits = 0;
 
 		/* Allocate the BAR in the guest I/O or MMIO space */
-		error = pci_emul_alloc_pbar(pi, i, base, bartype, size);
+		error = pci_emul_alloc_bar(pi, i, bartype, size);
 		if (error)
 			return (-1);
 
-		/* The MSI-X table needs special handling */
-		if (i == pci_msix_table_bar(pi)) {
-			error = init_msix_table(ctx, sc, base);
-			if (error)
-				return (-1);
-		} else if (bartype != PCIBAR_IO) {
-			/* Map the physical BAR in the guest MMIO space */
-			error = vm_map_pptdev_mmio(ctx, sc->pptfd,
-			    pi->pi_bar[i].addr, pi->pi_bar[i].size, base);
-			if (error)
-				return (-1);
+		/* Use same lobits as physical bar */
+		uint8_t lobits = passthru_read_config(sc, PCIR_BAR(i), 0x01);
+		if (bartype == PCIBAR_MEM32 || bartype == PCIBAR_MEM64) {
+			lobits &= ~PCIM_BAR_MEM_BASE;
+		} else {
+			lobits &= ~PCIM_BAR_IO_BASE;
 		}
+		sc->psc_bar[i].lobits = lobits;
+		pi->pi_bar[i].lobits = lobits;
 
 		/*
 		 * 64-bit BAR takes up two slots so skip the next one.
@@ -655,6 +632,7 @@ static int
 cfginit(struct vmctx *ctx, struct passthru_softc *sc)
 {
 	struct pci_devinst *pi = sc->psc_pi;
+	int error;
 
 	if (cfginitmsi(sc) != 0) {
 		warnx("failed to initialize MSI for PCI %d", sc->pptfd);
@@ -666,17 +644,113 @@ cfginit(struct vmctx *ctx, struct passthru_softc *sc)
 		return (-1);
 	}
 
-	pci_set_cfgdata16(pi, PCIR_COMMAND, read_config(sc, PCIR_COMMAND, 2));
+	passthru_write_config(sc, PCIR_COMMAND, 2,
+	    pci_get_cfgdata16(pi, PCIR_COMMAND));
 
+	/*
+	* We need to do this after PCIR_COMMAND got possibly updated, e.g.,
+	* a BAR was enabled.
+	*/
+	if (pci_msix_table_bar(pi) >= 0) {
+		error = init_msix_table(ctx, sc);
+		if (error != 0) {
+			warnx("failed to initialize MSI-X table for PCI %d",
+			    sc->pptfd);
+			goto done;
+		}
+	}
+
+	error = 0;				/* success */
+done:
+	return (error);
+}
+
+static int
+passthru_legacy_config(nvlist_t *nvl, const char *opt)
+{
+	char *config, *name, *tofree, *value;
+
+	if (opt == NULL)
+		return (0);
+
+	config = tofree = strdup(opt);
+	while ((name = strsep(&config, ",")) != NULL) {
+		value = strchr(name, '=');
+		if (value != NULL) {
+			*value++ = '\0';
+			set_config_value_node(nvl, name, value);
+		} else {
+			if (strncmp(name, "/dev/ppt", 8) != 0) {
+				EPRINTLN("passthru: invalid path \"%s\"", name);
+				free(tofree);
+				return (-1);
+			}
+			set_config_value_node(nvl, "path", name);
+		}
+	}
+	free(tofree);
 	return (0);
 }
 
 static int
-passthru_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts)
+passthru_init_rom(struct vmctx *const ctx, struct passthru_softc *const sc,
+    const char *const romfile)
+{
+	if (romfile == NULL) {
+		return (0);
+	}
+
+	const int fd = open(romfile, O_RDONLY);
+	if (fd < 0) {
+		warnx("%s: can't open romfile \"%s\"", __func__, romfile);
+		return (-1);
+	}
+
+	struct stat sbuf;
+	if (fstat(fd, &sbuf) < 0) {
+		warnx("%s: can't fstat romfile \"%s\"", __func__, romfile);
+		close(fd);
+		return (-1);
+	}
+	const uint64_t rom_size = sbuf.st_size;
+
+	void *const rom_data = mmap(NULL, rom_size, PROT_READ, MAP_SHARED, fd,
+	    0);
+	if (rom_data == MAP_FAILED) {
+		warnx("%s: unable to mmap romfile \"%s\" (%d)", __func__,
+		    romfile, errno);
+		close(fd);
+		return (-1);
+	}
+
+	void *rom_addr;
+	int error = pci_emul_alloc_rom(sc->psc_pi, rom_size, &rom_addr);
+	if (error) {
+		warnx("%s: failed to alloc rom segment", __func__);
+		munmap(rom_data, rom_size);
+		close(fd);
+		return (error);
+	}
+	memcpy(rom_addr, rom_data, rom_size);
+
+	sc->psc_bar[PCI_ROM_IDX].type = PCIBAR_ROM;
+	sc->psc_bar[PCI_ROM_IDX].addr = (uint64_t)rom_addr;
+	sc->psc_bar[PCI_ROM_IDX].size = rom_size;
+
+	munmap(rom_data, rom_size);
+	close(fd);
+
+ 	return (0);
+ }
+
+static int
+passthru_init(struct vmctx *ctx, struct pci_devinst *pi, nvlist_t *nvl)
 {
 	int error, memflags, pptfd;
 	struct passthru_softc *sc;
+	const char *path;
 
+	pptfd = -1;
 	sc = NULL;
 	error = 1;
 
@@ -686,7 +760,8 @@ passthru_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts)
 		goto done;
 	}
 
-	if (opts == NULL || passthru_dev_open(opts, &pptfd) != 0) {
+	path = get_config_value_node(nvl, "path");
+	if (path == NULL || passthru_dev_open(path, &pptfd) != 0) {
 		warnx("invalid passthru options");
 		goto done;
 	}
@@ -710,11 +785,17 @@ passthru_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts)
 	if ((error = cfginit(ctx, sc)) != 0)
 		goto done;
 
-	error = 0;		/* success */
+	/* initialize ROM */
+	if ((error = passthru_init_rom(ctx, sc,
+	    get_config_value_node(nvl, "rom"))) != 0) {
+		goto done;
+	}
+
 done:
 	if (error) {
 		free(sc);
-		vm_unassign_pptdev(ctx, pptfd);
+		if (pptfd != -1)
+			vm_unassign_pptdev(ctx, pptfd);
 	}
 	return (error);
 }
@@ -722,7 +803,8 @@ done:
 static int
 bar_access(int coff)
 {
-	if (coff >= PCIR_BAR(0) && coff < PCIR_BAR(PCI_BARMAX + 1))
+	if ((coff >= PCIR_BAR(0) && coff < PCIR_BAR(PCI_BARMAX + 1)) ||
+	    coff == PCIR_BIOS)
 		return (1);
 	else
 		return (0);
@@ -747,16 +829,16 @@ msicap_access(struct passthru_softc *sc, int coff)
 static int
 msixcap_access(struct passthru_softc *sc, int coff)
 {
-	if (sc->psc_msix.capoff == 0) 
+	if (sc->psc_msix.capoff == 0)
 		return (0);
 
-	return (coff >= sc->psc_msix.capoff && 
+	return (coff >= sc->psc_msix.capoff &&
 	        coff < sc->psc_msix.capoff + MSIX_CAPLEN);
 }
 
 static int
 passthru_cfgread(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
-    int coff, int bytes, uint32_t *rv)
+		int coff, int bytes, uint32_t *rv)
 {
 	struct passthru_softc *sc;
 
@@ -765,7 +847,8 @@ passthru_cfgread(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
 	/*
 	 * PCI BARs and MSI capability is emulated.
 	 */
-	if (bar_access(coff) || msicap_access(sc, coff))
+	if (bar_access(coff) || msicap_access(sc, coff) ||
+	    msixcap_access(sc, coff))
 		return (-1);
 
 	/*
@@ -794,20 +877,20 @@ passthru_cfgread(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
 	if (coff == PCIR_COMMAND) {
 		if (bytes <= 2)
 			return (-1);
-		*rv = pci_get_cfgdata16(pi, PCIR_COMMAND) << 16 |
-		    read_config(sc, PCIR_STATUS, 2);
+		*rv = passthru_read_config(sc, PCIR_STATUS, 2) << 16 |
+		    pci_get_cfgdata16(pi, PCIR_COMMAND);
 		return (0);
 	}
 
 	/* Everything else just read from the device's config space */
-	*rv = read_config(sc, coff, bytes);
+	*rv = passthru_read_config(sc, coff, bytes);
 
 	return (0);
 }
 
 static int
 passthru_cfgwrite(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
-    int coff, int bytes, uint32_t val)
+		  int coff, int bytes, uint32_t val)
 {
 	int error, msix_table_entries, i;
 	struct passthru_softc *sc;
@@ -825,8 +908,8 @@ passthru_cfgwrite(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
 	 * MSI capability is emulated
 	 */
 	if (msicap_access(sc, coff)) {
-		msicap_cfgwrite(pi, sc->psc_msi.capoff, coff, bytes, val);
-
+		pci_emul_capwrite(pi, coff, bytes, val, sc->psc_msi.capoff,
+		    PCIY_MSI);
 		error = vm_setup_pptdev_msi(ctx, vcpu, sc->pptfd,
 		    pi->pi_msi.addr, pi->pi_msi.msg_data, pi->pi_msi.maxmsgnum);
 		if (error != 0)
@@ -835,7 +918,8 @@ passthru_cfgwrite(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
 	}
 
 	if (msixcap_access(sc, coff)) {
-		msixcap_cfgwrite(pi, sc->psc_msix.capoff, coff, bytes, val);
+		pci_emul_capwrite(pi, coff, bytes, val, sc->psc_msix.capoff,
+		    PCIY_MSIX);
 		if (pi->pi_msix.enabled) {
 			msix_table_entries = pi->pi_msix.table_count;
 			for (i = 0; i < msix_table_entries; i++) {
@@ -848,6 +932,10 @@ passthru_cfgwrite(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
 				if (error)
 					err(1, "vm_setup_pptdev_msix");
 			}
+		} else {
+			error = vm_disable_pptdev_msix(ctx, sc->pptfd);
+			if (error)
+				err(1, "vm_disable_pptdev_msix");
 		}
 		return (0);
 	}
@@ -864,7 +952,7 @@ passthru_cfgwrite(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
 	}
 #endif
 
-	write_config(sc, coff, bytes, val);
+	passthru_write_config(sc, coff, bytes, val);
 	if (coff == PCIR_COMMAND) {
 		cmd_old = pci_get_cfgdata16(pi, PCIR_COMMAND);
 		if (bytes == 1)
@@ -879,12 +967,12 @@ passthru_cfgwrite(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
 
 static void
 passthru_write(struct vmctx *ctx, int vcpu, struct pci_devinst *pi, int baridx,
-    uint64_t offset, int size, uint64_t value)
+	       uint64_t offset, int size, uint64_t value)
 {
 	struct passthru_softc *sc = pi->pi_arg;
 
 	if (baridx == pci_msix_table_bar(pi)) {
-		passthru_msix_table_write(ctx, vcpu, sc, offset, size, value);
+		msix_table_write(ctx, vcpu, sc, offset, size, value);
 	} else {
 		struct ppt_bar_io pbi;
 
@@ -900,13 +988,13 @@ passthru_write(struct vmctx *ctx, int vcpu, struct pci_devinst *pi, int baridx,
 
 static uint64_t
 passthru_read(struct vmctx *ctx, int vcpu, struct pci_devinst *pi, int baridx,
-    uint64_t offset, int size)
+	      uint64_t offset, int size)
 {
 	struct passthru_softc *sc = pi->pi_arg;
 	uint64_t val;
 
 	if (baridx == pci_msix_table_bar(pi)) {
-		val = passthru_msix_table_read(sc, offset, size);
+		val = msix_table_read(sc, offset, size);
 	} else {
 		struct ppt_bar_io pbi;
 
@@ -925,12 +1013,118 @@ passthru_read(struct vmctx *ctx, int vcpu, struct pci_devinst *pi, int baridx,
 	return (val);
 }
 
+static void
+passthru_msix_addr(struct vmctx *ctx, struct pci_devinst *pi, int baridx,
+		   int enabled, uint64_t address)
+{
+	struct passthru_softc *sc;
+	size_t remaining;
+	uint32_t table_size, table_offset;
+
+	sc = pi->pi_arg;
+	table_offset = rounddown2(pi->pi_msix.table_offset, 4096);
+	if (table_offset > 0) {
+		if (!enabled) {
+			if (vm_unmap_pptdev_mmio(ctx, sc->pptfd, address,
+			    table_offset) != 0)
+				warnx("pci_passthru: unmap_pptdev_mmio failed");
+		} else {
+			if (vm_map_pptdev_mmio(ctx, sc->pptfd, address,
+			    table_offset, sc->psc_bar[baridx].addr) != 0)
+				warnx("pci_passthru: map_pptdev_mmio failed");
+		}
+	}
+	table_size = pi->pi_msix.table_offset - table_offset;
+	table_size += pi->pi_msix.table_count * MSIX_TABLE_ENTRY_SIZE;
+	table_size = roundup2(table_size, 4096);
+	remaining = pi->pi_bar[baridx].size - table_offset - table_size;
+	if (remaining > 0) {
+		address += table_offset + table_size;
+		if (!enabled) {
+			if (vm_unmap_pptdev_mmio(ctx, sc->pptfd, address,
+			    remaining) != 0)
+				warnx("pci_passthru: unmap_pptdev_mmio failed");
+		} else {
+			if (vm_map_pptdev_mmio(ctx, sc->pptfd, address,
+			    remaining, sc->psc_bar[baridx].addr +
+			    table_offset + table_size) != 0)
+				warnx("pci_passthru: map_pptdev_mmio failed");
+		}
+	}
+}
+
+static void
+passthru_mmio_addr(struct vmctx *ctx, struct pci_devinst *pi, int baridx,
+		   int enabled, uint64_t address)
+{
+	struct passthru_softc *sc;
+
+	sc = pi->pi_arg;
+	if (!enabled) {
+		if (vm_unmap_pptdev_mmio(ctx, sc->pptfd, address,
+		    sc->psc_bar[baridx].size) != 0)
+			warnx("pci_passthru: unmap_pptdev_mmio failed");
+	} else {
+		if (vm_map_pptdev_mmio(ctx, sc->pptfd, address,
+		    sc->psc_bar[baridx].size, sc->psc_bar[baridx].addr) != 0)
+			warnx("pci_passthru: map_pptdev_mmio failed");
+	}
+}
+
+static void
+passthru_addr_rom(struct pci_devinst *const pi, const int idx,
+    const int enabled)
+{
+	const uint64_t addr = pi->pi_bar[idx].addr;
+	const uint64_t size = pi->pi_bar[idx].size;
+
+	if (!enabled) {
+		if (vm_munmap_memseg(pi->pi_vmctx, addr, size) != 0) {
+			errx(4, "%s: munmap_memseg @ [%016lx - %016lx] failed",
+			    __func__, addr, addr + size);
+		}
+
+	} else {
+		if (vm_mmap_memseg(pi->pi_vmctx, addr, VM_PCIROM,
+			pi->pi_romoffset, size, PROT_READ | PROT_EXEC) != 0) {
+			errx(4, "%s: mnmap_memseg @ [%016lx - %016lx]  failed",
+			    __func__, addr, addr + size);
+		}
+	}
+}
+
+static void
+passthru_addr(struct vmctx *ctx, struct pci_devinst *pi, int baridx,
+    int enabled, uint64_t address)
+{
+	switch (pi->pi_bar[baridx].type) {
+	case PCIBAR_IO:
+		/* IO BARs are emulated */
+		break;
+	case PCIBAR_ROM:
+		passthru_addr_rom(pi, baridx, enabled);
+		break;
+	case PCIBAR_MEM32:
+	case PCIBAR_MEM64:
+		if (baridx == pci_msix_table_bar(pi))
+			passthru_msix_addr(ctx, pi, baridx, enabled, address);
+		else
+			passthru_mmio_addr(ctx, pi, baridx, enabled, address);
+		break;
+	default:
+		errx(4, "%s: invalid BAR type %d", __func__,
+		    pi->pi_bar[baridx].type);
+	}
+}
+
 struct pci_devemu passthru = {
 	.pe_emu		= "passthru",
 	.pe_init	= passthru_init,
+	.pe_legacy_config = passthru_legacy_config,
 	.pe_cfgwrite	= passthru_cfgwrite,
 	.pe_cfgread	= passthru_cfgread,
 	.pe_barwrite 	= passthru_write,
 	.pe_barread    	= passthru_read,
+	.pe_baraddr	= passthru_addr,
 };
 PCI_EMUL_SET(passthru);

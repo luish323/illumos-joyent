@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright 2018 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2020 Tintri by DDN, Inc. All rights reserved.
  */
 
 /*
@@ -179,6 +179,8 @@ preserve_some:
 	/* preserve_opens == SMB2_DH_PRESERVE_SOME */
 
 	switch (of->dh_vers) {
+		uint32_t ol_state;
+
 	case SMB2_RESILIENT:
 		return (B_TRUE);
 
@@ -188,7 +190,11 @@ preserve_some:
 		/* FALLTHROUGH */
 	case SMB2_DURABLE_V1:
 		/* IS durable (v1 or v2) */
-		if ((of->f_oplock.og_state & (OPLOCK_LEVEL_BATCH |
+		if (of->f_lease != NULL)
+			ol_state = of->f_lease->ls_state;
+		else
+			ol_state = of->f_oplock.og_state;
+		if ((ol_state & (OPLOCK_LEVEL_BATCH |
 		    OPLOCK_LEVEL_CACHE_HANDLE)) != 0)
 			return (B_TRUE);
 		/* FALLTHROUGH */
@@ -360,6 +366,12 @@ smb2_dh_import_share(void *arg)
 			break;
 
 		/*
+		 * If the server's stopping, no point importing.
+		 */
+		if (smb_server_is_stopping(sr->sr_server))
+			break;
+
+		/*
 		 * Read a stream name and info
 		 */
 		rc = smb_odir_read_streaminfo(sr, od, str_info, &eof);
@@ -392,6 +404,7 @@ smb2_dh_import_share(void *arg)
 			of = NULL;
 		}
 		sr->fid_ofile = NULL;
+		smb_llist_flush(&sr->tid_tree->t_ofile_list);
 
 	} while (!eof);
 
@@ -813,7 +826,7 @@ smb2_dh_read_nvlist(smb_request_t *sr, smb_node_t *node,
 	smb_attr_t	attr;
 	iovec_t		iov;
 	uio_t		uio;
-	smb_kshare_t	*shr = sr->arg.tcon.si;
+	smb_tree_t	*tree = sr->tid_tree;
 	cred_t		*kcr = zone_kcred();
 	size_t		flen;
 	int		rc;
@@ -823,14 +836,14 @@ smb2_dh_read_nvlist(smb_request_t *sr, smb_node_t *node,
 	rc = smb_node_getattr(NULL, node, kcr, NULL, &attr);
 	if (rc != 0) {
 		cmn_err(CE_NOTE, "CA import (%s/%s) getattr rc=%d",
-		    shr->shr_path, node->od_name, rc);
+		    tree->t_resource, node->od_name, rc);
 		return (rc);
 	}
 
 	if (attr.sa_vattr.va_size < 4 ||
 	    attr.sa_vattr.va_size > sr->sr_req_length) {
 		cmn_err(CE_NOTE, "CA import (%s/%s) bad size=%" PRIu64,
-		    shr->shr_path, node->od_name,
+		    tree->t_resource, node->od_name,
 		    (uint64_t)attr.sa_vattr.va_size);
 		return (EINVAL);
 	}
@@ -847,19 +860,19 @@ smb2_dh_read_nvlist(smb_request_t *sr, smb_node_t *node,
 	rc = smb_fsop_read(sr, kcr, node, NULL, &uio, 0);
 	if (rc != 0) {
 		cmn_err(CE_NOTE, "CA import (%s/%s) read, rc=%d",
-		    shr->shr_path, node->od_name, rc);
+		    tree->t_resource, node->od_name, rc);
 		return (rc);
 	}
 	if (uio.uio_resid != 0) {
 		cmn_err(CE_NOTE, "CA import (%s/%s) short read",
-		    shr->shr_path, node->od_name);
+		    tree->t_resource, node->od_name);
 		return (EIO);
 	}
 
 	rc = nvlist_unpack(sr->sr_request_buf, flen, nvlpp, KM_SLEEP);
 	if (rc != 0) {
 		cmn_err(CE_NOTE, "CA import (%s/%s) unpack, rc=%d",
-		    shr->shr_path, node->od_name, rc);
+		    tree->t_resource, node->od_name, rc);
 		return (rc);
 	}
 

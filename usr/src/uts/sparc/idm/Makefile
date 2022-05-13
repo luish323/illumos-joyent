@@ -38,7 +38,6 @@ UTSBASE	= ../..
 #
 MODULE		= idm
 OBJECTS		= $(IDM_OBJS:%=$(OBJS_DIR)/%)
-LINTS		= $(IDM_OBJS:%.o=$(LINTS_DIR)/%.ln)
 ROOTMODULE	= $(ROOT_MISC_DIR)/$(MODULE)
 
 #
@@ -50,7 +49,6 @@ include $(UTSBASE)/sparc/Makefile.sparc
 #	Define targets
 #
 ALL_TARGET	= $(BINARY)
-LINT_TARGET	= $(MODULE).lint
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 
 #
@@ -58,7 +56,7 @@ INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 #
 DEBUG_FLGS	=
 DEBUG_DEFS	+= $(DEBUG_FLGS)
-LDFLAGS		+= -dy -Nfs/sockfs -Nmisc/ksocket
+LDFLAGS		+= -Nfs/sockfs -Nmisc/ksocket
 
 CERRWARN	+= -_gcc=-Wno-switch
 CERRWARN	+= -_gcc=-Wno-parentheses
@@ -79,12 +77,6 @@ all:		$(ALL_DEPS)
 clean:		$(CLEAN_DEPS)
 
 clobber:	$(CLOBBER_DEPS)
-
-lint:		$(LINT_DEPS)
-
-modlintlib:	$(MODLINTLIB_DEPS)
-
-clean.lint:	$(CLEAN_LINT_DEPS)
 
 install:	$(INSTALL_DEPS)
 

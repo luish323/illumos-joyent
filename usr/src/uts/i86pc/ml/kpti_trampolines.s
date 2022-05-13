@@ -10,6 +10,7 @@
  */
 /*
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
  */
 
 /*
@@ -109,14 +110,6 @@
 #include <sys/psw.h>
 #include <sys/machbrand.h>
 #include <sys/param.h>
-
-#if defined(__lint)
-
-#include <sys/types.h>
-#include <sys/thread.h>
-#include <sys/systm.h>
-
-#else	/* __lint */
 
 #include <sys/segments.h>
 #include <sys/pcb.h>
@@ -264,7 +257,7 @@ kpti_kbase:
 	pushq	%r14;				\
 	subq	$KPTI_R14, %rsp;		\
 	/* Check for clobbering */		\
-	cmp	$0, KPTI_FLAG(%rsp);		\
+	cmpq	$0, KPTI_FLAG(%rsp);		\
 	je	1f;				\
 	/* Don't worry, this totally works */	\
 	int	$8;				\
@@ -414,7 +407,7 @@ tr_sysc_ret_start:
 2:
 	swapgs
 	sti
-	sysexit
+	SYSEXITL
 	SET_SIZE(tr_sysexit)
 
 .global	tr_sysc_ret_end
@@ -820,4 +813,3 @@ tr_intr_ret_end:
 kpti_tramp_end:
 	nop
 
-#endif	/* __lint */

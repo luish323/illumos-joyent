@@ -2463,7 +2463,7 @@ kgrep_subr(kgrep_cb_func *cb, void *cbdata)
 
 	if (mdb_get_state() == MDB_STATE_RUNNING) {
 		mdb_warn("kgrep can only be run on a system "
-		    "dump or under kmdb; see dumpadm(1M)\n");
+		    "dump or under kmdb; see dumpadm(8)\n");
 		return (DCMD_ERR);
 	}
 
@@ -2995,7 +2995,7 @@ cpu_walk_init(mdb_walk_state_t *wsp)
 	int max_ncpus, i = 0;
 	uintptr_t current, first;
 	cpu_t cpu, panic_cpu;
-	uintptr_t panicstr, addr;
+	uintptr_t panicstr, addr = 0;
 	GElf_Sym sym;
 
 	cw = mdb_zalloc(sizeof (cpu_walk_t), UM_SLEEP | UM_GC);
@@ -3160,7 +3160,7 @@ cpuinfo_walk_cpu(uintptr_t addr, const cpu_t *cpu, cpuinfo_data_t *cid)
 	kthread_t t;
 	disp_t disp;
 	mdb_cpuinfo_proc_t p;
-	uintptr_t pinned;
+	uintptr_t pinned = 0;
 	char **flagbuf;
 	int nflaglines = 0, flagline = 0, bspl, rval = WALK_NEXT;
 
@@ -4021,7 +4021,7 @@ panicinfo(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 
 	if (!mdb_prop_postmortem) {
 		mdb_warn("panicinfo can only be run on a system "
-		    "dump; see dumpadm(1M)\n");
+		    "dump; see dumpadm(8)\n");
 		return (DCMD_ERR);
 	}
 

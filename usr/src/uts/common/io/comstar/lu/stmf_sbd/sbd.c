@@ -56,9 +56,9 @@
 extern sbd_status_t sbd_pgr_meta_init(sbd_lu_t *sl);
 extern sbd_status_t sbd_pgr_meta_load(sbd_lu_t *sl);
 extern void sbd_pgr_reset(sbd_lu_t *sl);
-extern int HardwareAcceleratedLocking;
-extern int HardwareAcceleratedInit;
-extern int HardwareAcceleratedMove;
+extern uint8_t HardwareAcceleratedLocking;
+extern uint8_t HardwareAcceleratedInit;
+extern uint8_t HardwareAcceleratedMove;
 extern uint8_t sbd_unmap_enable;
 
 static int sbd_getinfo(dev_info_t *dip, ddi_info_cmd_t cmd, void *arg,
@@ -2677,7 +2677,10 @@ sbd_modify_lu(sbd_modify_lu_t *mlu, int struct_sz, uint32_t *err_ret)
 
 	/* if there is data in the buf, null terminate it */
 	if (struct_sz > sizeof (*mlu)) {
-		mlu->mlu_buf[struct_sz - sizeof (*mlu) + 8 - 1] = 0;
+		char *mlu_buf = (char *)mlu;
+
+		mlu_buf += sizeof (*mlu) - 8;
+		mlu_buf[struct_sz - sizeof (*mlu) + 8 - 1] = '\0';
 	}
 
 	*err_ret = 0;
@@ -2904,7 +2907,10 @@ sbd_set_global_props(sbd_global_props_t *mlu, int struct_sz,
 
 	/* if there is data in the buf, null terminate it */
 	if (struct_sz > sizeof (*mlu)) {
-		mlu->mlu_buf[struct_sz - sizeof (*mlu) + 8 - 1] = 0;
+		char *mlu_buf = (char *)mlu;
+
+		mlu_buf += sizeof (*mlu) - 8;
+		mlu_buf[struct_sz - sizeof (*mlu) + 8 - 1] = '\0';
 	}
 
 	*err_ret = 0;

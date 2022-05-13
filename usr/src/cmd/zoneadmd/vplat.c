@@ -24,6 +24,7 @@
  * Copyright 2018, Joyent Inc.
  * Copyright (c) 2015, 2016 by Delphix. All rights reserved.
  * Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2020 RackTop Systems Inc.
  */
 
 /*
@@ -220,10 +221,18 @@ extern int _autofssys(int, void *);
 static int
 autofs_cleanup(zoneid_t zoneid)
 {
+	int r;
+
 	/*
 	 * Ask autofs to unmount all trigger nodes in the given zone.
+	 * Handle ENOSYS in the case that the autofs kernel module is not
+	 * installed.
 	 */
-	return (_autofssys(AUTOFS_UNMOUNTALL, (void *)((uintptr_t)zoneid)));
+	r = _autofssys(AUTOFS_UNMOUNTALL, (void *)((uintptr_t)zoneid));
+	if (r != 0 && errno == ENOSYS) {
+		return (0);
+	}
+	return (r);
 }
 
 static void
@@ -1178,6 +1187,9 @@ mount_one_dev(zlog_t *zlogp, char *devpath, zone_mnt_t mount_cmd)
 	case ZS_EXCLUSIVE:
 		curr_iptype = "exclusive";
 		break;
+	default:
+		zerror(zlogp, B_FALSE, "bad ip-type");
+		goto cleanup;
 	}
 	if (curr_iptype == NULL)
 		abort();
@@ -1277,7 +1289,7 @@ mount_one(zlog_t *zlogp, struct zone_fstab *fsptr, const char *rootpath,
 	/*
 	 * In general the strategy here is to do just as much verification as
 	 * necessary to avoid crashing or otherwise doing something bad; if the
-	 * administrator initiated the operation via zoneadm(1m), they'll get
+	 * administrator initiated the operation via zoneadm(8), they'll get
 	 * auto-verification which will let them know what's wrong.  If they
 	 * modify the zone configuration of a running zone, and don't attempt
 	 * to verify that it's OK, then we won't crash but won't bother trying
@@ -2234,6 +2246,9 @@ configure_one_interface(zlog_t *zlogp, zoneid_t zone_id,
 	if (ioctl(s, SIOCLIFADDIF, (caddr_t)&lifr) < 0) {
 		/*
 		 * Here, we know that the interface can't be brought up.
+		 * A similar warning message was already printed out to
+		 * the console by zoneadm(8) so instead we log the
+		 * message to syslog and continue.
 		 */
 		(void) close(s);
 		return (Z_OK);
@@ -2376,7 +2391,7 @@ configure_one_interface(zlog_t *zlogp, zoneid_t zone_id,
 		 */
 		char buffer[INET6_ADDRSTRLEN];
 		void  *addr;
-		const char *nomatch = "no matching subnet found in netmasks(4)";
+		const char *nomatch = "no matching subnet found in netmasks(5)";
 
 		if (af == AF_INET)
 			addr = &((struct sockaddr_in *)
@@ -3251,6 +3266,9 @@ get_privset(zlog_t *zlogp, priv_set_t *privs, zone_mnt_t mount_cmd)
 		case ZS_EXCLUSIVE:
 			curr_iptype = "exclusive";
 			break;
+		default:
+			zerror(zlogp, B_FALSE, "bad ip-type");
+			return (-1);
 		}
 
 		if (zonecfg_default_privset(privs, curr_iptype) == Z_OK)
@@ -4192,7 +4210,7 @@ get_zone_label(zlog_t *zlogp, priv_set_t *privs)
 
 	if (zcent == NULL) {
 		zerror(zlogp, B_FALSE, "zone requires a label assignment. "
-		    "See tnzonecfg(4)");
+		    "See tnzonecfg(5)");
 	} else {
 		if (zlabel == NULL)
 			zlabel = m_label_alloc(MAC_LABEL);
@@ -4422,7 +4440,7 @@ setup_zone_rm(zlog_t *zlogp, char *zone_name, zoneid_t zoneid)
 			    "scheduling class for\nthis zone.  FSS will be "
 			    "used for processes\nin the zone but to get the "
 			    "full benefit of FSS,\nit should be the default "
-			    "scheduling class.\nSee dispadmin(1M) for more "
+			    "scheduling class.\nSee dispadmin(8) for more "
 			    "details.");
 
 			if (zone_setattr(zoneid, ZONE_ATTR_SCHED_CLASS, "FSS",
@@ -4465,7 +4483,7 @@ setup_zone_rm(zlog_t *zlogp, char *zone_name, zoneid_t zoneid)
 		    "enabled.\nThe system will not dynamically adjust the\n"
 		    "processor allocation within the specified range\n"
 		    "until svc:/system/pools/dynamic is enabled.\n"
-		    "See poold(1M).");
+		    "See poold(8).");
 	}
 
 	/* The following is a warning, not an error. */
@@ -4545,78 +4563,114 @@ setup_zone_hostid(zone_dochandle_t handle, zlog_t *zlogp, zoneid_t zoneid)
 }
 
 static int
+secflags_parse_check(secflagset_t *flagset, const char *flagstr, char *descr,
+    zlog_t *zlogp)
+{
+	secflagdelta_t delt;
+
+	if (secflags_parse(NULL, flagstr, &delt) == -1) {
+		zerror(zlogp, B_FALSE,
+		    "failed to parse %s security-flags '%s': %s",
+		    descr, flagstr, strerror(errno));
+		return (Z_BAD_PROPERTY);
+	}
+
+	if (delt.psd_ass_active != B_TRUE) {
+		zerror(zlogp, B_FALSE,
+		    "relative security-flags are not allowed "
+		    "(%s security-flags: '%s')", descr, flagstr);
+		return (Z_BAD_PROPERTY);
+	}
+
+	secflags_copy(flagset, &delt.psd_assign);
+
+	return (Z_OK);
+}
+
+static int
 setup_zone_secflags(zone_dochandle_t handle, zlog_t *zlogp, zoneid_t zoneid)
 {
 	psecflags_t secflags;
 	struct zone_secflagstab tab = {0};
-	secflagdelta_t delt;
+	secflagset_t flagset;
 	int res;
 
 	res = zonecfg_lookup_secflags(handle, &tab);
 
-	if ((res != Z_OK) &&
-	    /* The general defaulting code will handle this */
-	    (res != Z_NO_ENTRY) && (res != Z_BAD_PROPERTY)) {
-		zerror(zlogp, B_FALSE, "security-flags property is "
-		    "invalid: %d", res);
+	/*
+	 * If the zone configuration does not define any security flag sets,
+	 * then check to see if there are any default flags configured for
+	 * the brand. If so, set these as the default set for this zone and
+	 * the lower/upper sets will become none/all as per the defaults.
+	 *
+	 * If there is no brand default either, then the flags will be
+	 * defaulted below.
+	 */
+	if (res == Z_NO_ENTRY) {
+		char flagstr[ZONECFG_SECFLAGS_MAX];
+		brand_handle_t bh = NULL;
+
+		if ((bh = brand_open(brand_name)) == NULL) {
+			zerror(zlogp, B_FALSE,
+			    "unable to find brand named %s", brand_name);
+			return (Z_BAD_PROPERTY);
+		}
+		if (brand_get_secflags(bh, flagstr, sizeof (flagstr)) != 0) {
+			brand_close(bh);
+			zerror(zlogp, B_FALSE,
+			    "unable to retrieve brand default security flags");
+			return (Z_BAD_PROPERTY);
+		}
+		brand_close(bh);
+
+		if (*flagstr != '\0' &&
+		    strlcpy(tab.zone_secflags_default, flagstr,
+		    sizeof (tab.zone_secflags_default)) >=
+		    sizeof (tab.zone_secflags_default)) {
+			zerror(zlogp, B_FALSE,
+			    "brand default security-flags is too long");
+			return (Z_BAD_PROPERTY);
+		}
+	} else if (res != Z_OK) {
+		zerror(zlogp, B_FALSE,
+		    "security-flags property is invalid: %d", res);
 		return (res);
 	}
 
-	if (strlen(tab.zone_secflags_lower) == 0)
+	if (strlen(tab.zone_secflags_lower) == 0) {
 		(void) strlcpy(tab.zone_secflags_lower, "none",
 		    sizeof (tab.zone_secflags_lower));
-	if (strlen(tab.zone_secflags_default) == 0)
+	}
+	if (strlen(tab.zone_secflags_default) == 0) {
 		(void) strlcpy(tab.zone_secflags_default,
 		    tab.zone_secflags_lower,
 		    sizeof (tab.zone_secflags_default));
-	if (strlen(tab.zone_secflags_upper) == 0)
+	}
+	if (strlen(tab.zone_secflags_upper) == 0) {
 		(void) strlcpy(tab.zone_secflags_upper, "all",
 		    sizeof (tab.zone_secflags_upper));
-
-	if (secflags_parse(NULL, tab.zone_secflags_default,
-	    &delt) == -1) {
-		zerror(zlogp, B_FALSE, "default security-flags: '%s'"
-		    "are invalid", tab.zone_secflags_default);
-		return (Z_BAD_PROPERTY);
-	} else if (delt.psd_ass_active != B_TRUE) {
-		zerror(zlogp, B_FALSE, "relative security-flags are not "
-		    "allowed in zone configuration (default "
-		    "security-flags: '%s')",
-		    tab.zone_secflags_default);
-		return (Z_BAD_PROPERTY);
-	} else {
-		secflags_copy(&secflags.psf_inherit, &delt.psd_assign);
-		secflags_copy(&secflags.psf_effective, &delt.psd_assign);
 	}
 
-	if (secflags_parse(NULL, tab.zone_secflags_lower,
-	    &delt) == -1) {
-		zerror(zlogp, B_FALSE, "lower security-flags: '%s'"
-		    "are invalid", tab.zone_secflags_lower);
-		return (Z_BAD_PROPERTY);
-	} else if (delt.psd_ass_active != B_TRUE) {
-		zerror(zlogp, B_FALSE, "relative security-flags are not "
-		    "allowed in zone configuration (lower "
-		    "security-flags: '%s')",
-		    tab.zone_secflags_lower);
-		return (Z_BAD_PROPERTY);
+	if ((res = secflags_parse_check(&flagset, tab.zone_secflags_default,
+	    "default", zlogp)) != Z_OK) {
+		return (res);
 	} else {
-		secflags_copy(&secflags.psf_lower, &delt.psd_assign);
+		secflags_copy(&secflags.psf_inherit, &flagset);
+		secflags_copy(&secflags.psf_effective, &flagset);
 	}
 
-	if (secflags_parse(NULL, tab.zone_secflags_upper,
-	    &delt) == -1) {
-		zerror(zlogp, B_FALSE, "upper security-flags: '%s'"
-		    "are invalid", tab.zone_secflags_upper);
-		return (Z_BAD_PROPERTY);
-	} else if (delt.psd_ass_active != B_TRUE) {
-		zerror(zlogp, B_FALSE, "relative security-flags are not "
-		    "allowed in zone configuration (upper "
-		    "security-flags: '%s')",
-		    tab.zone_secflags_upper);
-		return (Z_BAD_PROPERTY);
+	if ((res = secflags_parse_check(&flagset, tab.zone_secflags_lower,
+	    "lower", zlogp)) != Z_OK) {
+		return (res);
 	} else {
-		secflags_copy(&secflags.psf_upper, &delt.psd_assign);
+		secflags_copy(&secflags.psf_lower, &flagset);
+	}
+
+	if ((res = secflags_parse_check(&flagset, tab.zone_secflags_upper,
+	    "upper", zlogp)) != Z_OK) {
+		return (res);
+	} else {
+		secflags_copy(&secflags.psf_upper, &flagset);
 	}
 
 	if (!psecflags_validate(&secflags)) {
@@ -4730,13 +4784,10 @@ vplat_create(zlog_t *zlogp, zone_mnt_t mount_cmd, zoneid_t zone_did)
 		zerror(zlogp, B_TRUE, "unable to determine ip-type");
 		return (-1);
 	}
-	switch (iptype) {
-	case ZS_SHARED:
-		flags = 0;
-		break;
-	case ZS_EXCLUSIVE:
+	if (iptype == ZS_EXCLUSIVE) {
 		flags = ZCF_NET_EXCL;
-		break;
+	} else {
+		flags = 0;
 	}
 	if (flags == -1)
 		abort();

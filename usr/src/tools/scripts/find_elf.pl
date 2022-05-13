@@ -22,6 +22,7 @@
 
 #
 # Copyright (c) 2009, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
 #
 
 #
@@ -57,7 +58,40 @@ use POSIX qw(getenv);
 use Getopt::Std;
 use File::Basename;
 use IO::Dir;
+use Config;
 
+BEGIN {
+	if ($Config{useithreads}) {
+		require threads;
+		require threads::shared;
+		threads::shared->import(qw(share));
+		require Thread::Queue;
+	}
+}
+
+#
+# We need to clamp the maximum number of threads that we use. Because
+# this program is mostly an exercise in fork1, more threads doesn't
+# actually help us after a certain point as we just spend more and more
+# time trying to stop all of our LWPs than making forward progress.
+# We've seen experimentally on both 2P systems with 128 cores and 1P
+# systems with 16 cores that around 8 threads is a relative sweet spot.
+#
+chomp (my $NPROCESSORS_ONLN = `getconf NPROCESSORS_ONLN 2>/dev/null` || 1);
+my $max_threads = $ENV{DMAKE_MAX_JOBS} || $NPROCESSORS_ONLN;
+if ($max_threads > 8) {
+	$max_threads = 8;
+}
+
+my $tq;
+
+if ($Config{useithreads}) {
+	share(%Output);
+	share(%id_hash);
+	share(%alias_hash);
+
+	$tq = Thread::Queue->new;
+}
 
 ## GetObjectInfo(path)
 #
@@ -194,11 +228,13 @@ sub ProcFile {
 	# Obtain the ELF information for this object.
 	@Elf = GetObjectInfo($FullPath);
 
-        # Return quietly if:
-	#	- Not an executable or sharable object
-	#	- An executable, but the -s option was used.
-	if ((($Elf[1] ne 'EXEC') && ($Elf[1] ne 'DYN')) ||
-	    (($Elf[1] eq 'EXEC') && $opt{s})) {
+	if ($Elf[1] eq 'NONE') {
+		return;
+	}
+
+        # Return quietly if object is executable or relocatable but the -s
+        # option was used.
+	if ((($Elf[1] eq 'EXEC') || ($Elf[1] eq 'REL')) && $opt{s}) {
 		return;
 	}
 
@@ -229,6 +265,23 @@ sub ProcFile {
 #		or generating nonsensical paths (i.e., 32/amd64/...).
 #
 sub ProcDir {
+	if ($Config{useithreads}) {
+		threads->create(sub {
+			while (my $q = $tq->dequeue) {
+				ProcFile(@$q)
+			}
+		}) for (1 .. $max_threads);
+	}
+
+	_ProcDir(@_);
+
+	if ($Config{useithreads}) {
+		$tq->end;
+		$_->join for threads->list;
+	}
+}
+
+sub _ProcDir {
 	my($FullDir, $RelDir, $AliasedPath, $SelfSymlink) = @_;
 	my($NewFull, $NewRel, $Entry);
 
@@ -279,7 +332,7 @@ sub ProcDir {
 				# via that link.
 				next if $SelfSymlink;
 
-				ProcDir($NewFull, $NewRel, $RecurseAliasedPath,
+				_ProcDir($NewFull, $NewRel, $RecurseAliasedPath,
 				    $RecurseSelfSymlink);
 				next;
 			}
@@ -296,8 +349,16 @@ sub ProcDir {
 			# Process any standard files.
 			if (-f _) {
 				my ($dev, $ino) = stat(_);
-				ProcFile($NewFull, $NewRel, $AliasedPath,
-				    $IsSymLink, $dev, $ino);
+				if ($Config{useithreads}) {
+					$tq->enqueue([ $NewFull, $NewRel,
+					    $AliasedPath, $IsSymLink, $dev,
+					    $ino ]);
+				}
+				else {
+					ProcFile($NewFull, $NewRel,
+					    $AliasedPath, $IsSymLink, $dev,
+					    $ino);
+				}
 				next;
 			}
 

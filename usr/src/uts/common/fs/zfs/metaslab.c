@@ -2414,7 +2414,7 @@ metaslab_load_impl(metaslab_t *msp)
 	msp->ms_max_size = metaslab_largest_allocatable(msp);
 	ASSERT3U(max_size, <=, msp->ms_max_size);
 	hrtime_t load_end = gethrtime();
-		msp->ms_load_time = load_end;
+	msp->ms_load_time = load_end;
 	if (zfs_flags & ZFS_DEBUG_LOG_SPACEMAP) {
 		zfs_dbgmsg("loading: txg %llu, spa %s, vdev_id %llu, "
 		    "ms_id %llu, smp_length %llu, "
@@ -5639,7 +5639,7 @@ metaslab_claim_concrete(vdev_t *vd, uint64_t offset, uint64_t size,
 	range_tree_remove(msp->ms_allocatable, offset, size);
 	range_tree_clear(msp->ms_trim, offset, size);
 
-	if (spa_writeable(spa)) {	/* don't dirty if we're zdb(1M) */
+	if (spa_writeable(spa)) {	/* don't dirty if we're zdb(8) */
 		metaslab_class_t *mc = msp->ms_group->mg_class;
 		multilist_sublist_t *mls =
 		    multilist_sublist_lock_obj(mc->mc_metaslab_txg_list, msp);
@@ -5686,7 +5686,7 @@ metaslab_claim_impl(vdev_t *vd, uint64_t offset, uint64_t size, uint64_t txg)
 		metaslab_claim_cb_arg_t arg;
 
 		/*
-		 * Only zdb(1M) can claim on indirect vdevs.  This is used
+		 * Only zdb(8) can claim on indirect vdevs.  This is used
 		 * to detect leaks of mapped space (that are not accounted
 		 * for in the obsolete counts, spacemap, or bpobj).
 		 */

@@ -19,7 +19,7 @@
 # CDDL HEADER END
 #
 #
-# Copyright 2019 Joyent, Inc.
+# Copyright 2020 Joyent, Inc.
 # Copyright 2017 ASS-Einrichtungssysteme GmbH
 #
 # This lists all the files that illumos-joyent delivers as part of a build.
@@ -31,14 +31,25 @@ d boot/acpi 0755 root sys
 d boot/acpi/tables 0755 root sys
 d boot/fonts 0755 root sys
 f boot/fonts/10x18.fnt 0444 root bin
+f boot/fonts/10x18b.fnt 0444 root bin
 f boot/fonts/10x20.fnt 0444 root bin
+f boot/fonts/10x20b.fnt 0444 root bin
 f boot/fonts/11x22.fnt 0444 root bin
+f boot/fonts/11x22b.fnt 0444 root bin
 f boot/fonts/12x24.fnt 0444 root bin
+f boot/fonts/12x24b.fnt 0444 root bin
 f boot/fonts/14x28.fnt 0444 root bin
+f boot/fonts/14x28b.fnt 0444 root bin
 f boot/fonts/16x32.fnt 0444 root bin
+f boot/fonts/16x32b.fnt 0444 root bin
 f boot/fonts/6x12.fnt 0444 root bin
+f boot/fonts/6x12b.fnt 0444 root bin
 f boot/fonts/8x14.fnt 0444 root bin
+f boot/fonts/8x14b.fnt 0444 root bin
+f boot/fonts/8x14v.fnt 0444 root bin
 f boot/fonts/8x16.fnt 0444 root bin
+f boot/fonts/8x16b.fnt 0444 root bin
+f boot/fonts/8x16v.fnt 0444 root bin
 f boot/fonts/Gallant19.fnt 0444 root bin
 f boot/fonts/fonts.dir 0444 root bin
 d boot/forth 0755 root root
@@ -537,6 +548,7 @@ d etc/skel 0755 root sys
 f etc/skel/.bashrc 0644 root other
 f etc/skel/.kshrc 0644 root other
 f etc/skel/.profile 0644 root other
+f etc/smhba.conf 0644 root sys
 d etc/sock2path.d 0755 root sys
 f etc/sock2path.d/driver%2Fnetwork%2Fbpf 0644 root sys
 f etc/sock2path.d/driver%2Fnetwork%2Fsdp 0644 root sys
@@ -610,6 +622,7 @@ f kernel/drv/aac.conf 0644 root sys
 f kernel/drv/acpi_drv.conf 0644 root sys
 f kernel/drv/adpu320.conf 0644 root sys
 f kernel/drv/aggr.conf 0644 root sys
+f kernel/drv/amdzen.conf 0644 root sys
 d kernel/drv/amd64 0755 root sys
 f kernel/drv/amd64/aac 0755 root sys
 f kernel/drv/amd64/acpi_drv 0755 root sys
@@ -618,7 +631,8 @@ f kernel/drv/amd64/afe 0755 root sys
 f kernel/drv/amd64/aggr 0755 root sys
 f kernel/drv/amd64/ahci 0755 root sys
 f kernel/drv/amd64/amd8111s 0755 root sys
-f kernel/drv/amd64/amdf17nbdf 0755 root sys
+f kernel/drv/amd64/amdzen 0755 root sys
+f kernel/drv/amd64/amdzen_stub 0755 root sys
 f kernel/drv/amd64/amdnbtemp 0755 root sys
 f kernel/drv/amd64/amr 0755 root sys
 f kernel/drv/amd64/arcmsr 0755 root sys
@@ -656,11 +670,11 @@ f kernel/drv/amd64/dlpistub 0755 root sys
 f kernel/drv/amd64/dmfe 0755 root sys
 f kernel/drv/amd64/dnet 0755 root sys
 f kernel/drv/amd64/dprov 0755 root sys
-f kernel/drv/amd64/dr_sas 0755 root sys
 f kernel/drv/amd64/dtrace 0755 root sys
 f kernel/drv/amd64/e1000g 0755 root sys
 f kernel/drv/amd64/ehci 0755 root sys
 f kernel/drv/amd64/eibnx 0755 root sys
+f kernel/drv/amd64/ena 0755 root sys
 f kernel/drv/amd64/fasttrap 0755 root sys
 f kernel/drv/amd64/fbt 0755 root sys
 f kernel/drv/amd64/fcp 0755 root sys
@@ -675,6 +689,8 @@ f kernel/drv/amd64/i8042 0755 root sys
 f kernel/drv/amd64/icmp 0755 root sys
 f kernel/drv/amd64/icmp6 0755 root sys
 f kernel/drv/amd64/igb 0755 root sys
+f kernel/drv/amd64/imc 0755 root sys
+f kernel/drv/amd64/imcstub 0755 root sys
 f kernel/drv/amd64/intel_nb5000 0755 root sys
 f kernel/drv/amd64/intel_nhm 0755 root sys
 f kernel/drv/amd64/intel_nhmex 0755 root sys
@@ -695,6 +711,7 @@ f kernel/drv/amd64/ixgb 0755 root sys
 f kernel/drv/amd64/ixgbe 0755 root sys
 f kernel/drv/amd64/kb8042 0755 root sys
 f kernel/drv/amd64/keysock 0755 root sys
+f kernel/drv/amd64/ksensor 0755 root sys
 f kernel/drv/amd64/kmdb 0755 root sys
 f kernel/drv/amd64/kssl 0755 root sys
 f kernel/drv/amd64/llc1 0755 root sys
@@ -756,6 +773,7 @@ f kernel/drv/amd64/si3124 0755 root sys
 f kernel/drv/amd64/simnet 0755 root sys
 f kernel/drv/amd64/skd 0755 root sys
 f kernel/drv/amd64/smbios 0755 root sys
+f kernel/drv/amd64/smntemp 0755 root sys
 f kernel/drv/amd64/smp 0755 root sys
 f kernel/drv/amd64/smrt 0755 root sys
 f kernel/drv/amd64/softmac 0755 root sys
@@ -833,11 +851,11 @@ f kernel/drv/devinfo.conf 0644 root sys
 f kernel/drv/dld.conf 0644 root sys
 f kernel/drv/dlpistub.conf 0644 root sys
 f kernel/drv/dprov.conf 0644 root sys
-f kernel/drv/dr_sas.conf 0644 root sys
 f kernel/drv/dtrace.conf 0644 root sys
 f kernel/drv/e1000g.conf 0644 root sys
 f kernel/drv/ehci.conf 0644 root sys
 f kernel/drv/eibnx.conf 0644 root sys
+f kernel/drv/ena.conf 0644 root sys
 f kernel/drv/fasttrap.conf 0644 root sys
 f kernel/drv/fbt.conf 0644 root sys
 f kernel/drv/fcp.conf 0644 root sys
@@ -849,6 +867,7 @@ f kernel/drv/i40e.conf 0644 root sys
 f kernel/drv/icmp.conf 0644 root sys
 f kernel/drv/icmp6.conf 0644 root sys
 f kernel/drv/igb.conf 0644 root sys
+f kernel/drv/imc.conf 0644 root sys
 f kernel/drv/intel_nb5000.conf 0644 root sys
 f kernel/drv/intel_nhm.conf 0644 root sys
 f kernel/drv/intel_nhmex.conf 0644 root sys
@@ -866,6 +885,7 @@ f kernel/drv/iwscn.conf 0644 root sys
 f kernel/drv/ixgbe.conf 0644 root sys
 f kernel/drv/keysock.conf 0644 root sys
 f kernel/drv/kmdb.conf 0644 root sys
+f kernel/drv/ksensor.conf 0644 root sys
 f kernel/drv/kssl.conf 0644 root sys
 f kernel/drv/llc1.conf 0644 root sys
 f kernel/drv/lockstat.conf 0644 root sys
@@ -1290,6 +1310,10 @@ f lib/amd64/libinetutil.so.1 0755 root bin
 s lib/amd64/libinetutil.so=libinetutil.so.1
 f lib/amd64/libintl.so.1 0755 root bin
 s lib/amd64/libintl.so=libintl.so.1
+f lib/amd64/libipadm.so.1 0755 root bin
+s lib/amd64/libipadm.so=libipadm.so.1
+f lib/amd64/libipmp.so.1 0755 root bin
+s lib/amd64/libipmp.so=libipmp.so.1
 f lib/amd64/libkmf.so.1 0755 root bin
 s lib/amd64/libkmf.so=libkmf.so.1
 f lib/amd64/libkmfberder.so.1 0755 root bin
@@ -1371,6 +1395,7 @@ f lib/amd64/libuuid.so.1 0755 root bin
 s lib/amd64/libuuid.so=libuuid.so.1
 f lib/amd64/libuutil.so.1 0755 root bin
 s lib/amd64/libuutil.so=libuutil.so.1
+f lib/amd64/libvarpd.so.1 0755 root bin
 f lib/amd64/libvmm.so.1 0755 root bin
 f lib/amd64/libvmmapi.so.1 0755 root bin
 f lib/amd64/libw.so.1 0755 root bin
@@ -1415,7 +1440,7 @@ h lib/fs/dev/mount=etc/fs/dev/mount
 d lib/fs/hsfs 0755 root sys
 h lib/fs/hsfs/mount=etc/fs/hsfs/mount
 d lib/fs/nfs 0755 root sys
-h lib/fs/nfs/mount=etc/fs/nfs/mount
+s lib/fs/nfs/mount=../../../usr/lib/fs/nfs/mount
 d lib/fs/ufs 0755 root sys
 h lib/fs/ufs/mount=etc/fs/ufs/mount
 d lib/fs/zfs 0755 root sys
@@ -1580,6 +1605,7 @@ f lib/libuuid.so.1 0755 root bin
 s lib/libuuid.so=libuuid.so.1
 f lib/libuutil.so.1 0755 root bin
 s lib/libuutil.so=libuutil.so.1
+f lib/libvarpd.so.1 0755 root bin
 f lib/libw.so.1 0755 root bin
 s lib/libw.so=libw.so.1
 f lib/libxnet.so.1 0755 root bin
@@ -1907,8 +1933,6 @@ f platform/i86pc/kernel/drv/amd64/cpc 0755 root sys
 f platform/i86pc/kernel/drv/amd64/cpudrv 0755 root sys
 f platform/i86pc/kernel/drv/amd64/dr 0755 root sys
 f platform/i86pc/kernel/drv/amd64/fipe 0755 root sys
-f platform/i86pc/kernel/drv/amd64/imc 0755 root sys
-f platform/i86pc/kernel/drv/amd64/imcstub 0755 root sys
 f platform/i86pc/kernel/drv/amd64/ioat 0755 root sys
 f platform/i86pc/kernel/drv/amd64/isa 0755 root sys
 f platform/i86pc/kernel/drv/amd64/npe 0755 root sys
@@ -1922,7 +1946,6 @@ f platform/i86pc/kernel/drv/amd_iommu.conf 0644 root sys
 f platform/i86pc/kernel/drv/cpc.conf 0644 root sys
 f platform/i86pc/kernel/drv/dr.conf 0644 root sys
 f platform/i86pc/kernel/drv/fipe.conf 0644 root sys
-f platform/i86pc/kernel/drv/imc.conf 0644 root sys
 f platform/i86pc/kernel/drv/ioat.conf 0644 root sys
 f platform/i86pc/kernel/drv/pci-ide.conf 0644 root sys
 f platform/i86pc/kernel/drv/pit_beep.conf 0644 root sys
@@ -1946,14 +1969,21 @@ f platform/i86pc/kernel/misc/amd64/acpidev 0755 root sys
 f platform/i86pc/kernel/misc/amd64/cpr 0755 root sys
 f platform/i86pc/kernel/misc/amd64/drmach_acpi 0755 root sys
 f platform/i86pc/kernel/misc/amd64/gfx_private 0755 root sys
+f platform/i86pc/kernel/misc/amd64/pci_prd 0755 root sys
 d platform/i86pc/kernel/pcbe 0755 root sys
 d platform/i86pc/kernel/pcbe/amd64 0755 root sys
 f platform/i86pc/kernel/pcbe/amd64/pcbe.AuthenticAMD 0755 root sys
 f platform/i86pc/kernel/pcbe/amd64/pcbe.GenuineIntel.15 0755 root sys
 s platform/i86pc/kernel/pcbe/amd64/pcbe.GenuineIntel.6.122=pcbe.GenuineIntel.6.15
+s platform/i86pc/kernel/pcbe/amd64/pcbe.GenuineIntel.6.126=pcbe.GenuineIntel.6.15
+s platform/i86pc/kernel/pcbe/amd64/pcbe.GenuineIntel.6.134=pcbe.GenuineIntel.6.15
+s platform/i86pc/kernel/pcbe/amd64/pcbe.GenuineIntel.6.140=pcbe.GenuineIntel.6.15
+s platform/i86pc/kernel/pcbe/amd64/pcbe.GenuineIntel.6.141=pcbe.GenuineIntel.6.15
 s platform/i86pc/kernel/pcbe/amd64/pcbe.GenuineIntel.6.142=pcbe.GenuineIntel.6.15
 f platform/i86pc/kernel/pcbe/amd64/pcbe.GenuineIntel.6.15 0755 root sys
 s platform/i86pc/kernel/pcbe/amd64/pcbe.GenuineIntel.6.158=pcbe.GenuineIntel.6.15
+s platform/i86pc/kernel/pcbe/amd64/pcbe.GenuineIntel.6.165=pcbe.GenuineIntel.6.15
+s platform/i86pc/kernel/pcbe/amd64/pcbe.GenuineIntel.6.166=pcbe.GenuineIntel.6.15
 s platform/i86pc/kernel/pcbe/amd64/pcbe.GenuineIntel.6.23=pcbe.GenuineIntel.6.15
 s platform/i86pc/kernel/pcbe/amd64/pcbe.GenuineIntel.6.26=pcbe.GenuineIntel.6.15
 s platform/i86pc/kernel/pcbe/amd64/pcbe.GenuineIntel.6.28=pcbe.GenuineIntel.6.15
@@ -2279,6 +2309,12 @@ h platform/i86pc/ucode/GenuineIntel/00050654-04=platform/i86pc/ucode/GenuineInte
 h platform/i86pc/ucode/GenuineIntel/00050654-10=platform/i86pc/ucode/GenuineIntel/00050654-01
 h platform/i86pc/ucode/GenuineIntel/00050654-20=platform/i86pc/ucode/GenuineIntel/00050654-01
 h platform/i86pc/ucode/GenuineIntel/00050654-80=platform/i86pc/ucode/GenuineIntel/00050654-01
+f platform/i86pc/ucode/GenuineIntel/00050655-01 0444 root sys
+h platform/i86pc/ucode/GenuineIntel/00050655-02=platform/i86pc/ucode/GenuineIntel/00050655-01
+h platform/i86pc/ucode/GenuineIntel/00050655-04=platform/i86pc/ucode/GenuineIntel/00050655-01
+h platform/i86pc/ucode/GenuineIntel/00050655-10=platform/i86pc/ucode/GenuineIntel/00050655-01
+h platform/i86pc/ucode/GenuineIntel/00050655-20=platform/i86pc/ucode/GenuineIntel/00050655-01
+h platform/i86pc/ucode/GenuineIntel/00050655-80=platform/i86pc/ucode/GenuineIntel/00050655-01
 f platform/i86pc/ucode/GenuineIntel/00050656-01 0444 root sys
 h platform/i86pc/ucode/GenuineIntel/00050656-02=platform/i86pc/ucode/GenuineIntel/00050656-01
 h platform/i86pc/ucode/GenuineIntel/00050656-04=platform/i86pc/ucode/GenuineIntel/00050656-01
@@ -2293,9 +2329,15 @@ h platform/i86pc/ucode/GenuineIntel/00050657-08=platform/i86pc/ucode/GenuineInte
 h platform/i86pc/ucode/GenuineIntel/00050657-10=platform/i86pc/ucode/GenuineIntel/00050657-01
 h platform/i86pc/ucode/GenuineIntel/00050657-20=platform/i86pc/ucode/GenuineIntel/00050657-01
 h platform/i86pc/ucode/GenuineIntel/00050657-80=platform/i86pc/ucode/GenuineIntel/00050657-01
+f platform/i86pc/ucode/GenuineIntel/0005065B-01 0444 root sys
+h platform/i86pc/ucode/GenuineIntel/0005065B-02=platform/i86pc/ucode/GenuineIntel/0005065B-01
+h platform/i86pc/ucode/GenuineIntel/0005065B-04=platform/i86pc/ucode/GenuineIntel/0005065B-01
+h platform/i86pc/ucode/GenuineIntel/0005065B-08=platform/i86pc/ucode/GenuineIntel/0005065B-01
+h platform/i86pc/ucode/GenuineIntel/0005065B-10=platform/i86pc/ucode/GenuineIntel/0005065B-01
+h platform/i86pc/ucode/GenuineIntel/0005065B-20=platform/i86pc/ucode/GenuineIntel/0005065B-01
+h platform/i86pc/ucode/GenuineIntel/0005065B-80=platform/i86pc/ucode/GenuineIntel/0005065B-01
 f platform/i86pc/ucode/GenuineIntel/00050662-10 0444 root sys
 f platform/i86pc/ucode/GenuineIntel/00050663-10 0444 root sys
-f platform/i86pc/ucode/GenuineIntel/00060663-80 0444 root sys
 f platform/i86pc/ucode/GenuineIntel/00050664-10 0444 root sys
 f platform/i86pc/ucode/GenuineIntel/00050665-10 0444 root sys
 f platform/i86pc/ucode/GenuineIntel/000506C2-01 0444 root sys
@@ -2308,9 +2350,26 @@ h platform/i86pc/ucode/GenuineIntel/000506E3-04=platform/i86pc/ucode/GenuineInte
 h platform/i86pc/ucode/GenuineIntel/000506E3-10=platform/i86pc/ucode/GenuineIntel/000506E3-02
 h platform/i86pc/ucode/GenuineIntel/000506E3-20=platform/i86pc/ucode/GenuineIntel/000506E3-02
 f platform/i86pc/ucode/GenuineIntel/000506F1-01 0444 root sys
+f platform/i86pc/ucode/GenuineIntel/00060663-80 0444 root sys
+f platform/i86pc/ucode/GenuineIntel/000606A5-01 0444 root sys
+h platform/i86pc/ucode/GenuineIntel/000606A5-02=platform/i86pc/ucode/GenuineIntel/000606A5-01
+h platform/i86pc/ucode/GenuineIntel/000606A5-04=platform/i86pc/ucode/GenuineIntel/000606A5-01
+h platform/i86pc/ucode/GenuineIntel/000606A5-80=platform/i86pc/ucode/GenuineIntel/000606A5-01
+f platform/i86pc/ucode/GenuineIntel/000606A6-01 0444 root sys
+h platform/i86pc/ucode/GenuineIntel/000606A6-02=platform/i86pc/ucode/GenuineIntel/000606A6-01
+h platform/i86pc/ucode/GenuineIntel/000606A6-04=platform/i86pc/ucode/GenuineIntel/000606A6-01
+h platform/i86pc/ucode/GenuineIntel/000606A6-80=platform/i86pc/ucode/GenuineIntel/000606A6-01
 f platform/i86pc/ucode/GenuineIntel/000706A1-01 0444 root sys
 f platform/i86pc/ucode/GenuineIntel/000706A8-01 0444 root sys
 f platform/i86pc/ucode/GenuineIntel/000706E5-80 0444 root sys
+f platform/i86pc/ucode/GenuineIntel/000806A1-10 0444 root sys
+f platform/i86pc/ucode/GenuineIntel/000806C1-80 0444 root sys
+f platform/i86pc/ucode/GenuineIntel/000806C2-02 0444 root sys
+h platform/i86pc/ucode/GenuineIntel/000806C2-40=platform/i86pc/ucode/GenuineIntel/000806C2-02
+h platform/i86pc/ucode/GenuineIntel/000806C2-80=platform/i86pc/ucode/GenuineIntel/000806C2-02
+f platform/i86pc/ucode/GenuineIntel/000806D1-02 0444 root sys
+h platform/i86pc/ucode/GenuineIntel/000806D1-40=platform/i86pc/ucode/GenuineIntel/000806D1-02
+h platform/i86pc/ucode/GenuineIntel/000806D1-80=platform/i86pc/ucode/GenuineIntel/000806D1-02
 f platform/i86pc/ucode/GenuineIntel/000806E9-10 0444 root sys
 f platform/i86pc/ucode/GenuineIntel/000806E9-40 0444 root sys
 h platform/i86pc/ucode/GenuineIntel/000806E9-80=platform/i86pc/ucode/GenuineIntel/000806E9-40
@@ -2322,6 +2381,8 @@ h platform/i86pc/ucode/GenuineIntel/000806EB-80=platform/i86pc/ucode/GenuineInte
 f platform/i86pc/ucode/GenuineIntel/000806EC-04 0444 root sys
 h platform/i86pc/ucode/GenuineIntel/000806EC-10=platform/i86pc/ucode/GenuineIntel/000806EC-04
 h platform/i86pc/ucode/GenuineIntel/000806EC-80=platform/i86pc/ucode/GenuineIntel/000806EC-04
+f platform/i86pc/ucode/GenuineIntel/00090661-01 0444 root sys
+f platform/i86pc/ucode/GenuineIntel/000906C0-01 0444 root sys
 f platform/i86pc/ucode/GenuineIntel/000906E9-02 0444 root sys
 h platform/i86pc/ucode/GenuineIntel/000906E9-08=platform/i86pc/ucode/GenuineIntel/000906E9-02
 h platform/i86pc/ucode/GenuineIntel/000906E9-20=platform/i86pc/ucode/GenuineIntel/000906E9-02
@@ -2332,7 +2393,14 @@ f platform/i86pc/ucode/GenuineIntel/000906EC-02 0444 root sys
 h platform/i86pc/ucode/GenuineIntel/000906EC-20=platform/i86pc/ucode/GenuineIntel/000906EC-02
 f platform/i86pc/ucode/GenuineIntel/000906ED-02 0444 root sys
 h platform/i86pc/ucode/GenuineIntel/000906ED-20=platform/i86pc/ucode/GenuineIntel/000906ED-02
+f platform/i86pc/ucode/GenuineIntel/000A0652-20 0444 root sys
+f platform/i86pc/ucode/GenuineIntel/000A0653-02 0444 root sys
+h platform/i86pc/ucode/GenuineIntel/000A0653-20=platform/i86pc/ucode/GenuineIntel/000A0653-02
+f platform/i86pc/ucode/GenuineIntel/000A0655-02 0444 root sys
+h platform/i86pc/ucode/GenuineIntel/000A0655-20=platform/i86pc/ucode/GenuineIntel/000A0653-02
 f platform/i86pc/ucode/GenuineIntel/000A0660-80 0444 root sys
+f platform/i86pc/ucode/GenuineIntel/000A0661-80 0444 root sys
+f platform/i86pc/ucode/GenuineIntel/000A0671-02 0444 root sys
 d proc 0755 root root
 d root 0755 root root
 f root/.bash_profile 0644 root root
@@ -2444,7 +2512,6 @@ f usr/bin/amd64/prctl 0555 root bin
 f usr/bin/amd64/preap 0555 root bin
 f usr/bin/amd64/prstat 0555 root bin
 f usr/bin/amd64/prun 0555 root bin
-f usr/bin/amd64/ps 0555 root bin
 f usr/bin/amd64/psecflags 0555 root bin
 f usr/bin/amd64/psig 0555 root bin
 f usr/bin/amd64/pstack 0555 root bin
@@ -2461,9 +2528,6 @@ f usr/bin/amd64/setuname 0555 root bin
 f usr/bin/amd64/sort 0555 root bin
 f usr/bin/amd64/strings 0555 root bin
 f usr/bin/amd64/truss 0555 root bin
-h usr/bin/amd64/uptime=usr/bin/amd64/w
-f usr/bin/amd64/w 4555 root bin
-f usr/bin/amd64/ztest 4555 root bin
 f usr/bin/amt 0555 root bin
 h usr/bin/apropos=usr/bin/man
 f usr/bin/ar 0555 root bin
@@ -2523,7 +2587,6 @@ f usr/bin/crontab 4555 root bin
 f usr/bin/crypt 0555 root bin
 f usr/bin/csh 0555 root bin
 f usr/bin/csplit 0555 root bin
-f usr/bin/ctags 0555 root bin
 f usr/bin/ctfdiff 0555 root bin
 f usr/bin/ctfdump 0555 root bin
 f usr/bin/ctrun 0555 root bin
@@ -2534,6 +2597,7 @@ f usr/bin/date 0555 root bin
 f usr/bin/dc 0555 root bin
 f usr/bin/dd 0555 root bin
 h usr/bin/decrypt=usr/lib/isaexec
+f usr/bin/demangle 0555 root bin
 f usr/bin/deroff 0555 root bin
 f usr/bin/devattr 0555 root bin
 f usr/bin/devfree 0555 root bin
@@ -2760,7 +2824,7 @@ f usr/bin/profiles 0555 root bin
 f usr/bin/projects 0555 root bin
 h usr/bin/prstat=usr/lib/isaexec
 h usr/bin/prun=usr/lib/isaexec
-h usr/bin/ps=usr/lib/isaexec
+f usr/bin/ps 0555 root bin
 h usr/bin/psecflags=usr/lib/isaexec
 h usr/bin/psig=usr/lib/isaexec
 h usr/bin/pstack=usr/lib/isaexec
@@ -2875,7 +2939,7 @@ h usr/bin/uniq=usr/bin/alias
 f usr/bin/units 0555 root bin
 f usr/bin/unix2dos 0555 root bin
 f usr/bin/unpack 0555 root bin
-h usr/bin/uptime=usr/lib/isaexec
+h usr/bin/uptime=usr/bin/w
 f usr/bin/userattr 0555 root bin
 f usr/bin/uudecode 0555 root uucp
 f usr/bin/uuencode 0555 root uucp
@@ -2886,7 +2950,7 @@ f usr/bin/vgrind 0555 root bin
 f usr/bin/vmstat 0555 root bin
 f usr/bin/vndstat 0555 root bin
 f usr/bin/vtfontcvt 0555 root bin
-h usr/bin/w=usr/lib/isaexec
+f usr/bin/w 4555 root bin
 h usr/bin/wait=usr/bin/alias
 h usr/bin/wc=usr/bin/alias
 h usr/bin/whatis=usr/bin/man
@@ -2908,7 +2972,7 @@ f usr/bin/ypwhich 0555 root other
 f usr/bin/zcat 0555 root bin
 f usr/bin/ziostat 0555 root bin
 s usr/bin/zonename=../../sbin/zonename
-h usr/bin/ztest=usr/lib/isaexec
+f usr/bin/ztest 0555 root bin
 d usr/ccs 0755 root bin
 d usr/ccs/bin 0755 root bin
 d usr/ccs/bin/amd64 0755 root bin
@@ -2990,7 +3054,9 @@ f usr/include/asm/thread.h 0644 root bin
 f usr/include/assert.h 0644 root bin
 d usr/include/ast 0755 root bin
 f usr/include/ast/align.h 0644 root bin
+f usr/include/ast/aso.h 0644 root bin
 f usr/include/ast/ast.h 0644 root bin
+f usr/include/ast/ast_api.h 0644 root bin
 f usr/include/ast/ast_botch.h 0644 root bin
 f usr/include/ast/ast_ccode.h 0644 root bin
 f usr/include/ast/ast_common.h 0644 root bin
@@ -3010,21 +3076,24 @@ f usr/include/ast/ast_namval.h 0644 root bin
 f usr/include/ast/ast_ndbm.h 0644 root bin
 f usr/include/ast/ast_nl_types.h 0644 root bin
 f usr/include/ast/ast_param.h 0644 root bin
+f usr/include/ast/ast_sizeof.h 0644 root bin
 f usr/include/ast/ast_standards.h 0644 root bin
 f usr/include/ast/ast_std.h 0644 root bin
 f usr/include/ast/ast_stdio.h 0644 root bin
 f usr/include/ast/ast_sys.h 0644 root bin
 f usr/include/ast/ast_time.h 0644 root bin
 f usr/include/ast/ast_tty.h 0644 root bin
-f usr/include/ast/ast_version.h 0644 root bin
 f usr/include/ast/ast_vfork.h 0644 root bin
 f usr/include/ast/ast_wait.h 0644 root bin
 f usr/include/ast/ast_wchar.h 0644 root bin
+f usr/include/ast/ast_wctype.h 0644 root bin
 f usr/include/ast/ast_windows.h 0644 root bin
 f usr/include/ast/bytesex.h 0644 root bin
 f usr/include/ast/ccode.h 0644 root bin
 f usr/include/ast/cdt.h 0644 root bin
+f usr/include/ast/cdtlib.h 0644 root bin
 f usr/include/ast/cmd.h 0644 root bin
+f usr/include/ast/cmdarg.h 0644 root bin
 f usr/include/ast/cmdext.h 0644 root bin
 f usr/include/ast/debug.h 0644 root bin
 f usr/include/ast/dirent.h 0644 root bin
@@ -3094,6 +3163,7 @@ f usr/include/ast/vecargs.h 0644 root bin
 f usr/include/ast/vmalloc.h 0644 root bin
 f usr/include/ast/wait.h 0644 root bin
 f usr/include/ast/wchar.h 0644 root bin
+f usr/include/ast/wctype.h 0644 root bin
 f usr/include/ast/wordexp.h 0644 root bin
 f usr/include/atomic.h 0644 root bin
 f usr/include/attr.h 0644 root bin
@@ -3133,6 +3203,7 @@ f usr/include/dat/udat_config.h 0644 root bin
 f usr/include/dat/udat_redirection.h 0644 root bin
 f usr/include/dat/udat_vendor_specific.h 0644 root bin
 f usr/include/deflt.h 0644 root bin
+f usr/include/demangle-sys.h 0644 root bin
 d usr/include/des 0755 root bin
 f usr/include/des/des.h 0644 root bin
 f usr/include/des/desdata.h 0644 root bin
@@ -3202,17 +3273,17 @@ f usr/include/gssapi/gssapi_ext.h 0644 root bin
 f usr/include/hbaapi.h 0644 root bin
 d usr/include/ia32 0755 root bin
 d usr/include/ia32/sys 0755 root bin
-f usr/include/ia32/sys/asm_linkage.h 0644 root bin
+s usr/include/ia32/sys/asm_linkage.h=../../sys/asm_linkage.h
 f usr/include/ia32/sys/kdi_regs.h 0644 root bin
-f usr/include/ia32/sys/machtypes.h 0644 root bin
+s usr/include/ia32/sys/machtypes.h=../../sys/machtypes.h
 f usr/include/ia32/sys/privmregs.h 0644 root bin
 f usr/include/ia32/sys/privregs.h 0644 root bin
-f usr/include/ia32/sys/psw.h 0644 root bin
-f usr/include/ia32/sys/pte.h 0644 root bin
-f usr/include/ia32/sys/reg.h 0644 root bin
-f usr/include/ia32/sys/stack.h 0644 root bin
-f usr/include/ia32/sys/trap.h 0644 root bin
-f usr/include/ia32/sys/traptrace.h 0644 root bin
+s usr/include/ia32/sys/psw.h=../../sys/psw.h
+s usr/include/ia32/sys/pte.h=../../sys/pte.h
+s usr/include/ia32/sys/reg.h=../../sys/reg.h
+s usr/include/ia32/sys/stack.h=../../sys/stack.h
+s usr/include/ia32/sys/trap.h=../../sys/trap.h
+s usr/include/ia32/sys/traptrace.h=../../sys/traptrace.h
 f usr/include/iconv.h 0644 root bin
 f usr/include/idmap.h 0644 root bin
 f usr/include/ieeefp.h 0644 root bin
@@ -4150,6 +4221,7 @@ f usr/include/sys/fs/pc_label.h 0644 root bin
 f usr/include/sys/fs/pc_node.h 0644 root bin
 f usr/include/sys/fs/pxfs_ki.h 0644 root bin
 f usr/include/sys/fs/sdev_impl.h 0644 root bin
+f usr/include/sys/fs/sdev_plugin.h 0644 root bin
 f usr/include/sys/fs/snode.h 0644 root bin
 f usr/include/sys/fs/swapnode.h 0644 root bin
 f usr/include/sys/fs/tmp.h 0644 root bin
@@ -4356,7 +4428,6 @@ f usr/include/sys/kstat.h 0644 root bin
 f usr/include/sys/kstr.h 0644 root bin
 f usr/include/sys/ksyms.h 0644 root bin
 f usr/include/sys/ksynch.h 0644 root bin
-f usr/include/sys/lc_core.h 0644 root bin
 f usr/include/sys/ldterm.h 0644 root bin
 f usr/include/sys/lgrp.h 0644 root bin
 f usr/include/sys/lgrp_user.h 0644 root bin
@@ -4369,7 +4440,6 @@ f usr/include/sys/list.h 0644 root bin
 f usr/include/sys/list_impl.h 0644 root bin
 f usr/include/sys/llc1.h 0644 root bin
 f usr/include/sys/loadavg.h 0644 root bin
-f usr/include/sys/localedef.h 0644 root bin
 f usr/include/sys/lock.h 0644 root bin
 f usr/include/sys/lockfs.h 0644 root bin
 f usr/include/sys/lockstat.h 0644 root bin
@@ -4788,6 +4858,9 @@ d usr/include/sys/usb 0755 root bin
 d usr/include/sys/usb/clients 0755 root bin
 d usr/include/sys/usb/clients/audio 0755 root bin
 f usr/include/sys/usb/clients/audio/usb_audio.h 0644 root bin
+d usr/include/sys/usb/clients/ccid 0755 root bin
+f usr/include/sys/usb/clients/ccid/ccid.h 0644 root bin
+f usr/include/sys/usb/clients/ccid/uccid.h 0644 root bin
 d usr/include/sys/usb/clients/hid 0755 root bin
 f usr/include/sys/usb/clients/hid/hid.h 0644 root bin
 d usr/include/sys/usb/clients/mass_storage 0755 root bin
@@ -4886,6 +4959,7 @@ f usr/include/tnf/writer.h 0644 root bin
 d usr/include/tsol 0755 root bin
 f usr/include/tsol/label.h 0644 root bin
 f usr/include/tzfile.h 0644 root bin
+f usr/include/uchar.h 0644 root bin
 f usr/include/ucontext.h 0644 root bin
 f usr/include/ucred.h 0644 root bin
 f usr/include/uid_stp.h 0644 root bin
@@ -4894,9 +4968,11 @@ f usr/include/umem.h 0644 root bin
 f usr/include/umem_impl.h 0644 root bin
 f usr/include/unctrl.h 0644 root bin
 f usr/include/unistd.h 0644 root bin
+f usr/include/upanic.h 0644 root bin
 f usr/include/user_attr.h 0644 root bin
 f usr/include/userdefs.h 0644 root bin
 f usr/include/ustat.h 0644 root bin
+f usr/include/utempter.h 0644 root bin
 f usr/include/utility.h 0644 root bin
 f usr/include/utime.h 0644 root bin
 f usr/include/utmp.h 0644 root bin
@@ -4932,6 +5008,8 @@ f usr/include/wchar.h 0644 root bin
 f usr/include/wchar_impl.h 0644 root bin
 f usr/include/wctype.h 0644 root bin
 f usr/include/widec.h 0644 root bin
+f usr/include/winscard.h 0644 root bin
+f usr/include/wintypes.h 0644 root bin
 f usr/include/wordexp.h 0644 root bin
 f usr/include/xlocale.h 0644 root bin
 f usr/include/xti.h 0644 root bin
@@ -5095,6 +5173,7 @@ s usr/lib/amd64/gss/mech_krb5.so=mech_krb5.so.1
 f usr/lib/amd64/gss/mech_spnego.so.1 0755 root bin
 s usr/lib/amd64/ld.so.1=../../../lib/amd64/ld.so.1
 f usr/lib/amd64/lddstub 0555 root bin
+f usr/lib/amd64/lib9p.so.1 0755 root bin
 f usr/lib/amd64/libHBAAPI.so.1 0755 root bin
 s usr/lib/amd64/libHBAAPI.so=libHBAAPI.so.1
 s usr/lib/amd64/libMPAPI.so.1=../../../lib/amd64/libMPAPI.so.1
@@ -5223,10 +5302,14 @@ s usr/lib/amd64/libinetutil.so.1=../../../lib/amd64/libinetutil.so.1
 s usr/lib/amd64/libinetutil.so=../../../lib/amd64/libinetutil.so.1
 s usr/lib/amd64/libintl.so.1=../../../lib/amd64/libintl.so.1
 s usr/lib/amd64/libintl.so=../../../lib/amd64/libintl.so.1
+s usr/lib/amd64/libipadm.so.1=../../../lib/amd64/libipadm.so.1
+s usr/lib/amd64/libipadm.so=../../../lib/amd64/libipadm.so.1
 f usr/lib/amd64/libipd.so.1 0755 root bin
 s usr/lib/amd64/libipd.so=libipd.so.1
 f usr/lib/amd64/libipmi.so.1 0755 root bin
 s usr/lib/amd64/libipmi.so=libipmi.so.1
+s usr/lib/amd64/libipmp.so.1=../../../lib/amd64/libipmp.so.1
+s usr/lib/amd64/libipmp.so=../../../lib/amd64/libipmp.so.1
 f usr/lib/amd64/libipp.so.1 0755 root bin
 s usr/lib/amd64/libipp.so=libipp.so.1
 f usr/lib/amd64/libipsecutil.so.1 0755 root bin
@@ -5292,6 +5375,7 @@ f usr/lib/amd64/libpanel.so.1 0755 root bin
 s usr/lib/amd64/libpanel.so=libpanel.so.1
 f usr/lib/amd64/libpcidb.so.1 0755 root bin
 f usr/lib/amd64/libpcsc.so.1 0755 root bin
+s usr/lib/amd64/libpcsc.so=libpcsc.so.1
 f usr/lib/amd64/libpctx.so.1 0755 root bin
 s usr/lib/amd64/libpctx.so=libpctx.so.1
 f usr/lib/amd64/libpicl.so.1 0755 root bin
@@ -5372,6 +5456,7 @@ f usr/lib/amd64/libsoftcrypto.so.1 0755 root bin
 s usr/lib/amd64/libsoftcrypto.so=libsoftcrypto.so.1
 f usr/lib/amd64/libsrpt.so.1 0755 root bin
 s usr/lib/amd64/libsrpt.so=libsrpt.so.1
+f usr/lib/amd64/libssp_ns.a 0755 root bin
 f usr/lib/amd64/libstmf.so.1 0755 root bin
 s usr/lib/amd64/libstmf.so=libstmf.so.1
 f usr/lib/amd64/libstmfproxy.so.1 0755 root bin
@@ -5406,11 +5491,12 @@ s usr/lib/amd64/libtsol.so.2=../../../lib/amd64/libtsol.so.2
 s usr/lib/amd64/libtsol.so=../../../lib/amd64/libtsol.so.2
 s usr/lib/amd64/libumem.so.1=../../../lib/amd64/libumem.so.1
 s usr/lib/amd64/libumem.so=../../../lib/amd64/libumem.so.1
+f usr/lib/amd64/libutempter.so.1 0755 root bin
+s usr/lib/amd64/libutempter.so=libutempter.so.1
 s usr/lib/amd64/libuuid.so.1=../../../lib/amd64/libuuid.so.1
 s usr/lib/amd64/libuuid.so=../../../lib/amd64/libuuid.so.1
 s usr/lib/amd64/libuutil.so.1=../../../lib/amd64/libuutil.so.1
 s usr/lib/amd64/libuutil.so=../../../lib/amd64/libuutil.so.1
-f usr/lib/amd64/libvarpd.so.1 0755 root bin
 f usr/lib/amd64/libvnd.so.1 0755 root bin
 s usr/lib/amd64/libvnd.so=libvnd.so.1
 f usr/lib/amd64/libvolmgt.so.1 0755 root bin
@@ -5546,6 +5632,7 @@ f usr/lib/brand/lx/lx_boot_zone_docker 0755 root root
 f usr/lib/brand/lx/lx_boot_zone_redhat 0755 root root
 f usr/lib/brand/lx/lx_boot_zone_suse 0755 root root
 f usr/lib/brand/lx/lx_boot_zone_ubuntu 0755 root root
+f usr/lib/brand/lx/lx_boot_zone_void 0755 root root
 f usr/lib/brand/lx/lx_install 0755 root root
 f usr/lib/brand/lx/lx_librtld_db.so.1 0755 root root
 f usr/lib/brand/lx/lx_lockd 0755 root root
@@ -5564,7 +5651,6 @@ f usr/lib/brand/shared/query 0755 root bin
 f usr/lib/brand/shared/uninstall.ksh 0444 root bin
 f usr/lib/bridged 0555 root bin
 d usr/lib/ccid 0755 root bin
-f usr/lib/ccid/ccidadm 0555 root bin
 d usr/lib/cfgadm 0755 root bin
 d usr/lib/cfgadm/amd64 0755 root bin
 f usr/lib/cfgadm/amd64/ccid.so.1 0755 root bin
@@ -5982,6 +6068,7 @@ f usr/lib/fwflash/identify/sd.so 0755 root bin
 f usr/lib/fwflash/identify/ses.so 0755 root bin
 s usr/lib/fwflash/identify/sgen.so=ses.so
 f usr/lib/fwflash/identify/tavor.so 0755 root bin
+f usr/lib/fwflash/identify/ufm.so 0755 root bin
 d usr/lib/fwflash/verify 0755 root bin
 f usr/lib/fwflash/verify/hermon-MELLANOX.so 0755 root bin
 f usr/lib/fwflash/verify/sd-GENERIC.so 0755 root bin
@@ -6808,6 +6895,7 @@ f usr/lib/libpanel.so.1 0755 root bin
 s usr/lib/libpanel.so=libpanel.so.1
 f usr/lib/libpcidb.so.1 0755 root bin
 f usr/lib/libpcsc.so.1 0755 root bin
+s usr/lib/libpcsc.so=libpcsc.so.1
 f usr/lib/libpctx.so.1 0755 root bin
 s usr/lib/libpctx.so=libpctx.so.1
 f usr/lib/libpicl.so.1 0755 root bin
@@ -6897,6 +6985,7 @@ f usr/lib/libsoftcrypto.so.1 0755 root bin
 s usr/lib/libsoftcrypto.so=libsoftcrypto.so.1
 f usr/lib/libsrpt.so.1 0755 root bin
 s usr/lib/libsrpt.so=libsrpt.so.1
+f usr/lib/libssp_ns.a 0755 root bin
 f usr/lib/libstmf.so.1 0755 root bin
 s usr/lib/libstmf.so=libstmf.so.1
 f usr/lib/libstmfproxy.so.1 0755 root bin
@@ -6909,8 +6998,6 @@ f usr/lib/libsun_ima.so.1 0755 root bin
 s usr/lib/libsun_ima.so=libsun_ima.so.1
 f usr/lib/libsun_sas.so.1 0755 root bin
 s usr/lib/libsun_sas.so=libsun_sas.so.1
-f usr/lib/libsys.so.1 0755 root bin
-s usr/lib/libsys.so=libsys.so.1
 s usr/lib/libsysevent.so.1=../../lib/libsysevent.so.1
 s usr/lib/libsysevent.so=../../lib/libsysevent.so.1
 f usr/lib/libtecla.so.1 0755 root bin
@@ -6935,11 +7022,12 @@ s usr/lib/libtsol.so.2=../../lib/libtsol.so.2
 s usr/lib/libtsol.so=../../lib/libtsol.so.2
 s usr/lib/libumem.so.1=../../lib/libumem.so.1
 s usr/lib/libumem.so=../../lib/libumem.so.1
+f usr/lib/libutempter.so.1 0755 root bin
+s usr/lib/libutempter.so=libutempter.so.1
 s usr/lib/libuuid.so.1=../../lib/libuuid.so.1
 s usr/lib/libuuid.so=../../lib/libuuid.so.1
 s usr/lib/libuutil.so.1=../../lib/libuutil.so.1
 s usr/lib/libuutil.so=../../lib/libuutil.so.1
-f usr/lib/libvarpd.so.1 0755 root bin
 f usr/lib/libvnd.so.1 0755 root bin
 s usr/lib/libvnd.so=libvnd.so.1
 f usr/lib/libvolmgt.so.1 0755 root bin
@@ -10051,6 +10139,7 @@ f usr/lib/mdb/kvm/amd64/scsi_vhci.so 0555 root sys
 f usr/lib/mdb/kvm/amd64/sctp.so 0555 root sys
 f usr/lib/mdb/kvm/amd64/sd.so 0555 root sys
 f usr/lib/mdb/kvm/amd64/smbfs.so 0555 root sys
+f usr/lib/mdb/kvm/amd64/smbios.so 0555 root sys
 f usr/lib/mdb/kvm/amd64/smbsrv.so 0555 root sys
 f usr/lib/mdb/kvm/amd64/sockfs.so 0555 root sys
 f usr/lib/mdb/kvm/amd64/specfs.so 0555 root sys
@@ -10068,15 +10157,16 @@ d usr/lib/mdb/proc/amd64 0755 root sys
 f usr/lib/mdb/proc/amd64/ld.so 0555 root sys
 f usr/lib/mdb/proc/amd64/libavl.so 0555 root sys
 f usr/lib/mdb/proc/amd64/libc.so 0555 root sys
-f usr/lib/mdb/proc/amd64/libcmdutils.so 0555 root sys
 f usr/lib/mdb/proc/amd64/libnvpair.so 0555 root sys
 f usr/lib/mdb/proc/amd64/libproc.so 0555 root sys
 f usr/lib/mdb/proc/amd64/libpython2.6.so 0555 root sys
+f usr/lib/mdb/proc/amd64/libsmbios.so 0555 root sys
 f usr/lib/mdb/proc/amd64/libsysevent.so 0555 root sys
 f usr/lib/mdb/proc/amd64/libtopo.so 0555 root sys
 f usr/lib/mdb/proc/amd64/libumem.so 0555 root sys
 f usr/lib/mdb/proc/amd64/libuutil.so 0555 root sys
 f usr/lib/mdb/proc/amd64/libzpool.so 0555 root sys
+f usr/lib/mdb/proc/amd64/list.so 0555 root sys
 f usr/lib/mdb/proc/amd64/mdb_ds.so 0555 root sys
 f usr/lib/mdb/proc/amd64/mdb_test.so 0555 root sys
 f usr/lib/mdb/proc/eft.so 0555 root sys
@@ -10084,16 +10174,17 @@ f usr/lib/mdb/proc/fmd.so 0555 root sys
 f usr/lib/mdb/proc/ld.so 0555 root sys
 f usr/lib/mdb/proc/libavl.so 0555 root sys
 f usr/lib/mdb/proc/libc.so 0555 root sys
-f usr/lib/mdb/proc/libcmdutils.so 0555 root sys
 f usr/lib/mdb/proc/libmlsvc.so 0555 root sys
 f usr/lib/mdb/proc/libnvpair.so 0555 root sys
 f usr/lib/mdb/proc/libproc.so 0555 root sys
 f usr/lib/mdb/proc/libpython2.6.so 0555 root sys
+f usr/lib/mdb/proc/libsmbios.so 0555 root sys
 f usr/lib/mdb/proc/libsysevent.so 0555 root sys
 f usr/lib/mdb/proc/libtopo.so 0555 root sys
 f usr/lib/mdb/proc/libumem.so 0555 root sys
 f usr/lib/mdb/proc/libuutil.so 0555 root sys
 f usr/lib/mdb/proc/libzpool.so 0555 root sys
+f usr/lib/mdb/proc/list.so 0555 root sys
 f usr/lib/mdb/proc/mdb_ds.so 0555 root sys
 f usr/lib/mdb/proc/mdb_test.so 0555 root sys
 f usr/lib/mdb/proc/svc.configd.so 0555 root sys
@@ -10167,8 +10258,10 @@ s usr/lib/nss_user.so.1=../../lib/nss_user.so.1
 f usr/lib/passmgmt 0555 root sys
 f usr/lib/passwdutil.so.1 0755 root bin
 d usr/lib/pci 0755 root bin
+f usr/lib/pci/pcidb 0555 root bin
 f usr/lib/pci/pcidr 0555 root bin
 f usr/lib/pci/pcidr_plugin.so 0755 root bin
+f usr/lib/pci/pcieadm 0555 root bin
 f usr/lib/pci/pcieb 0555 root bin
 f usr/lib/pfexecd 0555 root bin
 d usr/lib/picl 0755 root sys
@@ -10235,6 +10328,7 @@ f usr/lib/reparse/reparsed 0555 root sys
 f usr/lib/rpcsec.so.1 0755 root bin
 s usr/lib/rpcsec.so=rpcsec.so.1
 s usr/lib/rsh=../bin/ksh93
+f usr/lib/rsrvrctl 0555 root sys
 d usr/lib/sa 0755 root bin
 f usr/lib/sa/sa1 0555 root bin
 f usr/lib/sa/sa2 0555 root bin
@@ -10353,6 +10447,8 @@ f usr/lib/security/amd64/pam_roles.so.1 0755 root bin
 s usr/lib/security/amd64/pam_roles.so=pam_roles.so.1
 f usr/lib/security/amd64/pam_sample.so.1 0755 root bin
 s usr/lib/security/amd64/pam_sample.so=pam_sample.so.1
+f usr/lib/security/amd64/pam_smb_passwd.so.1 0755 root bin
+s usr/lib/security/amd64/pam_smb_passwd.so=pam_smb_passwd.so.1
 f usr/lib/security/amd64/pam_smbfs_login.so.1 0755 root bin
 s usr/lib/security/amd64/pam_smbfs_login.so=pam_smbfs_login.so.1
 f usr/lib/security/amd64/pam_timestamp.so.1 0755 root bin
@@ -10441,7 +10537,10 @@ d usr/lib/smbfs 0755 root bin
 f usr/lib/smbfs/smbiod 0555 root bin
 f usr/lib/smbfs/smbiod-svc 0555 root bin
 d usr/lib/smbsrv 0755 root bin
+d usr/lib/smbsrv/amd64 0755 root bin
+f usr/lib/smbsrv/amd64/libsmb.so.1 0555 root bin
 d usr/lib/smbsrv/dtrace 0755 root bin
+f usr/lib/smbsrv/dtrace/nbl-conflict.d 0555 root bin
 f usr/lib/smbsrv/dtrace/smb-trace.d 0555 root bin
 f usr/lib/smbsrv/dtrace/smb2-trace.d 0555 root bin
 f usr/lib/smbsrv/dtrace/smbd-all.d 0555 root bin
@@ -10734,8 +10833,6 @@ f usr/sbin/amd64/ipnat 0555 root bin
 f usr/sbin/amd64/ippool 0555 root bin
 f usr/sbin/amd64/lockstat 0555 root bin
 f usr/sbin/amd64/plockstat 0555 root bin
-f usr/sbin/amd64/zdb 0555 root bin
-f usr/sbin/amd64/zinject 0555 root bin
 f usr/sbin/arp 0555 root bin
 f usr/sbin/audit 0555 root bin
 f usr/sbin/auditconfig 0555 root bin
@@ -10748,6 +10845,7 @@ s usr/sbin/automount=../lib/fs/autofs/automount
 s usr/sbin/autopush=../../sbin/autopush
 f usr/sbin/bhyve 0555 root sys
 f usr/sbin/bhyvectl 0555 root sys
+f usr/sbin/ccidadm 0555 root bin
 f usr/sbin/cfgadm 0555 root bin
 f usr/sbin/check-hostname 0555 root mail
 f usr/sbin/check-permissions 0555 root mail
@@ -10945,6 +11043,7 @@ f usr/sbin/rtquery 0555 root bin
 f usr/sbin/rwall 0555 root bin
 f usr/sbin/sacadm 4755 root sys
 f usr/sbin/safe_finger 0555 root bin
+f usr/sbin/sasinfo 0555 root bin
 f usr/sbin/sbdadm 0555 root bin
 s usr/sbin/sendmail=../lib/mailwrapper
 f usr/sbin/setmnt 0555 root bin
@@ -11008,11 +11107,11 @@ f usr/sbin/ypalias 0555 root bin
 f usr/sbin/ypinit 0555 root bin
 f usr/sbin/yppoll 0555 root bin
 f usr/sbin/ypset 0555 root bin
-h usr/sbin/zdb=usr/lib/isaexec
+f usr/sbin/zdb 0555 root bin
 f usr/sbin/zdump 0555 root bin
 s usr/sbin/zfs=../../sbin/zfs
 f usr/sbin/zic 0555 root bin
-h usr/sbin/zinject=usr/lib/isaexec
+f usr/sbin/zinject 0555 root bin
 f usr/sbin/zlogin 0555 root bin
 f usr/sbin/zoneadm 0555 root bin
 f usr/sbin/zonecfg 0555 root bin
@@ -11238,6 +11337,7 @@ d usr/share/lib/xml 0755 root sys
 d usr/share/lib/xml/dtd 0755 root sys
 f usr/share/lib/xml/dtd/adt_record.dtd.1 0444 root bin
 f usr/share/lib/xml/dtd/brand.dtd.1 0644 root bin
+f usr/share/lib/xml/dtd/digraph-topology.dtd.1 0644 root bin
 f usr/share/lib/xml/dtd/kmfpolicy.dtd 0444 root bin
 f usr/share/lib/xml/dtd/rm_pool.dtd.1 0444 root bin
 f usr/share/lib/xml/dtd/service_bundle.dtd.1 0444 root sys
@@ -11249,7 +11349,7 @@ f usr/share/lib/xml/style/adt_record.xsl.1 0444 root bin
 d usr/share/lib/zoneinfo 0755 root bin
 d usr/share/lib/zoneinfo/Africa 0755 root bin
 f usr/share/lib/zoneinfo/Africa/Abidjan 0644 root bin
-f usr/share/lib/zoneinfo/Africa/Accra 0644 root bin
+h usr/share/lib/zoneinfo/Africa/Accra=usr/share/lib/zoneinfo/Africa/Abidjan
 h usr/share/lib/zoneinfo/Africa/Addis_Ababa=usr/share/lib/zoneinfo/Africa/Nairobi
 f usr/share/lib/zoneinfo/Africa/Algiers 0644 root bin
 h usr/share/lib/zoneinfo/Africa/Asmara=usr/share/lib/zoneinfo/Africa/Nairobi
@@ -11303,16 +11403,16 @@ f usr/share/lib/zoneinfo/Africa/Tripoli 0644 root bin
 f usr/share/lib/zoneinfo/Africa/Tunis 0644 root bin
 f usr/share/lib/zoneinfo/Africa/Windhoek 0644 root bin
 d usr/share/lib/zoneinfo/America 0755 root bin
-h usr/share/lib/zoneinfo/America/Adak=usr/share/lib/zoneinfo/US/Aleutian
+f usr/share/lib/zoneinfo/America/Adak 0644 root bin
 f usr/share/lib/zoneinfo/America/Anchorage 0644 root bin
-f usr/share/lib/zoneinfo/America/Anguilla 0644 root bin
-h usr/share/lib/zoneinfo/America/Antigua=usr/share/lib/zoneinfo/America/Port_of_Spain
+h usr/share/lib/zoneinfo/America/Anguilla=usr/share/lib/zoneinfo/America/Puerto_Rico
+h usr/share/lib/zoneinfo/America/Antigua=usr/share/lib/zoneinfo/America/Puerto_Rico
 f usr/share/lib/zoneinfo/America/Araguaina 0644 root bin
 d usr/share/lib/zoneinfo/America/Argentina 0755 root bin
 f usr/share/lib/zoneinfo/America/Argentina/Buenos_Aires 0644 root bin
-h usr/share/lib/zoneinfo/America/Argentina/Catamarca=usr/share/lib/zoneinfo/America/Catamarca
-h usr/share/lib/zoneinfo/America/Argentina/ComodRivadavia=usr/share/lib/zoneinfo/America/Catamarca
-h usr/share/lib/zoneinfo/America/Argentina/Cordoba=usr/share/lib/zoneinfo/America/Cordoba
+f usr/share/lib/zoneinfo/America/Argentina/Catamarca 0644 root bin
+h usr/share/lib/zoneinfo/America/Argentina/ComodRivadavia=usr/share/lib/zoneinfo/America/Argentina/Catamarca
+f usr/share/lib/zoneinfo/America/Argentina/Cordoba 0644 root bin
 f usr/share/lib/zoneinfo/America/Argentina/Jujuy 0644 root bin
 f usr/share/lib/zoneinfo/America/Argentina/La_Rioja 0644 root bin
 f usr/share/lib/zoneinfo/America/Argentina/Mendoza 0644 root bin
@@ -11322,54 +11422,54 @@ f usr/share/lib/zoneinfo/America/Argentina/San_Juan 0644 root bin
 f usr/share/lib/zoneinfo/America/Argentina/San_Luis 0644 root bin
 f usr/share/lib/zoneinfo/America/Argentina/Tucuman 0644 root bin
 f usr/share/lib/zoneinfo/America/Argentina/Ushuaia 0644 root bin
-f usr/share/lib/zoneinfo/America/Aruba 0644 root bin
+h usr/share/lib/zoneinfo/America/Aruba=usr/share/lib/zoneinfo/America/Puerto_Rico
 f usr/share/lib/zoneinfo/America/Asuncion 0644 root bin
-f usr/share/lib/zoneinfo/America/Atikokan 0644 root bin
-h usr/share/lib/zoneinfo/America/Atka=usr/share/lib/zoneinfo/US/Aleutian
+h usr/share/lib/zoneinfo/America/Atikokan=usr/share/lib/zoneinfo/America/Panama
+h usr/share/lib/zoneinfo/America/Atka=usr/share/lib/zoneinfo/America/Adak
 f usr/share/lib/zoneinfo/America/Bahia 0644 root bin
 f usr/share/lib/zoneinfo/America/Bahia_Banderas 0644 root bin
 f usr/share/lib/zoneinfo/America/Barbados 0644 root bin
 f usr/share/lib/zoneinfo/America/Belem 0644 root bin
 f usr/share/lib/zoneinfo/America/Belize 0644 root bin
-f usr/share/lib/zoneinfo/America/Blanc-Sablon 0644 root bin
+h usr/share/lib/zoneinfo/America/Blanc-Sablon=usr/share/lib/zoneinfo/America/Puerto_Rico
 f usr/share/lib/zoneinfo/America/Boa_Vista 0644 root bin
 f usr/share/lib/zoneinfo/America/Bogota 0644 root bin
 f usr/share/lib/zoneinfo/America/Boise 0644 root bin
-f usr/share/lib/zoneinfo/America/Buenos_Aires 0644 root bin
+h usr/share/lib/zoneinfo/America/Buenos_Aires=usr/share/lib/zoneinfo/America/Argentina/Buenos_Aires
 f usr/share/lib/zoneinfo/America/Cambridge_Bay 0644 root bin
 f usr/share/lib/zoneinfo/America/Campo_Grande 0644 root bin
 f usr/share/lib/zoneinfo/America/Cancun 0644 root bin
 f usr/share/lib/zoneinfo/America/Caracas 0644 root bin
-f usr/share/lib/zoneinfo/America/Catamarca 0644 root bin
+h usr/share/lib/zoneinfo/America/Catamarca=usr/share/lib/zoneinfo/America/Argentina/Catamarca
 f usr/share/lib/zoneinfo/America/Cayenne 0644 root bin
-f usr/share/lib/zoneinfo/America/Cayman 0644 root bin
+h usr/share/lib/zoneinfo/America/Cayman=usr/share/lib/zoneinfo/America/Panama
 f usr/share/lib/zoneinfo/America/Chicago 0644 root bin
 f usr/share/lib/zoneinfo/America/Chihuahua 0644 root bin
-f usr/share/lib/zoneinfo/America/Coral_Harbour 0644 root bin
-f usr/share/lib/zoneinfo/America/Cordoba 0644 root bin
+h usr/share/lib/zoneinfo/America/Coral_Harbour=usr/share/lib/zoneinfo/America/Panama
+h usr/share/lib/zoneinfo/America/Cordoba=usr/share/lib/zoneinfo/America/Argentina/Cordoba
 f usr/share/lib/zoneinfo/America/Costa_Rica 0644 root bin
-f usr/share/lib/zoneinfo/America/Creston 0644 root bin
+h usr/share/lib/zoneinfo/America/Creston=usr/share/lib/zoneinfo/America/Phoenix
 f usr/share/lib/zoneinfo/America/Cuiaba 0644 root bin
-f usr/share/lib/zoneinfo/America/Curacao 0644 root bin
+h usr/share/lib/zoneinfo/America/Curacao=usr/share/lib/zoneinfo/America/Puerto_Rico
 f usr/share/lib/zoneinfo/America/Danmarkshavn 0644 root bin
 f usr/share/lib/zoneinfo/America/Dawson 0644 root bin
 f usr/share/lib/zoneinfo/America/Dawson_Creek 0644 root bin
 h usr/share/lib/zoneinfo/America/Denver=usr/share/lib/zoneinfo/US/Mountain
 f usr/share/lib/zoneinfo/America/Detroit 0644 root bin
-f usr/share/lib/zoneinfo/America/Dominica 0644 root bin
+h usr/share/lib/zoneinfo/America/Dominica=usr/share/lib/zoneinfo/America/Puerto_Rico
 f usr/share/lib/zoneinfo/America/Edmonton 0644 root bin
 f usr/share/lib/zoneinfo/America/Eirunepe 0644 root bin
 f usr/share/lib/zoneinfo/America/El_Salvador 0644 root bin
 h usr/share/lib/zoneinfo/America/Ensenada=usr/share/lib/zoneinfo/America/Tijuana
 f usr/share/lib/zoneinfo/America/Fort_Nelson 0644 root bin
-h usr/share/lib/zoneinfo/America/Fort_Wayne=usr/share/lib/zoneinfo/US/East-Indiana
+h usr/share/lib/zoneinfo/America/Fort_Wayne=usr/share/lib/zoneinfo/America/Indiana/Indianapolis
 f usr/share/lib/zoneinfo/America/Fortaleza 0644 root bin
 f usr/share/lib/zoneinfo/America/Glace_Bay 0644 root bin
-f usr/share/lib/zoneinfo/America/Godthab 0644 root bin
+h usr/share/lib/zoneinfo/America/Godthab=usr/share/lib/zoneinfo/America/Nuuk
 f usr/share/lib/zoneinfo/America/Goose_Bay 0644 root bin
 f usr/share/lib/zoneinfo/America/Grand_Turk 0644 root bin
-f usr/share/lib/zoneinfo/America/Grenada 0644 root bin
-f usr/share/lib/zoneinfo/America/Guadeloupe 0644 root bin
+h usr/share/lib/zoneinfo/America/Grenada=usr/share/lib/zoneinfo/America/Puerto_Rico
+h usr/share/lib/zoneinfo/America/Guadeloupe=usr/share/lib/zoneinfo/America/Puerto_Rico
 f usr/share/lib/zoneinfo/America/Guatemala 0644 root bin
 f usr/share/lib/zoneinfo/America/Guayaquil 0644 root bin
 f usr/share/lib/zoneinfo/America/Guyana 0644 root bin
@@ -11377,38 +11477,38 @@ f usr/share/lib/zoneinfo/America/Halifax 0644 root bin
 f usr/share/lib/zoneinfo/America/Havana 0644 root bin
 f usr/share/lib/zoneinfo/America/Hermosillo 0644 root bin
 d usr/share/lib/zoneinfo/America/Indiana 0755 root bin
-h usr/share/lib/zoneinfo/America/Indiana/Indianapolis=usr/share/lib/zoneinfo/US/East-Indiana
-h usr/share/lib/zoneinfo/America/Indiana/Knox=usr/share/lib/zoneinfo/America/Knox_IN
+f usr/share/lib/zoneinfo/America/Indiana/Indianapolis 0644 root bin
+f usr/share/lib/zoneinfo/America/Indiana/Knox 0644 root bin
 f usr/share/lib/zoneinfo/America/Indiana/Marengo 0644 root bin
 f usr/share/lib/zoneinfo/America/Indiana/Petersburg 0644 root bin
 f usr/share/lib/zoneinfo/America/Indiana/Tell_City 0644 root bin
 f usr/share/lib/zoneinfo/America/Indiana/Vevay 0644 root bin
 f usr/share/lib/zoneinfo/America/Indiana/Vincennes 0644 root bin
 f usr/share/lib/zoneinfo/America/Indiana/Winamac 0644 root bin
-h usr/share/lib/zoneinfo/America/Indianapolis=usr/share/lib/zoneinfo/US/East-Indiana
+h usr/share/lib/zoneinfo/America/Indianapolis=usr/share/lib/zoneinfo/America/Indiana/Indianapolis
 f usr/share/lib/zoneinfo/America/Inuvik 0644 root bin
 f usr/share/lib/zoneinfo/America/Iqaluit 0644 root bin
 f usr/share/lib/zoneinfo/America/Jamaica 0644 root bin
-f usr/share/lib/zoneinfo/America/Jujuy 0644 root bin
+h usr/share/lib/zoneinfo/America/Jujuy=usr/share/lib/zoneinfo/America/Argentina/Jujuy
 f usr/share/lib/zoneinfo/America/Juneau 0644 root bin
 d usr/share/lib/zoneinfo/America/Kentucky 0755 root bin
 f usr/share/lib/zoneinfo/America/Kentucky/Louisville 0644 root bin
 f usr/share/lib/zoneinfo/America/Kentucky/Monticello 0644 root bin
-f usr/share/lib/zoneinfo/America/Knox_IN 0644 root bin
-h usr/share/lib/zoneinfo/America/Kralendijk=usr/share/lib/zoneinfo/America/Curacao
+h usr/share/lib/zoneinfo/America/Knox_IN=usr/share/lib/zoneinfo/America/Indiana/Knox
+h usr/share/lib/zoneinfo/America/Kralendijk=usr/share/lib/zoneinfo/America/Puerto_Rico
 f usr/share/lib/zoneinfo/America/La_Paz 0644 root bin
 f usr/share/lib/zoneinfo/America/Lima 0644 root bin
 h usr/share/lib/zoneinfo/America/Los_Angeles=usr/share/lib/zoneinfo/US/Pacific
-f usr/share/lib/zoneinfo/America/Louisville 0644 root bin
-h usr/share/lib/zoneinfo/America/Lower_Princes=usr/share/lib/zoneinfo/America/Curacao
+h usr/share/lib/zoneinfo/America/Louisville=usr/share/lib/zoneinfo/America/Kentucky/Louisville
+h usr/share/lib/zoneinfo/America/Lower_Princes=usr/share/lib/zoneinfo/America/Puerto_Rico
 f usr/share/lib/zoneinfo/America/Maceio 0644 root bin
 f usr/share/lib/zoneinfo/America/Managua 0644 root bin
 f usr/share/lib/zoneinfo/America/Manaus 0644 root bin
-h usr/share/lib/zoneinfo/America/Marigot=usr/share/lib/zoneinfo/America/Guadeloupe
+h usr/share/lib/zoneinfo/America/Marigot=usr/share/lib/zoneinfo/America/Puerto_Rico
 f usr/share/lib/zoneinfo/America/Martinique 0644 root bin
 f usr/share/lib/zoneinfo/America/Matamoros 0644 root bin
 f usr/share/lib/zoneinfo/America/Mazatlan 0644 root bin
-f usr/share/lib/zoneinfo/America/Mendoza 0644 root bin
+h usr/share/lib/zoneinfo/America/Mendoza=usr/share/lib/zoneinfo/America/Argentina/Mendoza
 f usr/share/lib/zoneinfo/America/Menominee 0644 root bin
 f usr/share/lib/zoneinfo/America/Merida 0644 root bin
 f usr/share/lib/zoneinfo/America/Metlakatla 0644 root bin
@@ -11418,8 +11518,8 @@ f usr/share/lib/zoneinfo/America/Moncton 0644 root bin
 f usr/share/lib/zoneinfo/America/Monterrey 0644 root bin
 f usr/share/lib/zoneinfo/America/Montevideo 0644 root bin
 h usr/share/lib/zoneinfo/America/Montreal=usr/share/lib/zoneinfo/America/Toronto
-f usr/share/lib/zoneinfo/America/Montserrat 0644 root bin
-f usr/share/lib/zoneinfo/America/Nassau 0644 root bin
+h usr/share/lib/zoneinfo/America/Montserrat=usr/share/lib/zoneinfo/America/Puerto_Rico
+h usr/share/lib/zoneinfo/America/Nassau=usr/share/lib/zoneinfo/America/Toronto
 f usr/share/lib/zoneinfo/America/New_York 0644 root bin
 f usr/share/lib/zoneinfo/America/Nipigon 0644 root bin
 f usr/share/lib/zoneinfo/America/Nome 0644 root bin
@@ -11428,14 +11528,15 @@ d usr/share/lib/zoneinfo/America/North_Dakota 0755 root bin
 f usr/share/lib/zoneinfo/America/North_Dakota/Beulah 0644 root bin
 f usr/share/lib/zoneinfo/America/North_Dakota/Center 0644 root bin
 f usr/share/lib/zoneinfo/America/North_Dakota/New_Salem 0644 root bin
+f usr/share/lib/zoneinfo/America/Nuuk 0644 root bin
 f usr/share/lib/zoneinfo/America/Ojinaga 0644 root bin
 f usr/share/lib/zoneinfo/America/Panama 0644 root bin
 f usr/share/lib/zoneinfo/America/Pangnirtung 0644 root bin
 f usr/share/lib/zoneinfo/America/Paramaribo 0644 root bin
 f usr/share/lib/zoneinfo/America/Phoenix 0644 root bin
 f usr/share/lib/zoneinfo/America/Port-au-Prince 0644 root bin
-f usr/share/lib/zoneinfo/America/Port_of_Spain 0644 root bin
-h usr/share/lib/zoneinfo/America/Porto_Acre=usr/share/lib/zoneinfo/Brazil/Acre
+h usr/share/lib/zoneinfo/America/Port_of_Spain=usr/share/lib/zoneinfo/America/Puerto_Rico
+h usr/share/lib/zoneinfo/America/Porto_Acre=usr/share/lib/zoneinfo/America/Rio_Branco
 f usr/share/lib/zoneinfo/America/Porto_Velho 0644 root bin
 f usr/share/lib/zoneinfo/America/Puerto_Rico 0644 root bin
 f usr/share/lib/zoneinfo/America/Punta_Arenas 0644 root bin
@@ -11444,8 +11545,8 @@ f usr/share/lib/zoneinfo/America/Rankin_Inlet 0644 root bin
 f usr/share/lib/zoneinfo/America/Recife 0644 root bin
 f usr/share/lib/zoneinfo/America/Regina 0644 root bin
 f usr/share/lib/zoneinfo/America/Resolute 0644 root bin
-h usr/share/lib/zoneinfo/America/Rio_Branco=usr/share/lib/zoneinfo/Brazil/Acre
-h usr/share/lib/zoneinfo/America/Rosario=usr/share/lib/zoneinfo/America/Cordoba
+f usr/share/lib/zoneinfo/America/Rio_Branco 0644 root bin
+h usr/share/lib/zoneinfo/America/Rosario=usr/share/lib/zoneinfo/America/Argentina/Cordoba
 h usr/share/lib/zoneinfo/America/Santa_Isabel=usr/share/lib/zoneinfo/America/Tijuana
 f usr/share/lib/zoneinfo/America/Santarem 0644 root bin
 f usr/share/lib/zoneinfo/America/Santiago 0644 root bin
@@ -11454,11 +11555,11 @@ f usr/share/lib/zoneinfo/America/Sao_Paulo 0644 root bin
 f usr/share/lib/zoneinfo/America/Scoresbysund 0644 root bin
 h usr/share/lib/zoneinfo/America/Shiprock=usr/share/lib/zoneinfo/US/Mountain
 f usr/share/lib/zoneinfo/America/Sitka 0644 root bin
-h usr/share/lib/zoneinfo/America/St_Barthelemy=usr/share/lib/zoneinfo/America/Guadeloupe
+h usr/share/lib/zoneinfo/America/St_Barthelemy=usr/share/lib/zoneinfo/America/Puerto_Rico
 f usr/share/lib/zoneinfo/America/St_Johns 0644 root bin
-f usr/share/lib/zoneinfo/America/St_Kitts 0644 root bin
-f usr/share/lib/zoneinfo/America/St_Lucia 0644 root bin
-f usr/share/lib/zoneinfo/America/St_Thomas 0644 root bin
+h usr/share/lib/zoneinfo/America/St_Kitts=usr/share/lib/zoneinfo/America/Puerto_Rico
+h usr/share/lib/zoneinfo/America/St_Lucia=usr/share/lib/zoneinfo/America/Puerto_Rico
+h usr/share/lib/zoneinfo/America/St_Thomas=usr/share/lib/zoneinfo/America/Puerto_Rico
 f usr/share/lib/zoneinfo/America/St_Vincent 0644 root bin
 f usr/share/lib/zoneinfo/America/Swift_Current 0644 root bin
 f usr/share/lib/zoneinfo/America/Tegucigalpa 0644 root bin
@@ -11466,9 +11567,9 @@ f usr/share/lib/zoneinfo/America/Thule 0644 root bin
 f usr/share/lib/zoneinfo/America/Thunder_Bay 0644 root bin
 f usr/share/lib/zoneinfo/America/Tijuana 0644 root bin
 f usr/share/lib/zoneinfo/America/Toronto 0644 root bin
-f usr/share/lib/zoneinfo/America/Tortola 0644 root bin
+h usr/share/lib/zoneinfo/America/Tortola=usr/share/lib/zoneinfo/America/Puerto_Rico
 f usr/share/lib/zoneinfo/America/Vancouver 0644 root bin
-f usr/share/lib/zoneinfo/America/Virgin 0644 root bin
+h usr/share/lib/zoneinfo/America/Virgin=usr/share/lib/zoneinfo/America/Puerto_Rico
 f usr/share/lib/zoneinfo/America/Whitehorse 0644 root bin
 f usr/share/lib/zoneinfo/America/Winnipeg 0644 root bin
 f usr/share/lib/zoneinfo/America/Yakutat 0644 root bin
@@ -11476,14 +11577,14 @@ f usr/share/lib/zoneinfo/America/Yellowknife 0644 root bin
 d usr/share/lib/zoneinfo/Antarctica 0755 root bin
 f usr/share/lib/zoneinfo/Antarctica/Casey 0644 root bin
 f usr/share/lib/zoneinfo/Antarctica/Davis 0644 root bin
-f usr/share/lib/zoneinfo/Antarctica/DumontDUrville 0644 root bin
+h usr/share/lib/zoneinfo/Antarctica/DumontDUrville=usr/share/lib/zoneinfo/Pacific/Port_Moresby
 f usr/share/lib/zoneinfo/Antarctica/Macquarie 0644 root bin
 f usr/share/lib/zoneinfo/Antarctica/Mawson 0644 root bin
-f usr/share/lib/zoneinfo/Antarctica/McMurdo 0644 root bin
+h usr/share/lib/zoneinfo/Antarctica/McMurdo=usr/share/lib/zoneinfo/Pacific/Auckland
 f usr/share/lib/zoneinfo/Antarctica/Palmer 0644 root bin
 f usr/share/lib/zoneinfo/Antarctica/Rothera 0644 root bin
 f usr/share/lib/zoneinfo/Antarctica/South_Pole 0644 root bin
-f usr/share/lib/zoneinfo/Antarctica/Syowa 0644 root bin
+h usr/share/lib/zoneinfo/Antarctica/Syowa=usr/share/lib/zoneinfo/Asia/Riyadh
 f usr/share/lib/zoneinfo/Antarctica/Troll 0644 root bin
 f usr/share/lib/zoneinfo/Antarctica/Vostok 0644 root bin
 d usr/share/lib/zoneinfo/Arctic 0755 root bin
@@ -11535,14 +11636,14 @@ f usr/share/lib/zoneinfo/Asia/Kamchatka 0644 root bin
 f usr/share/lib/zoneinfo/Asia/Karachi 0644 root bin
 h usr/share/lib/zoneinfo/Asia/Kashgar=usr/share/lib/zoneinfo/Asia/Urumqi
 f usr/share/lib/zoneinfo/Asia/Kathmandu 0644 root bin
-f usr/share/lib/zoneinfo/Asia/Katmandu 0644 root bin
+h usr/share/lib/zoneinfo/Asia/Katmandu=usr/share/lib/zoneinfo/Asia/Kathmandu
 f usr/share/lib/zoneinfo/Asia/Khandyga 0644 root bin
 f usr/share/lib/zoneinfo/Asia/Kolkata 0644 root bin
 f usr/share/lib/zoneinfo/Asia/Krasnoyarsk 0644 root bin
 f usr/share/lib/zoneinfo/Asia/Kuala_Lumpur 0644 root bin
 f usr/share/lib/zoneinfo/Asia/Kuching 0644 root bin
 h usr/share/lib/zoneinfo/Asia/Kuwait=usr/share/lib/zoneinfo/Asia/Riyadh
-f usr/share/lib/zoneinfo/Asia/Macao 0644 root bin
+h usr/share/lib/zoneinfo/Asia/Macao=usr/share/lib/zoneinfo/Asia/Macau
 f usr/share/lib/zoneinfo/Asia/Macau 0644 root bin
 f usr/share/lib/zoneinfo/Asia/Magadan 0644 root bin
 f usr/share/lib/zoneinfo/Asia/Makassar 0644 root bin
@@ -11561,7 +11662,7 @@ f usr/share/lib/zoneinfo/Asia/Qostanay 0644 root bin
 f usr/share/lib/zoneinfo/Asia/Qyzylorda 0644 root bin
 h usr/share/lib/zoneinfo/Asia/Rangoon=usr/share/lib/zoneinfo/Asia/Yangon
 f usr/share/lib/zoneinfo/Asia/Riyadh 0644 root bin
-f usr/share/lib/zoneinfo/Asia/Saigon 0644 root bin
+h usr/share/lib/zoneinfo/Asia/Saigon=usr/share/lib/zoneinfo/Asia/Ho_Chi_Minh
 f usr/share/lib/zoneinfo/Asia/Sakhalin 0644 root bin
 f usr/share/lib/zoneinfo/Asia/Samarkand 0644 root bin
 f usr/share/lib/zoneinfo/Asia/Seoul 0644 root bin
@@ -11573,13 +11674,13 @@ f usr/share/lib/zoneinfo/Asia/Tashkent 0644 root bin
 f usr/share/lib/zoneinfo/Asia/Tbilisi 0644 root bin
 f usr/share/lib/zoneinfo/Asia/Tehran 0644 root bin
 h usr/share/lib/zoneinfo/Asia/Tel_Aviv=usr/share/lib/zoneinfo/Israel
-f usr/share/lib/zoneinfo/Asia/Thimbu 0644 root bin
+h usr/share/lib/zoneinfo/Asia/Thimbu=usr/share/lib/zoneinfo/Asia/Thimphu
 f usr/share/lib/zoneinfo/Asia/Thimphu 0644 root bin
 f usr/share/lib/zoneinfo/Asia/Tokyo 0644 root bin
 f usr/share/lib/zoneinfo/Asia/Tomsk 0644 root bin
-f usr/share/lib/zoneinfo/Asia/Ujung_Pandang 0644 root bin
+h usr/share/lib/zoneinfo/Asia/Ujung_Pandang=usr/share/lib/zoneinfo/Asia/Makassar
 f usr/share/lib/zoneinfo/Asia/Ulaanbaatar 0644 root bin
-f usr/share/lib/zoneinfo/Asia/Ulan_Bator 0644 root bin
+h usr/share/lib/zoneinfo/Asia/Ulan_Bator=usr/share/lib/zoneinfo/Asia/Ulaanbaatar
 f usr/share/lib/zoneinfo/Asia/Urumqi 0644 root bin
 f usr/share/lib/zoneinfo/Asia/Ust-Nera 0644 root bin
 h usr/share/lib/zoneinfo/Asia/Vientiane=usr/share/lib/zoneinfo/Asia/Bangkok
@@ -11593,7 +11694,7 @@ f usr/share/lib/zoneinfo/Atlantic/Azores 0644 root bin
 f usr/share/lib/zoneinfo/Atlantic/Bermuda 0644 root bin
 f usr/share/lib/zoneinfo/Atlantic/Canary 0644 root bin
 f usr/share/lib/zoneinfo/Atlantic/Cape_Verde 0644 root bin
-f usr/share/lib/zoneinfo/Atlantic/Faeroe 0644 root bin
+h usr/share/lib/zoneinfo/Atlantic/Faeroe=usr/share/lib/zoneinfo/Atlantic/Faroe
 f usr/share/lib/zoneinfo/Atlantic/Faroe 0644 root bin
 h usr/share/lib/zoneinfo/Atlantic/Jan_Mayen=usr/share/lib/zoneinfo/Europe/Oslo
 f usr/share/lib/zoneinfo/Atlantic/Madeira 0644 root bin
@@ -11626,7 +11727,7 @@ f usr/share/lib/zoneinfo/Australia/Victoria 0644 root bin
 f usr/share/lib/zoneinfo/Australia/West 0644 root bin
 f usr/share/lib/zoneinfo/Australia/Yancowinna 0644 root bin
 d usr/share/lib/zoneinfo/Brazil 0755 root bin
-f usr/share/lib/zoneinfo/Brazil/Acre 0644 root bin
+h usr/share/lib/zoneinfo/Brazil/Acre=usr/share/lib/zoneinfo/America/Rio_Branco
 f usr/share/lib/zoneinfo/Brazil/DeNoronha 0644 root bin
 f usr/share/lib/zoneinfo/Brazil/East 0644 root bin
 f usr/share/lib/zoneinfo/Brazil/West 0644 root bin
@@ -11698,7 +11799,7 @@ f usr/share/lib/zoneinfo/Europe/Bratislava 0644 root bin
 f usr/share/lib/zoneinfo/Europe/Brussels 0644 root bin
 f usr/share/lib/zoneinfo/Europe/Bucharest 0644 root bin
 f usr/share/lib/zoneinfo/Europe/Budapest 0644 root bin
-f usr/share/lib/zoneinfo/Europe/Busingen 0644 root bin
+h usr/share/lib/zoneinfo/Europe/Busingen=usr/share/lib/zoneinfo/Europe/Zurich
 f usr/share/lib/zoneinfo/Europe/Chisinau 0644 root bin
 f usr/share/lib/zoneinfo/Europe/Copenhagen 0644 root bin
 f usr/share/lib/zoneinfo/Europe/Dublin 0644 root bin
@@ -11738,10 +11839,10 @@ f usr/share/lib/zoneinfo/Europe/Sofia 0644 root bin
 f usr/share/lib/zoneinfo/Europe/Stockholm 0644 root bin
 f usr/share/lib/zoneinfo/Europe/Tallinn 0644 root bin
 f usr/share/lib/zoneinfo/Europe/Tirane 0644 root bin
-f usr/share/lib/zoneinfo/Europe/Tiraspol 0644 root bin
+h usr/share/lib/zoneinfo/Europe/Tiraspol=usr/share/lib/zoneinfo/Europe/Chisinau
 f usr/share/lib/zoneinfo/Europe/Ulyanovsk 0644 root bin
 f usr/share/lib/zoneinfo/Europe/Uzhgorod 0644 root bin
-f usr/share/lib/zoneinfo/Europe/Vaduz 0644 root bin
+h usr/share/lib/zoneinfo/Europe/Vaduz=usr/share/lib/zoneinfo/Europe/Zurich
 h usr/share/lib/zoneinfo/Europe/Vatican=usr/share/lib/zoneinfo/Europe/Rome
 f usr/share/lib/zoneinfo/Europe/Vienna 0644 root bin
 f usr/share/lib/zoneinfo/Europe/Vilnius 0644 root bin
@@ -11799,7 +11900,7 @@ f usr/share/lib/zoneinfo/Pacific/Chatham 0644 root bin
 f usr/share/lib/zoneinfo/Pacific/Chuuk 0644 root bin
 f usr/share/lib/zoneinfo/Pacific/Easter 0644 root bin
 f usr/share/lib/zoneinfo/Pacific/Efate 0644 root bin
-f usr/share/lib/zoneinfo/Pacific/Enderbury 0644 root bin
+h usr/share/lib/zoneinfo/Pacific/Enderbury=usr/share/lib/zoneinfo/Pacific/Kanton
 f usr/share/lib/zoneinfo/Pacific/Fakaofo 0644 root bin
 f usr/share/lib/zoneinfo/Pacific/Fiji 0644 root bin
 f usr/share/lib/zoneinfo/Pacific/Funafuti 0644 root bin
@@ -11809,6 +11910,7 @@ f usr/share/lib/zoneinfo/Pacific/Guadalcanal 0644 root bin
 f usr/share/lib/zoneinfo/Pacific/Guam 0644 root bin
 f usr/share/lib/zoneinfo/Pacific/Honolulu 0644 root bin
 h usr/share/lib/zoneinfo/Pacific/Johnston=usr/share/lib/zoneinfo/Pacific/Honolulu
+f usr/share/lib/zoneinfo/Pacific/Kanton 0644 root bin
 f usr/share/lib/zoneinfo/Pacific/Kiritimati 0644 root bin
 f usr/share/lib/zoneinfo/Pacific/Kosrae 0644 root bin
 f usr/share/lib/zoneinfo/Pacific/Kwajalein 0644 root bin
@@ -11823,7 +11925,7 @@ h usr/share/lib/zoneinfo/Pacific/Pago_Pago=usr/share/lib/zoneinfo/US/Samoa
 f usr/share/lib/zoneinfo/Pacific/Palau 0644 root bin
 f usr/share/lib/zoneinfo/Pacific/Pitcairn 0644 root bin
 f usr/share/lib/zoneinfo/Pacific/Pohnpei 0644 root bin
-f usr/share/lib/zoneinfo/Pacific/Ponape 0644 root bin
+h usr/share/lib/zoneinfo/Pacific/Ponape=usr/share/lib/zoneinfo/Pacific/Pohnpei
 f usr/share/lib/zoneinfo/Pacific/Port_Moresby 0644 root bin
 f usr/share/lib/zoneinfo/Pacific/Rarotonga 0644 root bin
 h usr/share/lib/zoneinfo/Pacific/Saipan=usr/share/lib/zoneinfo/Pacific/Guam
@@ -11847,10 +11949,10 @@ f usr/share/lib/zoneinfo/US/Alaska 0644 root bin
 f usr/share/lib/zoneinfo/US/Aleutian 0644 root bin
 f usr/share/lib/zoneinfo/US/Arizona 0644 root bin
 f usr/share/lib/zoneinfo/US/Central 0644 root bin
-f usr/share/lib/zoneinfo/US/East-Indiana 0644 root bin
+h usr/share/lib/zoneinfo/US/East-Indiana=usr/share/lib/zoneinfo/America/Indiana/Indianapolis
 f usr/share/lib/zoneinfo/US/Eastern 0644 root bin
 f usr/share/lib/zoneinfo/US/Hawaii 0644 root bin
-h usr/share/lib/zoneinfo/US/Indiana-Starke=usr/share/lib/zoneinfo/America/Knox_IN
+h usr/share/lib/zoneinfo/US/Indiana-Starke=usr/share/lib/zoneinfo/America/Indiana/Knox
 f usr/share/lib/zoneinfo/US/Michigan 0644 root bin
 f usr/share/lib/zoneinfo/US/Mountain 0644 root bin
 f usr/share/lib/zoneinfo/US/Pacific 0644 root bin
@@ -11895,7 +11997,7 @@ f usr/share/man/man1/at.1 0444 root bin
 f usr/share/man/man1/atq.1 0444 root bin
 f usr/share/man/man1/atrm.1 0444 root bin
 f usr/share/man/man1/auths.1 0444 root bin
-s usr/share/man/man1/awk.1=nawk.1
+f usr/share/man/man1/awk.1 0444 root bin
 f usr/share/man/man1/banner.1 0444 root bin
 f usr/share/man/man1/basename.1 0444 root bin
 s usr/share/man/man1/batch.1=at.1
@@ -11938,7 +12040,6 @@ f usr/share/man/man1/crontab.1 0444 root bin
 f usr/share/man/man1/crypt.1 0444 root bin
 f usr/share/man/man1/csh.1 0444 root bin
 f usr/share/man/man1/csplit.1 0444 root bin
-f usr/share/man/man1/ctags.1 0444 root bin
 f usr/share/man/man1/ctfdiff.1 0444 root bin
 f usr/share/man/man1/ctfdump.1 0444 root bin
 f usr/share/man/man1/ctrun.1 0444 root bin
@@ -11949,6 +12050,7 @@ f usr/share/man/man1/date.1 0444 root bin
 f usr/share/man/man1/dc.1 0444 root bin
 f usr/share/man/man1/deallocate.1 0444 root bin
 s usr/share/man/man1/decrypt.1=encrypt.1
+f usr/share/man/man1/demangle.1 0444 root bin
 f usr/share/man/man1/deroff.1 0444 root bin
 f usr/share/man/man1/dhcpinfo.1 0444 root bin
 f usr/share/man/man1/diff.1 0444 root bin
@@ -12111,7 +12213,7 @@ f usr/share/man/man1/mpss.so.1.1 0444 root bin
 f usr/share/man/man1/msgfmt.1 0444 root bin
 f usr/share/man/man1/mt.1 0444 root bin
 f usr/share/man/man1/mv.1 0444 root bin
-f usr/share/man/man1/nawk.1 0444 root bin
+s usr/share/man/man1/nawk.1=awk.1
 f usr/share/man/man1/nc.1 0444 root bin
 s usr/share/man/man1/neqn.1=eqn.1
 f usr/share/man/man1/newform.1 0444 root bin
@@ -12304,407 +12406,8 @@ f usr/share/man/man1b/touch.1b 0444 root bin
 d usr/share/man/man1c 0755 root bin
 s usr/share/man/man1c/uudecode.1c=uuencode.1c
 f usr/share/man/man1c/uuencode.1c 044 root bin
-d usr/share/man/man1m 0755 root bin
-f usr/share/man/man1m/6to4relay.1m 0444 root bin
-f usr/share/man/man1m/Intro.1m 0444 root bin
-f usr/share/man/man1m/acctadm.1m 0444 root bin
-f usr/share/man/man1m/acpidump.1m 0444 root bin
-f usr/share/man/man1m/acpixtract.1m 0444 root bin
-f usr/share/man/man1m/add_drv.1m 0444 root bin
-f usr/share/man/man1m/addbadsec.1m 0444 root bin
-f usr/share/man/man1m/arcstat.1m 0444 root bin
-f usr/share/man/man1m/arp.1m 0444 root bin
-f usr/share/man/man1m/audit.1m 0444 root bin
-f usr/share/man/man1m/audit_warn.1m 0444 root bin
-f usr/share/man/man1m/auditconfig.1m 0444 root bin
-f usr/share/man/man1m/auditd.1m 0444 root bin
-f usr/share/man/man1m/auditrecord.1m 0444 root bin
-f usr/share/man/man1m/auditreduce.1m 0444 root bin
-f usr/share/man/man1m/auditstat.1m 0444 root bin
-s usr/share/man/man1m/audlinks.1m=devfsadm.1m
-f usr/share/man/man1m/automount.1m 0444 root bin
-f usr/share/man/man1m/automountd.1m 0444 root bin
-f usr/share/man/man1m/autopush.1m 0444 root bin
-f usr/share/man/man1m/bart.1m 0444 root bin
-f usr/share/man/man1m/bootadm.1m 0444 root bin
-f usr/share/man/man1m/busstat.1m 0444 root bin
-f usr/share/man/man1m/captoinfo.1m 0444 root bin
-f usr/share/man/man1m/catman.1m 0444 root bin
-f usr/share/man/man1m/ccidadm.1m 0444 root bin
-f usr/share/man/man1m/cfgadm.1m 0444 root bin
-f usr/share/man/man1m/cfgadm_fp.1m 0444 root bin
-f usr/share/man/man1m/cfgadm_pci.1m 0444 root bin
-f usr/share/man/man1m/cfgadm_sata.1m 0444 root bin
-f usr/share/man/man1m/cfgadm_scsi.1m 0444 root bin
-f usr/share/man/man1m/cfgadm_usb.1m 0444 root bin
-f usr/share/man/man1m/check-hostname.1m 0444 root bin
-f usr/share/man/man1m/check-permissions.1m 0444 root bin
-f usr/share/man/man1m/chroot.1m 0444 root bin
-f usr/share/man/man1m/clear_locks.1m 0444 root bin
-f usr/share/man/man1m/clinfo.1m 0444 root bin
-f usr/share/man/man1m/clri.1m 0444 root bin
-f usr/share/man/man1m/connstat.1m 0444 root bin
-f usr/share/man/man1m/consadm.1m 0444 root bin
-f usr/share/man/man1m/coreadm.1m 0444 root bin
-f usr/share/man/man1m/cpustat.1m 0444 root bin
-f usr/share/man/man1m/cron.1m 0444 root bin
-f usr/share/man/man1m/cryptoadm.1m 0444 root bin
-s usr/share/man/man1m/dcopy.1m=clri.1m
-f usr/share/man/man1m/dd.1m 0444 root bin
-f usr/share/man/man1m/devattr.1m 0444 root bin
-f usr/share/man/man1m/devfree.1m 0444 root bin
-f usr/share/man/man1m/devfsadm.1m 0444 root bin
-s usr/share/man/man1m/devfsadmd.1m=devfsadm.1m
-f usr/share/man/man1m/devinfo.1m 0444 root bin
-f usr/share/man/man1m/devlinks.1m 0444 root bin
-f usr/share/man/man1m/devnm.1m 0444 root bin
-f usr/share/man/man1m/devprop.1m 0444 root bin
-f usr/share/man/man1m/devreserv.1m 0444 root bin
-f usr/share/man/man1m/df.1m 0444 root bin
-f usr/share/man/man1m/df_ufs.1m 0444 root bin
-f usr/share/man/man1m/dfmounts.1m 0444 root bin
-f usr/share/man/man1m/dfmounts_nfs.1m 0444 root bin
-f usr/share/man/man1m/dfshares.1m 0444 root bin
-f usr/share/man/man1m/dfshares_nfs.1m 0444 root bin
-f usr/share/man/man1m/dhcpagent.1m 0444 root bin
-f usr/share/man/man1m/diskinfo.1m 0444 root bin
-f usr/share/man/man1m/disks.1m 0444 root bin
-f usr/share/man/man1m/diskscan.1m 0444 root bin
-f usr/share/man/man1m/dispadmin.1m 0444 root bin
-f usr/share/man/man1m/dladm.1m 0444 root bin
-f usr/share/man/man1m/dlmgmtd.1m 0444 root bin
-f usr/share/man/man1m/dmesg.1m 0444 root bin
-f usr/share/man/man1m/dminfo.1m 0444 root bin
-f usr/share/man/man1m/dns-sd.1m 0444 root bin
-f usr/share/man/man1m/domainname.1m 0444 root bin
-f usr/share/man/man1m/drvconfig.1m 0444 root bin
-f usr/share/man/man1m/dtrace.1m 0444 root bin
-f usr/share/man/man1m/dumpadm.1m 0444 root bin
-f usr/share/man/man1m/editmap.1m 0444 root bin
-f usr/share/man/man1m/edquota.1m 0444 root bin
-f usr/share/man/man1m/eeprom.1m 0444 root bin
-f usr/share/man/man1m/embedded_su.1m 0444 root bin
-f usr/share/man/man1m/etrn.1m 0444 root bin
-s usr/share/man/man1m/fcadm.1m=fcinfo.1m
-f usr/share/man/man1m/fcinfo.1m 0444 root bin
-f usr/share/man/man1m/fdetach.1m 0444 root bin
-f usr/share/man/man1m/fdisk.1m 0444 root bin
-f usr/share/man/man1m/ff.1m 0444 root bin
-f usr/share/man/man1m/ff_ufs.1m 0444 root bin
-f usr/share/man/man1m/fiocompress.1m 0444 root bin
-f usr/share/man/man1m/flowadm.1m 0444 root bin
-f usr/share/man/man1m/fmadm.1m 0444 root bin
-f usr/share/man/man1m/fmd.1m 0444 root bin
-f usr/share/man/man1m/fmdump.1m 0444 root bin
-f usr/share/man/man1m/fmstat.1m 0444 root bin
-f usr/share/man/man1m/fmthard.1m 0444 root bin
-f usr/share/man/man1m/format.1m 0444 root bin
-f usr/share/man/man1m/fsck.1m 0444 root bin
-f usr/share/man/man1m/fsck_ufs.1m 0444 root bin
-f usr/share/man/man1m/fsdb.1m 0444 root bin
-f usr/share/man/man1m/fsdb_ufs.1m 0444 root bin
-f usr/share/man/man1m/fsirand.1m 0444 root bin
-f usr/share/man/man1m/fssnap.1m 0444 root bin
-f usr/share/man/man1m/fssnap_ufs.1m 0444 root bin
-f usr/share/man/man1m/fsstat.1m 0444 root bin
-f usr/share/man/man1m/fstyp.1m 0444 root bin
-f usr/share/man/man1m/fuser.1m 0444 root bin
-f usr/share/man/man1m/fwflash.1m 0444 root bin
-f usr/share/man/man1m/getdev.1m 0444 root bin
-f usr/share/man/man1m/getdevpolicy.1m 0444 root bin
-f usr/share/man/man1m/getdgrp.1m 0444 root bin
-f usr/share/man/man1m/getent.1m 0444 root bin
-f usr/share/man/man1m/getty.1m 0444 root bin
-f usr/share/man/man1m/getvol.1m 0444 root bin
-f usr/share/man/man1m/groupadd.1m 0444 root bin
-f usr/share/man/man1m/groupdel.1m 0444 root bin
-f usr/share/man/man1m/groupmod.1m 0444 root bin
-s usr/share/man/man1m/grpck.1m=pwck.1m
-f usr/share/man/man1m/gsscred.1m 0444 root bin
-f usr/share/man/man1m/gssd.1m 0444 root bin
-f usr/share/man/man1m/halt.1m 0444 root bin
-f usr/share/man/man1m/hostconfig.1m 0444 root bin
-f usr/share/man/man1m/hotplug.1m 0444 root bin
-f usr/share/man/man1m/id.1m 0444 root bin
-f usr/share/man/man1m/idmap.1m 0444 root bin
-f usr/share/man/man1m/idmapd.1m 0444 root bin
-f usr/share/man/man1m/if_mpadm.1m 0444 root bin
-f usr/share/man/man1m/ifconfig.1m 0444 root bin
-f usr/share/man/man1m/ifparse.1m 0444 root bin
-f usr/share/man/man1m/ikeadm.1m 0444 root bin
-f usr/share/man/man1m/ikecert.1m 0444 root bin
-f usr/share/man/man1m/in.comsat.1m 0444 root bin
-f usr/share/man/man1m/in.fingerd.1m 0444 root bin
-f usr/share/man/man1m/in.iked.1m 0444 root bin
-f usr/share/man/man1m/in.mpathd.1m 0444 root bin
-f usr/share/man/man1m/in.ndpd.1m 0444 root bin
-f usr/share/man/man1m/in.rdisc.1m 0444 root bin
-f usr/share/man/man1m/in.rexecd.1m 0444 root bin
-f usr/share/man/man1m/in.ripngd.1m 0444 root bin
-f usr/share/man/man1m/in.rlogind.1m 0444 root bin
-f usr/share/man/man1m/in.routed.1m 0444 root bin
-f usr/share/man/man1m/in.rshd.1m 0444 root bin
-f usr/share/man/man1m/in.rwhod.1m 0444 root bin
-f usr/share/man/man1m/in.talkd.1m 0444 root bin
-f usr/share/man/man1m/in.telnetd.1m 0444 root bin
-f usr/share/man/man1m/in.tftpd.1m 0444 root bin
-f usr/share/man/man1m/inetadm.1m 0444 root bin
-f usr/share/man/man1m/inetconv.1m 0444 root bin
-f usr/share/man/man1m/inetd.1m 0444 root bin
-f usr/share/man/man1m/infocmp.1m 0444 root bin
-f usr/share/man/man1m/init.1m 0444 root bin
-f usr/share/man/man1m/install.1m 0444 root bin
-f usr/share/man/man1m/installboot.1m 0444 root bin
-f usr/share/man/man1m/installgrub.1m 0444 root bin
-f usr/share/man/man1m/intrd.1m 0444 root bin
-s usr/share/man/man1m/intro.1m=Intro.1m
-f usr/share/man/man1m/intrstat.1m 0444 root bin
-f usr/share/man/man1m/iostat.1m 0444 root bin
-f usr/share/man/man1m/ipaddrsel.1m 0444 root bin
-f usr/share/man/man1m/ipadm.1m 0444 root bin
-f usr/share/man/man1m/ipdadm.1m 0444 root bin
-f usr/share/man/man1m/ipf.1m 0444 root bin
-f usr/share/man/man1m/ipfs.1m 0444 root bin
-f usr/share/man/man1m/ipfstat.1m 0444 root bin
-f usr/share/man/man1m/ipmon.1m 0444 root bin
-f usr/share/man/man1m/ipmpstat.1m 0444 root bin
-f usr/share/man/man1m/ipnat.1m 0444 root bin
-f usr/share/man/man1m/ippool.1m 0444 root bin
-f usr/share/man/man1m/ipqosconf.1m 0444 root bin
-f usr/share/man/man1m/ipsecalgs.1m 0444 root bin
-f usr/share/man/man1m/ipsecconf.1m 0444 root bin
-f usr/share/man/man1m/ipseckey.1m 0444 root bin
-f usr/share/man/man1m/iscsiadm.1m 0444 root bin
-f usr/share/man/man1m/itadm.1m 0444 root bin
-f usr/share/man/man1m/kernel.1m 0444 root bin
-f usr/share/man/man1m/keyserv.1m 0444 root bin
-f usr/share/man/man1m/killall.1m 0444 root bin
-f usr/share/man/man1m/ksslcfg.1m 0444 root bin
-f usr/share/man/man1m/kstat.1m 0444 root bin
-f usr/share/man/man1m/labelit.1m 0444 root bin
-f usr/share/man/man1m/labelit_hsfs.1m 0444 root bin
-f usr/share/man/man1m/labelit_ufs.1m 0444 root bin
-f usr/share/man/man1m/ldap_cachemgr.1m 0444 root bin
-f usr/share/man/man1m/ldapaddent.1m 0444 root bin
-f usr/share/man/man1m/ldapclient.1m 0444 root bin
-f usr/share/man/man1m/link.1m 0444 root bin
-f usr/share/man/man1m/listdgrp.1m 0444 root bin
-f usr/share/man/man1m/listen.1m 0444 root bin
-f usr/share/man/man1m/locator.1m 0444 root bin
-f usr/share/man/man1m/lockfs.1m 0444 root bin
-f usr/share/man/man1m/lockstat.1m 0444 root bin
-f usr/share/man/man1m/lofiadm.1m 0444 root bin
-f usr/share/man/man1m/logadm.1m 0444 root bin
-f usr/share/man/man1m/logins.1m 0444 root bin
-f usr/share/man/man1m/mail.local.1m 0444 root bin
-f usr/share/man/man1m/mailwrapper.1m 0444 root bin
-f usr/share/man/man1m/makedbm.1m 0444 root bin
-f usr/share/man/man1m/makemap.1m 0444 root bin
-f usr/share/man/man1m/mdnsd.1m 0444 root bin
-f usr/share/man/man1m/mkdevalloc.1m 0444 root bin
-f usr/share/man/man1m/mkdevmaps.1m 0444 root bin
-f usr/share/man/man1m/mkfifo.1m 0444 root bin
-f usr/share/man/man1m/mkfile.1m 0444 root bin
-f usr/share/man/man1m/mkfs.1m 0444 root bin
-f usr/share/man/man1m/mkfs_pcfs.1m 0444 root bin
-f usr/share/man/man1m/mkfs_udfs.1m 0444 root bin
-f usr/share/man/man1m/mkfs_ufs.1m 0444 root bin
-f usr/share/man/man1m/mknod.1m 0444 root bin
-f usr/share/man/man1m/mkpwdict.1m 0444 root bin
-f usr/share/man/man1m/modinfo.1m 0444 root bin
-f usr/share/man/man1m/modload.1m 0444 root bin
-f usr/share/man/man1m/modunload.1m 0444 root bin
-f usr/share/man/man1m/mount.1m 0444 root bin
-f usr/share/man/man1m/mount_hsfs.1m 0444 root bin
-f usr/share/man/man1m/mount_nfs.1m 0444 root bin
-f usr/share/man/man1m/mount_pcfs.1m 0444 root bin
-f usr/share/man/man1m/mount_smbfs.1m 0444 root bin
-f usr/share/man/man1m/mount_tmpfs.1m 0444 root bin
-f usr/share/man/man1m/mount_udfs.1m 0444 root bin
-f usr/share/man/man1m/mount_ufs.1m 0444 root bin
-f usr/share/man/man1m/mountall.1m 0444 root bin
-f usr/share/man/man1m/mountd.1m 0444 root bin
-f usr/share/man/man1m/mpathadm.1m 0444 root bin
-f usr/share/man/man1m/mpstat.1m 0444 root bin
-f usr/share/man/man1m/msgid.1m 0444 root bin
-f usr/share/man/man1m/mvdir.1m 0444 root bin
-f usr/share/man/man1m/ncheck.1m 0444 root bin
-f usr/share/man/man1m/ncheck_ufs.1m 0444 root bin
-f usr/share/man/man1m/ndd.1m 0444 root bin
-f usr/share/man/man1m/ndp.1m 0444 root bin
-f usr/share/man/man1m/netstat.1m 0444 root bin
-f usr/share/man/man1m/netstrategy.1m 0444 root bin
-f usr/share/man/man1m/newaliases.1m 0444 root bin
-f usr/share/man/man1m/newfs.1m 0444 root bin
-f usr/share/man/man1m/newkey.1m 0444 root bin
-f usr/share/man/man1m/nfs4cbd.1m 0444 root bin
-f usr/share/man/man1m/nfsd.1m 0444 root bin
-f usr/share/man/man1m/nfslogd.1m 0444 root bin
-f usr/share/man/man1m/nfsmapid.1m 0444 root bin
-f usr/share/man/man1m/nfsstat.1m 0444 root bin
-f usr/share/man/man1m/nlsadmin.1m 0444 root bin
-f usr/share/man/man1m/nscd.1m 0444 root bin
-f usr/share/man/man1m/nvmeadm.1m 0444 root bin
-f usr/share/man/man1m/nwamd.1m 0444 root bin
-f usr/share/man/man1m/passmgmt.1m 0444 root bin
-f usr/share/man/man1m/pbind.1m 0444 root bin
-f usr/share/man/man1m/pcitool.1m 0444 root bin
-f usr/share/man/man1m/picld.1m 0444 root bin
-f usr/share/man/man1m/ping.1m 0444 root bin
-f usr/share/man/man1m/plockstat.1m 0444 root bin
-f usr/share/man/man1m/pmadm.1m 0444 root bin
-f usr/share/man/man1m/pmconfig.1m 0444 root bin
-f usr/share/man/man1m/ports.1m 0444 root bin
-s usr/share/man/man1m/poweroff.1m=halt.1m
-f usr/share/man/man1m/pptadm.1m 0444 root bin
-f usr/share/man/man1m/praudit.1m 0444 root bin
-f usr/share/man/man1m/projadd.1m 0444 root bin
-f usr/share/man/man1m/projdel.1m 0444 root bin
-f usr/share/man/man1m/projmod.1m 0444 root bin
-f usr/share/man/man1m/prstat.1m 0444 root bin
-f usr/share/man/man1m/prtconf.1m 0444 root bin
-f usr/share/man/man1m/prtdiag.1m 0444 root bin
-f usr/share/man/man1m/prtpicl.1m 0444 root bin
-f usr/share/man/man1m/prtvtoc.1m 0444 root bin
-f usr/share/man/man1m/psradm.1m 0444 root bin
-f usr/share/man/man1m/psrinfo.1m 0444 root bin
-f usr/share/man/man1m/psrset.1m 0444 root bin
-f usr/share/man/man1m/putdev.1m 0444 root bin
-f usr/share/man/man1m/putdgrp.1m 0444 root bin
-f usr/share/man/man1m/pwck.1m 0444 root bin
-f usr/share/man/man1m/pwconv.1m 0444 root bin
-f usr/share/man/man1m/quot.1m 0444 root bin
-f usr/share/man/man1m/quota.1m 0444 root bin
-f usr/share/man/man1m/quotacheck.1m 0444 root bin
-s usr/share/man/man1m/quotaoff.1m=quotaon.1m
-f usr/share/man/man1m/quotaon.1m 0444 root bin
-f usr/share/man/man1m/raidctl.1m 0444 root bin
-f usr/share/man/man1m/ramdiskadm.1m 0444 root bin
-f usr/share/man/man1m/rcapadm.1m 0444 root bin
-f usr/share/man/man1m/rcapd.1m 0444 root bin
-f usr/share/man/man1m/rctladm.1m 0444 root bin
-f usr/share/man/man1m/rdate.1m 0444 root bin
-s usr/share/man/man1m/rdisc.1m=in.rdisc.1m
-f usr/share/man/man1m/rdmsr.1m 0444 root bin
-f usr/share/man/man1m/reboot.1m 0444 root bin
-f usr/share/man/man1m/rem_drv.1m 0444 root bin
-f usr/share/man/man1m/repquota.1m 0444 root bin
-s usr/share/man/man1m/restricted_shell.1m=rsh.1m
-f usr/share/man/man1m/rmt.1m 0444 root bin
-f usr/share/man/man1m/roleadd.1m 0444 root bin
-f usr/share/man/man1m/roledel.1m 0444 root bin
-f usr/share/man/man1m/rolemod.1m 0444 root bin
-f usr/share/man/man1m/route.1m 0444 root bin
-f usr/share/man/man1m/routeadm.1m 0444 root bin
-s usr/share/man/man1m/routed.1m=in.routed.1m
-f usr/share/man/man1m/rpcbind.1m 0444 root bin
-f usr/share/man/man1m/rpcinfo.1m 0444 root bin
-f usr/share/man/man1m/rquotad.1m 0444 root bin
-f usr/share/man/man1m/rsh.1m 0444 root bin
-f usr/share/man/man1m/rtc.1m 0444 root bin
-f usr/share/man/man1m/rtquery.1m 0444 root bin
-f usr/share/man/man1m/rwall.1m 0444 root bin
-f usr/share/man/man1m/sac.1m 0444 root bin
-f usr/share/man/man1m/sacadm.1m 0444 root bin
-f usr/share/man/man1m/saf.1m 0444 root bin
-f usr/share/man/man1m/sasinfo.1m 0444 root bin
-f usr/share/man/man1m/savecore.1m 0444 root bin
-f usr/share/man/man1m/sbdadm.1m 0444 root bin
-f usr/share/man/man1m/sendmail.1m 0444 root bin
-f usr/share/man/man1m/setuname.1m 0444 root bin
-f usr/share/man/man1m/share.1m 0444 root bin
-f usr/share/man/man1m/share_nfs.1m 0444 root bin
-f usr/share/man/man1m/shareall.1m 0444 root bin
-f usr/share/man/man1m/sharectl.1m 0444 root bin
-f usr/share/man/man1m/sharemgr.1m 0444 root bin
-f usr/share/man/man1m/showmount.1m 0444 root bin
-f usr/share/man/man1m/shutdown.1m 0444 root bin
-f usr/share/man/man1m/slpd.1m 0444 root bin
-f usr/share/man/man1m/smbadm.1m 0444 root bin
-f usr/share/man/man1m/smbd.1m 0444 root bin
-f usr/share/man/man1m/smbiod.1m 0444 root bin
-f usr/share/man/man1m/smbios.1m 0444 root bin
-f usr/share/man/man1m/smbstat.1m 0444 root bin
-f usr/share/man/man1m/smrsh.1m 0444 root bin
-f usr/share/man/man1m/snoop.1m 0444 root bin
-f usr/share/man/man1m/soconfig.1m 0444 root bin
-f usr/share/man/man1m/sppptun.1m 0444 root bin
-f usr/share/man/man1m/spray.1m 0444 root bin
-f usr/share/man/man1m/statd.1m 0444 root bin
-f usr/share/man/man1m/stmfadm.1m 0444 root bin
-f usr/share/man/man1m/stmsboot.1m 0444 root bin
-f usr/share/man/man1m/strclean.1m 0444 root bin
-f usr/share/man/man1m/strerr.1m 0444 root bin
-f usr/share/man/man1m/sttydefs.1m 0444 root bin
-f usr/share/man/man1m/su.1m 0444 root bin
-f usr/share/man/man1m/sulogin.1m 0444 root bin
-f usr/share/man/man1m/svc.configd.1m 044 root bin
-f usr/share/man/man1m/svc.ipfd.1m 044 root bin
-f usr/share/man/man1m/svc.startd.1m 044 root bin
-f usr/share/man/man1m/svcadm.1m 0444 root bin
-f usr/share/man/man1m/svccfg.1m 0444 root bin
-f usr/share/man/man1m/swap.1m 0444 root bin
-f usr/share/man/man1m/sync.1m 0444 root bin
-f usr/share/man/man1m/syncinit.1m 0444 root bin
-f usr/share/man/man1m/syncloop.1m 0444 root bin
-f usr/share/man/man1m/syncstat.1m 0444 root bin
-f usr/share/man/man1m/sysdef.1m 0444 root bin
-f usr/share/man/man1m/syseventadm.1m 0444 root bin
-f usr/share/man/man1m/syseventconfd.1m 0444 root bin
-f usr/share/man/man1m/syseventd.1m 0444 root bin
-f usr/share/man/man1m/syslogd.1m 0444 root bin
-f usr/share/man/man1m/tapes.1m 0444 root bin
-f usr/share/man/man1m/tcpd.1m 0444 root bin
-f usr/share/man/man1m/tcpdchk.1m 0444 root bin
-f usr/share/man/man1m/tcpdmatch.1m 0444 root bin
-f usr/share/man/man1m/tic.1m 0444 root bin
-f usr/share/man/man1m/traceroute.1m 0444 root bin
-f usr/share/man/man1m/trapstat.1m 0444 root bin
-f usr/share/man/man1m/ttyadm.1m 0444 root bin
-f usr/share/man/man1m/ttymon.1m 0444 root bin
-f usr/share/man/man1m/tunefs.1m 0444 root bin
-f usr/share/man/man1m/tzreload.1m 0444 root bin
-f usr/share/man/man1m/tzselect.1m 0444 root bin
-f usr/share/man/man1m/uadmin.1m 0444 root bin
-f usr/share/man/man1m/ucodeadm.1m 0444 root bin
-f usr/share/man/man1m/ufsdump.1m 0444 root bin
-f usr/share/man/man1m/ufsrestore.1m 0444 root bin
-s usr/share/man/man1m/umount.1m=mount.1m
-s usr/share/man/man1m/umount_smbfs.1m=mount_smbfs.1m
-s usr/share/man/man1m/umountall.1m=mountall.1m
-s usr/share/man/man1m/unlink.1m=link.1m
-f usr/share/man/man1m/unshare.1m 0444 root bin
-f usr/share/man/man1m/unshare_nfs.1m 0444 root bin
-s usr/share/man/man1m/unshareall.1m=shareall.1m
-f usr/share/man/man1m/update_drv.1m 0444 root bin
-f usr/share/man/man1m/useradd.1m 0444 root bin
-f usr/share/man/man1m/userdel.1m 0444 root bin
-f usr/share/man/man1m/usermod.1m 0444 root bin
-f usr/share/man/man1m/utmpd.1m 0444 root bin
-f usr/share/man/man1m/vfsstat.1m 0444 root bin
-f usr/share/man/man1m/vmstat.1m 0444 root bin
-f usr/share/man/man1m/vndadm.1m 0444 root bin
-f usr/share/man/man1m/vndstat.1m 0444 root bin
-f usr/share/man/man1m/volcopy.1m 0444 root bin
-f usr/share/man/man1m/volcopy_ufs.1m 0444 root bin
-f usr/share/man/man1m/wall.1m 0444 root bin
-f usr/share/man/man1m/whodo.1m 0444 root bin
-f usr/share/man/man1m/wracct.1m 0444 root bin
-f usr/share/man/man1m/ypinit.1m 0444 root bin
-f usr/share/man/man1m/yppoll.1m 0444 root bin
-f usr/share/man/man1m/ypset.1m 0444 root bin
-f usr/share/man/man1m/zdb.1m 0444 root bin
-f usr/share/man/man1m/zdump.1m 0444 root bin
-f usr/share/man/man1m/zfs-program.1m 0444 root bin
-f usr/share/man/man1m/zfs.1m 0444 root bin
-f usr/share/man/man1m/zic.1m 0444 root bin
-f usr/share/man/man1m/zoneadm.1m 0444 root bin
-f usr/share/man/man1m/zoneadmd.1m 0444 root bin
-f usr/share/man/man1m/zonecfg.1m 0444 root bin
-f usr/share/man/man1m/zonestatd.1m 0444 root bin
-f usr/share/man/man1m/zpool.1m 0444 root bin
-f usr/share/man/man1m/zstreamdump.1m 0444 root bin
-f usr/share/man/man1m/ztest.1m 0444 root bin
+
+
 d usr/share/man/man2 0755 root bin
 f usr/share/man/man2/Intro.2 0444 root bin
 s usr/share/man/man2/_Exit.2=exit.2
@@ -12768,6 +12471,7 @@ s usr/share/man/man2/fstat.2=stat.2
 s usr/share/man/man2/fstatat.2=stat.2
 s usr/share/man/man2/fstatvfs.2=statvfs.2
 s usr/share/man/man2/futimens.2=utimes.2
+s usr/share/man/man2/futimes.2=utimes.2
 s usr/share/man/man2/futimesat.2=utimes.2
 f usr/share/man/man2/getacct.2 0444 root bin
 f usr/share/man/man2/getaudit.2 0444 root bin
@@ -12807,6 +12511,7 @@ s usr/share/man/man2/linkat.2=link.2
 f usr/share/man/man2/llseek.2 0444 root bin
 f usr/share/man/man2/lseek.2 0444 root bin
 s usr/share/man/man2/lstat.2=stat.2
+s usr/share/man/man2/lutimes.2=utimes.2
 f usr/share/man/man2/memcntl.2 0444 root bin
 f usr/share/man/man2/meminfo.2 0444 root bin
 f usr/share/man/man2/mincore.2 0444 root bin
@@ -12926,6 +12631,7 @@ s usr/share/man/man2/umount2.2=umount.2
 f usr/share/man/man2/uname.2 0444 root bin
 f usr/share/man/man2/unlink.2 0444 root bin
 s usr/share/man/man2/unlinkat.2=unlink.2
+f usr/share/man/man2/upanic.2 0444 root bin
 f usr/share/man/man2/ustat.2 0444 root bin
 f usr/share/man/man2/utime.2 0444 root bin
 s usr/share/man/man2/utimensat.2=utimes.2
@@ -13208,6 +12914,8 @@ f usr/share/man/man3c/btowc.3c 0444 root bin
 s usr/share/man/man3c/btowc_l.3c=btowc.3c
 f usr/share/man/man3c/byteorder.3c 0444 root bin
 s usr/share/man/man3c/bzero.3c=bstring.3c
+f usr/share/man/man3c/c16rtomb.3c 0444 root bin
+s usr/share/man/man3c/c32rtomb.3c=c16rtomb.3c
 f usr/share/man/man3c/call_once.3c 0444 root bin
 s usr/share/man/man3c/calloc.3c=malloc.3c
 s usr/share/man/man3c/canonicalize_file_name.3c=realpath.3c
@@ -13379,7 +13087,7 @@ f usr/share/man/man3c/flockfile.3c 0444 root bin
 s usr/share/man/man3c/fls.3c=ffs.3c
 s usr/share/man/man3c/flsl.3c=ffs.3c
 s usr/share/man/man3c/flsll.3c=ffs.3c
-f path=usr/share/man/man3c/fmemopen.3c 0444 root bin
+f usr/share/man/man3c/fmemopen.3c 0444 root bin
 f usr/share/man/man3c/fmtmsg.3c 0444 root bin
 f usr/share/man/man3c/fnmatch.3c 0444 root bin
 f usr/share/man/man3c/fopen.3c 0444 root bin
@@ -13449,6 +13157,7 @@ s usr/share/man/man3c/getgrgid.3c=getgrnam.3c
 s usr/share/man/man3c/getgrgid_r.3c=getgrnam.3c
 f usr/share/man/man3c/getgrnam.3c 0444 root bin
 s usr/share/man/man3c/getgrnam_r.3c=getgrnam.3c
+f usr/share/man/man3c/getgrouplist.3c 0444 root bin
 s usr/share/man/man3c/gethomelgroup.3c=getcpuid.3c
 f usr/share/man/man3c/gethostid.3c 0444 root bin
 f usr/share/man/man3c/gethostname.3c 0444 root bin
@@ -13599,6 +13308,7 @@ f usr/share/man/man3c/iswalpha.3c 0444 root bin
 s usr/share/man/man3c/iswalpha_l.3c=iswalpha.3c
 s usr/share/man/man3c/iswantrl_l.3c=iswalpha.3c
 s usr/share/man/man3c/iswascii.3c=iswalpha.3c
+s usr/share/man/man3c/iswascii_l.3c=iswalpha.3c
 s usr/share/man/man3c/iswblank.3c=iswalpha.3c
 s usr/share/man/man3c/iswblank_l.3c=iswalpha.3c
 s usr/share/man/man3c/iswcntrl.3c=iswalpha.3c
@@ -13668,8 +13378,10 @@ f usr/share/man/man3c/mblen.3c 0444 root bin
 s usr/share/man/man3c/mblen_l.3c=mblen.3c
 f usr/share/man/man3c/mbrlen.3c 0444 root bin
 s usr/share/man/man3c/mbrlen_l.3c=mbrlen.3c
-f usr/share/man/man3c/mbrtowc.3c 0444 root bin
-s usr/share/man/man3c/mbrtowc_l.3c=mbrtowc.3c
+f usr/share/man/man3c/mbrtoc16.3c 0444 root bin
+s usr/share/man/man3c/mbrtoc32.3c=mbrtoc16.3c
+s usr/share/man/man3c/mbrtowc.3c=mbrtoc16.3c
+s usr/share/man/man3c/mbrtowc_l.3c=mbrtoc16.3c
 f usr/share/man/man3c/mbsinit.3c 0444 root bin
 s usr/share/man/man3c/mbsinit_l.3c=mbsinit.3c
 s usr/share/man/man3c/mbsnrtowcs.3c=mbsrtowcs.3c
@@ -13692,6 +13404,7 @@ s usr/share/man/man3c/memcmp.3c=memory.3c
 s usr/share/man/man3c/memcpy.3c=memory.3c
 s usr/share/man/man3c/memmem.3c=memory.3c
 s usr/share/man/man3c/memmove.3c=memory.3c
+s usr/share/man/man3c/memrchr.3c=memory.3c
 f usr/share/man/man3c/memory.3c 0444 root bin
 s usr/share/man/man3c/memset.3c=memory.3c
 f usr/share/man/man3c/memset_s.3c 0444 root bin
@@ -13961,6 +13674,7 @@ s usr/share/man/man3c/qeconvert.3c=econvert.3c
 s usr/share/man/man3c/qfconvert.3c=econvert.3c
 s usr/share/man/man3c/qgconvert.3c=econvert.3c
 f usr/share/man/man3c/qsort.3c 0444 root bin
+s usr/share/man/man3c/qsort_r.3c=qsort.3c
 s usr/share/man/man3c/quadruple_to_decimal.3c=floating_to_decimal.3c
 f usr/share/man/man3c/quick_exit.3c 0444 root bin
 f usr/share/man/man3c/raise.3c 0444 root bin
@@ -14349,8 +14063,8 @@ s usr/share/man/man3c/watol.3c=wcstol.3c
 s usr/share/man/man3c/watoll.3c=wcstol.3c
 f usr/share/man/man3c/wcpcpy.3c 0444 root bin
 s usr/share/man/man3c/wcpncpy.3c=wcpcpy.3c
-f usr/share/man/man3c/wcrtomb.3c 0444 root bin
-s usr/share/man/man3c/wcrtomb_l.3c=wcrtomb.3c
+s usr/share/man/man3c/wcrtomb.3c=c16rtomb.3c
+s usr/share/man/man3c/wcrtomb_l.3c=c16rtomb.3c
 f usr/share/man/man3c/wcscasecmp.3c 0444 root bin
 s usr/share/man/man3c/wcscasecmp_l.3c=wcscasecmp.3c
 s usr/share/man/man3c/wcscat.3c=wcstring.3c
@@ -14612,7 +14326,9 @@ s usr/share/man/man3contract/ct_tmpl_set_cookie.3contract=ct_tmpl_activate.3cont
 s usr/share/man/man3contract/ct_tmpl_set_critical.3contract=ct_tmpl_activate.3contract
 s usr/share/man/man3contract/ct_tmpl_set_informative.3contract=ct_tmpl_activate.3contract
 d usr/share/man/man3cpc 0755 root bin
-f usr/share/man/man3cpc/amd_f17h_events.3cpc 0444 root bin
+f usr/share/man/man3cpc/amd_f17h_zen1_events.3cpc 0444 root bin
+f usr/share/man/man3cpc/amd_f17h_zen2_events.3cpc 0444 root bin
+f usr/share/man/man3cpc/amd_f19h_zen3_events.3cpc 0444 root bin
 f usr/share/man/man3cpc/bdw_de_events.3cpc 0444 root bin
 f usr/share/man/man3cpc/bdw_events.3cpc 0444 root bin
 f usr/share/man/man3cpc/bdx_events.3cpc 0444 root bin
@@ -14687,6 +14403,7 @@ f usr/share/man/man3cpc/glm_events.3cpc 0444 root bin
 f usr/share/man/man3cpc/glp_events.3cpc 0444 root bin
 f usr/share/man/man3cpc/hsw_events.3cpc 0444 root bin
 f usr/share/man/man3cpc/hsx_events.3cpc 0444 root bin
+f usr/share/man/man3cpc/icl_events.3cpc 0444 root bin
 f usr/share/man/man3cpc/ivb_events.3cpc 0444 root bin
 f usr/share/man/man3cpc/ivt_events.3cpc 0444 root bin
 f usr/share/man/man3cpc/jkt_events.3cpc 0444 root bin
@@ -14701,6 +14418,8 @@ f usr/share/man/man3cpc/skl_events.3cpc 0444 root bin
 f usr/share/man/man3cpc/skx_events.3cpc 0444 root bin
 f usr/share/man/man3cpc/slm_events.3cpc 0444 root bin
 f usr/share/man/man3cpc/snb_events.3cpc 0444 root bin
+f usr/share/man/man3cpc/snr_events.3cpc 0444 root bin
+f usr/share/man/man3cpc/tgl_events.3cpc 0444 root bin
 f usr/share/man/man3cpc/wsm_ep_dp_events.3cpc 0444 root bin
 f usr/share/man/man3cpc/wsm_ep_sp_events.3cpc 0444 root bin
 f usr/share/man/man3cpc/wsm_ex_events.3cpc 0444 root bin
@@ -15350,6 +15069,7 @@ s usr/share/man/man3devid/devid_sizeof.3devid=devid_get.3devid
 s usr/share/man/man3devid/devid_str_decode.3devid=devid_get.3devid
 s usr/share/man/man3devid/devid_str_encode.3devid=devid_get.3devid
 s usr/share/man/man3devid/devid_str_free.3devid=devid_get.3devid
+s usr/share/man/man3devid/devid_str_from_path.3devid=devid_get.3devid
 s usr/share/man/man3devid/devid_valid.3devid=devid_get.3devid
 d usr/share/man/man3devinfo 0755 root bin
 f usr/share/man/man3devinfo/di_binding_name.3devinfo 0444 root bin
@@ -15642,12 +15362,6 @@ s usr/share/man/man3ext/SHA512Update.3ext=sha2.3ext
 f usr/share/man/man3ext/SUNW_C_GetMechSession.3ext 0444 root bin
 s usr/share/man/man3ext/SUNW_C_KeyToObject.3ext=SUNW_C_GetMechSession.3ext
 s usr/share/man/man3ext/_NOTE.3ext=NOTE.3ext
-f usr/share/man/man3ext/auto_ef.3ext 0444 root bin
-s usr/share/man/man3ext/auto_ef_file.3ext=auto_ef.3ext
-s usr/share/man/man3ext/auto_ef_free.3ext=auto_ef.3ext
-s usr/share/man/man3ext/auto_ef_get_encoding.3ext=auto_ef.3ext
-s usr/share/man/man3ext/auto_ef_get_score.3ext=auto_ef.3ext
-s usr/share/man/man3ext/auto_ef_str.3ext=auto_ef.3ext
 s usr/share/man/man3ext/cbc_crypt.3ext=ecb_crypt.3ext
 s usr/share/man/man3ext/cplus_demangle.3ext=demangle.3ext
 f usr/share/man/man3ext/crypt.3ext 0444 root bin
@@ -15802,6 +15516,11 @@ f usr/share/man/man3gss/gss_verify_mic.3gss 0444 root bin
 f usr/share/man/man3gss/gss_wrap.3gss 0444 root bin
 f usr/share/man/man3gss/gss_wrap_size_limit.3gss 0444 root bin
 d usr/share/man/man3head 0755 root bin
+s usr/share/man/man3head/CMSG_DATA.3head=socket.h.3head
+s usr/share/man/man3head/CMSG_FIRSTHDR.3head=socket.h.3head
+s usr/share/man/man3head/CMSG_LEN.3head=socket.h.3head
+s usr/share/man/man3head/CMSG_NXTHDR.3head=socket.h.3head
+s usr/share/man/man3head/CMSG_SPACE.3head=socket.h.3head
 s usr/share/man/man3head/LIST_CLASS_ENTRY.3head=queue.h.3head
 s usr/share/man/man3head/LIST_CLASS_HEAD.3head=queue.h.3head
 s usr/share/man/man3head/LIST_CONCAT.3head=queue.h.3head
@@ -15890,6 +15609,8 @@ s usr/share/man/man3head/TAILQ_NEXT.3head=queue.h.3head
 s usr/share/man/man3head/TAILQ_PREV.3head=queue.h.3head
 s usr/share/man/man3head/TAILQ_REMOVE.3head=queue.h.3head
 s usr/share/man/man3head/TAILQ_SWAP.3head=queue.h.3head
+s usr/share/man/man3head/TIMESPEC_TO_TIMEVAL.3head=timespec.3head
+s usr/share/man/man3head/TIMEVAL_TO_TIMESPEC.3head=timespec.3head
 s usr/share/man/man3head/acct.3head=acct.h.3head
 f usr/share/man/man3head/acct.h.3head 0444 root bin
 s usr/share/man/man3head/aio.3head=aio.h.3head
@@ -16036,10 +15757,13 @@ s usr/share/man/man3head/timeb.3head=timeb.h.3head
 f usr/share/man/man3head/timeb.h.3head 0444 root bin
 s usr/share/man/man3head/times.3head=times.h.3head
 f usr/share/man/man3head/times.h.3head 0444 root bin
+f usr/share/man/man3head/timespec.3head 0444 root bin
+s usr/share/man/man3head/timeval.3head=timespec.3head
 s usr/share/man/man3head/types.3head=types.h.3head
 f usr/share/man/man3head/types.h.3head 0444 root bin
 s usr/share/man/man3head/types32.3head=types32.h.3head
 f usr/share/man/man3head/types32.h.3head 0444 root bin
+f usr/share/man/man3head/uchar.h.3head 0444 root bin
 s usr/share/man/man3head/ucontext.3head=ucontext.h.3head
 f usr/share/man/man3head/ucontext.h.3head 0444 root bin
 s usr/share/man/man3head/uio.3head=uio.h.3head
@@ -16050,6 +15774,7 @@ s usr/share/man/man3head/un.3head=un.h.3head
 f usr/share/man/man3head/un.h.3head 0444 root bin
 s usr/share/man/man3head/unistd.3head=unistd.h.3head
 f usr/share/man/man3head/unistd.h.3head 0444 root bin
+f usr/share/man/man3head/upanic.h.3head 0444 root bin
 s usr/share/man/man3head/utime.3head=utime.h.3head
 f usr/share/man/man3head/utime.h.3head 0444 root bin
 s usr/share/man/man3head/utmpx.3head=utmpx.h.3head
@@ -16421,7 +16146,6 @@ f usr/share/man/man3lib/libslp.3lib 0444 root bin
 s usr/share/man/man3lib/libsmhbaapi.3lib=libSMHBAAPI.3lib
 f usr/share/man/man3lib/libsocket.3lib 0444 root bin
 f usr/share/man/man3lib/libstmf.3lib 0444 root bin
-f usr/share/man/man3lib/libsys.3lib 0444 root bin
 f usr/share/man/man3lib/libsysevent.3lib 0444 root bin
 f usr/share/man/man3lib/libtecla.3lib 0444 root bin
 s usr/share/man/man3lib/libtermcap.3lib=libcurses.3lib
@@ -17267,6 +16991,8 @@ f usr/share/man/man3ofmt/ofmt.3ofmt 0444 root bin
 s usr/share/man/man3ofmt/ofmt_close.3ofmt=ofmt.3ofmt
 s usr/share/man/man3ofmt/ofmt_open.3ofmt=ofmt.3ofmt
 s usr/share/man/man3ofmt/ofmt_print.3ofmt=ofmt.3ofmt
+s usr/share/man/man3ofmt/ofmt_print_header.3ofmt=ofmt.3ofmt
+s usr/share/man/man3ofmt/ofmt_set_fs.3ofmt=ofmt.3ofmt
 s usr/share/man/man3ofmt/ofmt_strerror.3ofmt=ofmt.3ofmt
 s usr/share/man/man3ofmt/ofmt_update_winsize.3ofmt=ofmt.3ofmt
 d usr/share/man/man3pam 0755 root bin
@@ -17537,6 +17263,7 @@ f usr/share/man/man3proc/Prelease.3proc 0444 root bin
 f usr/share/man/man3proc/Preopen.3proc 0444 root bin
 f usr/share/man/man3proc/Preset_maps.3proc 0444 root bin
 f usr/share/man/man3proc/Psecflags.3proc 0444 root bin
+s usr/share/man/man3proc/Psecflags_free.3proc=Psecflags.3proc
 f usr/share/man/man3proc/Psetbkpt.3proc 0444 root bin
 f usr/share/man/man3proc/Psetcred.3proc 0444 root bin
 f usr/share/man/man3proc/Psetfault.3proc 0444 root bin
@@ -17563,6 +17290,8 @@ f usr/share/man/man3proc/Psysentry.3proc 0444 root bin
 s usr/share/man/man3proc/Psysexit.3proc=Psysentry.3proc
 f usr/share/man/man3proc/Puname.3proc 0444 root bin
 s usr/share/man/man3proc/Punsetflags.3proc=Psetflags.3proc
+f usr/share/man/man3proc/Pupanic.3proc 0444 root bin
+s usr/share/man/man3proc/Pupanic_free.3proc=Pupanic.3proc
 f usr/share/man/man3proc/Pupdate_maps.3proc 0444 root bin
 f usr/share/man/man3proc/Pupdate_syms.3proc 0444 root bin
 s usr/share/man/man3proc/Pwait.3proc=Pstopstatus.3proc
@@ -17640,6 +17369,7 @@ s usr/share/man/man3proc/proc_free_priv.3proc=proc_get_priv.3proc
 f usr/share/man/man3proc/proc_get_auxv.3proc 0444 root bin
 f usr/share/man/man3proc/proc_get_cred.3proc 0444 root bin
 s usr/share/man/man3proc/proc_get_ldt.3proc=Pldt.3proc
+f usr/share/man/man3proc/proc_get_lwpsinfo.3proc 0444 root bin
 f usr/share/man/man3proc/proc_get_priv.3proc 0444 root bin
 f usr/share/man/man3proc/proc_get_psinfo.3proc 0444 root bin
 f usr/share/man/man3proc/proc_get_status.3proc 0444 root bin
@@ -18028,6 +17758,7 @@ s usr/share/man/man3scf/scf_value_type.3scf=scf_value_create.3scf
 s usr/share/man/man3scf/scf_values_destroy.3scf=scf_tmpl_prop_name.3scf
 s usr/share/man/man3scf/smf_degrade_instance.3scf=smf_enable_instance.3scf
 s usr/share/man/man3scf/smf_disable_instance.3scf=smf_enable_instance.3scf
+s usr/share/man/man3scf/smf_disable_instance_with_comment.3scf=smf_enable_instance.3scf
 f usr/share/man/man3scf/smf_enable_instance.3scf 0444 root bin
 s usr/share/man/man3scf/smf_get_state.3scf=smf_enable_instance.3scf
 s usr/share/man/man3scf/smf_maintain_instance.3scf=smf_enable_instance.3scf
@@ -18612,6 +18343,13 @@ f usr/share/man/man3tnf/tnfctl_strerror.3tnf 0444 root bin
 f usr/share/man/man3tnf/tnfctl_trace_attrs_get.3tnf 0444 root bin
 f usr/share/man/man3tnf/tnfctl_trace_state_set.3tnf 0444 root bin
 f usr/share/man/man3tnf/tracing.3tnf 0444 root bin
+d usr/share/man/man3utempter 0755 root bin
+s usr/share/man/man3utempter/addToUtmp.3utempter=utempter_add_record.3utempter
+s usr/share/man/man3utempter/removeFromUtmp.3utempter=utempter_add_record.3utempter
+s usr/share/man/man3utempter/removeLineFromUtmp.3utempter=utempter_add_record.3utempter
+f usr/share/man/man3utempter/utempter_add_record.3utempter 0444 root bin
+s usr/share/man/man3utempter/utempter_remove_added_record.3utempter=utempter_add_record.3utempter
+s usr/share/man/man3utempter/utempter_remove_record.3utempter=utempter_add_record.3utempter
 d usr/share/man/man3uuid 0755 root bin
 f usr/share/man/man3uuid/uuid_clear.3uuid 0444 root bin
 s usr/share/man/man3uuid/uuid_compare.3uuid=uuid_clear.3uuid
@@ -19117,632 +18855,1044 @@ f usr/share/man/man3xnet/sockatmark.3xnet 0444 root bin
 f usr/share/man/man3xnet/socket.3xnet 0444 root bin
 f usr/share/man/man3xnet/socketpair.3xnet 0444 root bin
 d usr/share/man/man4 0755 root bin
+f usr/share/man/man4/FSS.4 0444 root bin
 f usr/share/man/man4/Intro.4 0444 root bin
-f usr/share/man/man4/NISLDAPmapping.4 0444 root bin
-f usr/share/man/man4/a.out.4 0444 root bin
-s usr/share/man/man4/addresses.4=aliases.4
-f usr/share/man/man4/admin.4 0444 root bin
-f usr/share/man/man4/alias.4 0444 root bin
-f usr/share/man/man4/aliases.4 0444 root bin
-f usr/share/man/man4/au.4 0444 root bin
-f usr/share/man/man4/audit.log.4 0444 root bin
-f usr/share/man/man4/audit_class.4 0444 root bin
-f usr/share/man/man4/audit_event.4 0444 root bin
-f usr/share/man/man4/auth_attr.4 0444 root bin
-f usr/share/man/man4/autofs.4 0444 root bin
-f usr/share/man/man4/bart_manifest.4 0444 root bin
-f usr/share/man/man4/bart_rules.4 0444 root bin
-f usr/share/man/man4/bootparams.4 0444 root bin
-f usr/share/man/man4/cardbus.4 0444 root bin
-f usr/share/man/man4/compver.4 0444 root bin
-f usr/share/man/man4/contents.4 0444 root bin
-f usr/share/man/man4/contract.4 0444 root bin
-f usr/share/man/man4/copyright.4 0444 root bin
-f usr/share/man/man4/core.4 0444 root bin
-f usr/share/man/man4/crypt.conf.4 0444 root bin
-f usr/share/man/man4/crypto_certs.4 0444 root bin
-f usr/share/man/man4/ctf.4 0444 root bin
-f usr/share/man/man4/d_passwd.4 0444 root bin
-f usr/share/man/man4/dacf.conf.4 0444 root bin
-f usr/share/man/man4/dat.conf.4 0444 root bin
-f usr/share/man/man4/default_fs.4 0444 root bin
-f usr/share/man/man4/defaultdomain.4 0444 root bin
-f usr/share/man/man4/defaultrouter.4 0444 root bin
-f usr/share/man/man4/depend.4 0444 root bin
-f usr/share/man/man4/device_allocate.4 0444 root bin
-f usr/share/man/man4/device_contract.4 0444 root bin
-f usr/share/man/man4/device_maps.4 0444 root bin
-f usr/share/man/man4/devices.4 0444 root bin
-s usr/share/man/man4/devid_cache.4=devices.4
-s usr/share/man/man4/devname_cache.4=devices.4
-f usr/share/man/man4/dfstab.4 0444 root bin
-f usr/share/man/man4/dhcp_inittab.4 0444 root bin
-f usr/share/man/man4/dialups.4 0444 root bin
-s usr/share/man/man4/dir.4=dir_ufs.4
-f usr/share/man/man4/dir_ufs.4 0444 root bin
-f usr/share/man/man4/driver.conf.4 0444 root bin
-s usr/share/man/man4/dumpdates.4=ufsdump.4
-f usr/share/man/man4/ethers.4 0444 root bin
-f usr/share/man/man4/exec_attr.4 0444 root bin
-s usr/share/man/man4/fbtab.4=logindevperm.4
-f usr/share/man/man4/fdi.4 0444 root bin
-f usr/share/man/man4/format.dat.4 0444 root bin
-s usr/share/man/man4/forward.4=aliases.4
-s usr/share/man/man4/fs.4=default_fs.4
-f usr/share/man/man4/fspec.4 0444 root bin
-f usr/share/man/man4/fstypes.4 0444 root bin
-f usr/share/man/man4/ftp.4 0444 root bin
-f usr/share/man/man4/ftpusers.4 0444 root bin
-f usr/share/man/man4/fx_dptbl.4 0444 root bin
-f usr/share/man/man4/gateways.4 0444 root bin
-f usr/share/man/man4/group.4 0444 root bin
-f usr/share/man/man4/gsscred.conf.4 0444 root bin
-f usr/share/man/man4/hba.conf.4 0444 root bin
-f usr/share/man/man4/holidays.4 0444 root bin
-f usr/share/man/man4/hosts.4 0444 root bin
-s usr/share/man/man4/hosts.allow.4=hosts_access.4
-s usr/share/man/man4/hosts.deny.4=hosts_access.4
-f usr/share/man/man4/hosts.equiv.4 0444 root bin
-f usr/share/man/man4/hosts_access.4 0444 root bin
-f usr/share/man/man4/hosts_options.4 0444 root bin
-f usr/share/man/man4/ib.4 0444 root bin
-f usr/share/man/man4/ike.config.4 0444 root bin
-f usr/share/man/man4/ike.preshared.4 0444 root bin
-f usr/share/man/man4/inet_type.4 0444 root bin
-f usr/share/man/man4/inetd.conf.4 0444 root bin
-f usr/share/man/man4/init.4 0444 root bin
-f usr/share/man/man4/init.d.4 0444 root bin
-f usr/share/man/man4/inittab.4 0444 root bin
+f usr/share/man/man4/cpr.4 0444 root bin
 s usr/share/man/man4/intro.4=Intro.4
-f usr/share/man/man4/ipaddrsel.conf.4 0444 root bin
-f usr/share/man/man4/ipf.4 0444 root bin
-s usr/share/man/man4/ipf.conf.4=ipf.4
-s usr/share/man/man4/ipf6.conf.4=ipf.4
-f usr/share/man/man4/ipmon.4 0444 root bin
-s usr/share/man/man4/ipmon.conf.4=ipmon.4
-f usr/share/man/man4/ipnat.4 0444 root bin
-s usr/share/man/man4/ipnat.conf.4=ipnat.4
-f usr/share/man/man4/ipnodes.4 0444 root bin
-f usr/share/man/man4/ippool.4 0444 root bin
-s usr/share/man/man4/ippool.conf.4=ippool.4
-s usr/share/man/man4/isa.4=sysbus.4
-f usr/share/man/man4/issue.4 0444 root bin
-f usr/share/man/man4/kadm5.acl.4 0444 root bin
-f usr/share/man/man4/kdc.conf.4 0444 root bin
-f usr/share/man/man4/keytables.4 0444 root bin
-f usr/share/man/man4/krb5.conf.4 0444 root bin
-f usr/share/man/man4/ldapfilter.conf.4 0444 root bin
-f usr/share/man/man4/ldapsearchprefs.conf.4 0444 root bin
-f usr/share/man/man4/ldaptemplates.conf.4 0444 root bin
-f usr/share/man/man4/loader.conf.4 0444 root bin
-f usr/share/man/man4/logadm.conf.4 0444 root bin
-f usr/share/man/man4/logindevperm.4 0444 root bin
-f usr/share/man/man4/loginlog.4 0444 root bin
-f usr/share/man/man4/magic.4 0444 root bin
-f usr/share/man/man4/mailer.conf.4 0444 root bin
-s usr/share/man/man4/mdi_ib_cache.4=devices.4
-s usr/share/man/man4/mdi_scsi_vhci_cache.4=devices.4
-f usr/share/man/man4/mech.4 0444 root bin
-f usr/share/man/man4/mnttab.4 0444 root bin
-f usr/share/man/man4/mpapi.conf.4 0444 root bin
-f usr/share/man/man4/nca.if.4 0444 root bin
-f usr/share/man/man4/ncad_addr.4 0444 root bin
-f usr/share/man/man4/ncakmod.conf.4 0444 root bin
-f usr/share/man/man4/ncalogd.conf.4 0444 root bin
-f usr/share/man/man4/ncaport.conf.4 0444 root bin
-f usr/share/man/man4/ndmp.4 0444 root bin
-f usr/share/man/man4/ndpd.conf.4 0444 root bin
-f usr/share/man/man4/netconfig.4 0444 root bin
-f usr/share/man/man4/netgroup.4 0444 root bin
-f usr/share/man/man4/netid.4 0444 root bin
-f usr/share/man/man4/netmasks.4 0444 root bin
-f usr/share/man/man4/netrc.4 0444 root bin
-f usr/share/man/man4/networks.4 0444 root bin
-f usr/share/man/man4/nfs.4 0444 root bin
-f usr/share/man/man4/nfslog.conf.4 0444 root bin
-f usr/share/man/man4/nfssec.conf.4 0444 root bin
-f usr/share/man/man4/nodename.4 0444 root bin
-f usr/share/man/man4/nologin.4 0444 root bin
-f usr/share/man/man4/note.4 0444 root bin
-f usr/share/man/man4/notrouter.4 0444 root bin
-f usr/share/man/man4/nscd.conf.4 0444 root bin
-f usr/share/man/man4/nsmbrc.4 0444 root bin
-f usr/share/man/man4/nss.4 0444 root bin
-f usr/share/man/man4/nsswitch.conf.4 0444 root bin
-f usr/share/man/man4/overlay_files.4 0444 root bin
-f usr/share/man/man4/packingrules.4 0444 root bin
-f usr/share/man/man4/pam.conf.4 0444 root bin
-f usr/share/man/man4/passwd.4 0444 root bin
-f usr/share/man/man4/path_to_inst.4 0444 root bin
-f usr/share/man/man4/pci.4 0444 root bin
-s usr/share/man/man4/pci_unitaddr_persistent.4=devices.4
-s usr/share/man/man4/pcie.4=pci.4
-f usr/share/man/man4/phones.4 0444 root bin
-f usr/share/man/man4/pkginfo.4 0444 root bin
-f usr/share/man/man4/pkgmap.4 0444 root bin
-f usr/share/man/man4/policy.conf.4 0444 root bin
-f usr/share/man/man4/power.conf.4 0444 root bin
-f usr/share/man/man4/printers.4 0444 root bin
-f usr/share/man/man4/printers.conf.4 0444 root bin
-f usr/share/man/man4/priv_names.4 0444 root bin
-f usr/share/man/man4/proc.4 0444 root bin
-f usr/share/man/man4/process.4 0444 root bin
-f usr/share/man/man4/prof_attr.4 0444 root bin
-f usr/share/man/man4/profile.4 0444 root bin
-f usr/share/man/man4/project.4 0444 root bin
-f usr/share/man/man4/protocols.4 0444 root bin
-f usr/share/man/man4/prototype.4 0444 root bin
-f usr/share/man/man4/pseudo.4 0444 root bin
-f usr/share/man/man4/publickey.4 0444 root bin
-s usr/share/man/man4/qop.4=mech.4
-f usr/share/man/man4/queuedefs.4 0444 root bin
-f usr/share/man/man4/rcmscript.4 0444 root bin
-f usr/share/man/man4/remote.4 0444 root bin
-f usr/share/man/man4/resolv.conf.4 0444 root bin
-s usr/share/man/man4/rhosts.4=hosts.equiv.4
-f usr/share/man/man4/rmtab.4 0444 root bin
-f usr/share/man/man4/rpc.4 0444 root bin
-f usr/share/man/man4/rt_dptbl.4 0444 root bin
-f usr/share/man/man4/sasl_appname.conf.4 0444 root bin
-f usr/share/man/man4/scsi.4 0444 root bin
-f usr/share/man/man4/securenets.4 0444 root bin
-f usr/share/man/man4/sendmail.4 0444 root bin
-s usr/share/man/man4/sendmail.cf.4=sendmail.4
-f usr/share/man/man4/service_bundle.4 0444 root bin
-f usr/share/man/man4/service_provider.conf.4 0444 root bin
-f usr/share/man/man4/services.4 0444 root bin
-f usr/share/man/man4/shadow.4 0444 root bin
-f usr/share/man/man4/sharetab.4 0444 root bin
-f usr/share/man/man4/shells.4 0444 root bin
-f usr/share/man/man4/slp.conf.4 0444 root bin
-f usr/share/man/man4/slpd.reg.4 0444 root bin
-f usr/share/man/man4/smb.4 0444 root bin
-f usr/share/man/man4/smbautohome.4 0444 root bin
-f usr/share/man/man4/smhba.conf.4 0444 root bin
-s usr/share/man/man4/snapshot_cache.4=devices.4
-f usr/share/man/man4/sock2path.d.4 0444 root bin
-f usr/share/man/man4/space.4 0444 root bin
-s usr/share/man/man4/submit.cf.4=sendmail.4
-f usr/share/man/man4/sulog.4 0444 root bin
-f usr/share/man/man4/sysbus.4 0444 root bin
-f usr/share/man/man4/syslog.conf.4 0444 root bin
-f usr/share/man/man4/system.4 0444 root bin
-f usr/share/man/man4/term.4 0444 root bin
-f usr/share/man/man4/terminfo.4 0444 root bin
-f usr/share/man/man4/timezone.4 0444 root bin
-f usr/share/man/man4/tnf_kernel_probes.4 0444 root bin
-f usr/share/man/man4/ts_dptbl.4 0444 root bin
-f usr/share/man/man4/ttydefs.4 0444 root bin
-f usr/share/man/man4/ttysrch.4 0444 root bin
-f usr/share/man/man4/ufsdump.4 0444 root bin
-f usr/share/man/man4/updaters.4 0444 root bin
-f usr/share/man/man4/user_attr.4 0444 root bin
-f usr/share/man/man4/utmp.4 0444 root bin
-f usr/share/man/man4/utmpx.4 0444 root bin
-f usr/share/man/man4/vfstab.4 0444 root bin
-f usr/share/man/man4/warn.conf.4 0444 root bin
-s usr/share/man/man4/wtmp.4=utmp.4
-s usr/share/man/man4/wtmpx.4=utmpx.4
-f usr/share/man/man4/ypfiles.4 0444 root bin
-f usr/share/man/man4/yppasswdd.4 0444 root bin
-f usr/share/man/man4/ypserv.4 0444 root bin
-f usr/share/man/man4/zoneinfo.4 0444 root bin
-d usr/share/man/man4b 0755 root bin
+f usr/share/man/man4/swap.4 0444 root bin
+d usr/share/man/man4d 0755 root bin
+s usr/share/man/man4d/1394.4d=ieee1394.4d
+f usr/share/man/man4d/aac.4d 0444 root bin
+f usr/share/man/man4d/afe.4d 0444 root bin
+f usr/share/man/man4d/ahci.4d 0444 root bin
+s usr/share/man/man4d/allkmem.4d=mem.4d
+f usr/share/man/man4d/amd8111s.4d 0444 root bin
+f usr/share/man/man4d/amdnbtemp.4d 0444 root bin
+f usr/share/man/man4d/amdzen.4d 0444 root bin
+s usr/share/man/man4d/amdzen_stub.4d=amdzen.4d
+f usr/share/man/man4d/amr.4d 0444 root bin
+f usr/share/man/man4d/arcmsr.4d 0444 root bin
+f usr/share/man/man4d/asy.4d 0444 root bin
+f usr/share/man/man4d/ata.4d 0444 root bin
+f usr/share/man/man4d/atge.4d 0444 root bin
+f usr/share/man/man4d/bcm_sata.4d 0444 root bin
+f usr/share/man/man4d/bfe.4d 0444 root bin
+f usr/share/man/man4d/bge.4d 0444 root bin
+f usr/share/man/man4d/blkdev.4d 0444 root bin
+f usr/share/man/man4d/bnxe.4d 0444 root bin
+f usr/share/man/man4d/ccid.4d 0444 root bin
+f usr/share/man/man4d/chxge.4d 0444 root bin
+f usr/share/man/man4d/cmdk.4d 0444 root bin
+f usr/share/man/man4d/coretemp.4d 0444 root bin
+f usr/share/man/man4d/cpqary3.4d 0444 root bin
+f usr/share/man/man4d/cpuid.4d 0444 root bin
+f usr/share/man/man4d/devinfo.4d 0444 root bin
+f usr/share/man/man4d/dmfe.4d 0444 root bin
+f usr/share/man/man4d/dnet.4d 0444 root bin
+f usr/share/man/man4d/dtrace.4d 0444 root bin
+f usr/share/man/man4d/e1000g.4d 0444 root bin
+f usr/share/man/man4d/ehci.4d 0444 root bin
+f usr/share/man/man4d/ena.4d 0444 root bin
+f usr/share/man/man4d/fasttrap.4d 0444 root bin
+f usr/share/man/man4d/fbt.4d 0444 root bin
+f usr/share/man/man4d/fcp.4d 0444 root bin
+f usr/share/man/man4d/fctl.4d 0444 root bin
+f usr/share/man/man4d/fd.4d 0444 root bin
+s usr/share/man/man4d/fdc.4d=fd.4d
+s usr/share/man/man4d/firewire.4d=ieee1394.4d
+f usr/share/man/man4d/fp.4d 0444 root bin
+f usr/share/man/man4d/full.4d 0444 root bin
+f usr/share/man/man4d/gld.4d 0444 root bin
+f usr/share/man/man4d/hci1394.4d 0444 root bin
+f usr/share/man/man4d/hid.4d 0444 root bin
+f usr/share/man/man4d/hubd.4d 0444 root bin
+f usr/share/man/man4d/hxge.4d 0444 root bin
+f usr/share/man/man4d/i40e.4d 0444 root bin
+f usr/share/man/man4d/ieee1394.4d 0444 root bin
+f usr/share/man/man4d/igb.4d 0444 root bin
+f usr/share/man/man4d/imc.4d 0444 root bin
+f usr/share/man/man4d/imcstub.4d 0444 root bin
+f usr/share/man/man4d/ipmi.4d 0444 root bin
+f usr/share/man/man4d/ipnet.4d 0444 root bin
+f usr/share/man/man4d/iprb.4d 0444 root bin
+f usr/share/man/man4d/iscsi.4d 0444 root bin
+f usr/share/man/man4d/iwn.4d 0444 root bin
+f usr/share/man/man4d/ixgbe.4d 0444 root bin
+f usr/share/man/man4d/kmdb.4d 0444 root bin
+s usr/share/man/man4d/kmem.4d=mem.4d
+f usr/share/man/man4d/ksensor.4d 0444 root bin
+f usr/share/man/man4d/kstat.4d 0444 root bin
+f usr/share/man/man4d/ksyms.4d 0444 root bin
+f usr/share/man/man4d/llc1.4d 0444 root bin
+s usr/share/man/man4d/lo0.4d=ipnet.4d
+f usr/share/man/man4d/lockstat.4d 0444 root bin
+f usr/share/man/man4d/lofi.4d 0444 root bin
+f usr/share/man/man4d/log.4d 0444 root bin
+f usr/share/man/man4d/mega_sas.4d 0444 root bin
+f usr/share/man/man4d/mem.4d 0444 root bin
+f usr/share/man/man4d/mlxcx.4d 0444 root bin
+f usr/share/man/man4d/mpt_sas.4d 0444 root bin
+f usr/share/man/man4d/mr_sas.4d 0444 root bin
+f usr/share/man/man4d/msglog.4d 0444 root bin
+f usr/share/man/man4d/mt.4d 0444 root bin
+f usr/share/man/man4d/mxfe.4d 0444 root bin
+f usr/share/man/man4d/myri10ge.4d 0444 root bin
+f usr/share/man/man4d/npe.4d 0444 root bin
+f usr/share/man/man4d/ntxn.4d 0444 root bin
+f usr/share/man/man4d/null.4d 0444 root bin
+f usr/share/man/man4d/nulldriver.4d 0444 root bin
+f usr/share/man/man4d/nv_sata.4d 0444 root bin
+f usr/share/man/man4d/nvme.4d 0444 root bin
+f usr/share/man/man4d/nxge.4d 0444 root bin
+f usr/share/man/man4d/ohci.4d 0444 root bin
+f usr/share/man/man4d/openprom.4d 0444 root bin
+f usr/share/man/man4d/pchtemp.4d 0444 root bin
+f usr/share/man/man4d/pcn.4d 0444 root bin
+f usr/share/man/man4d/physmem.4d 0444 root bin
+f usr/share/man/man4d/pm.4d 0444 root bin
+f usr/share/man/man4d/poll.4d 0444 root bin
+f usr/share/man/man4d/profile.4d 0444 root bin
+f usr/share/man/man4d/ptm.4d 0444 root bin
+s usr/share/man/man4d/pts.4d=ptm.4d
+f usr/share/man/man4d/pty.4d 0444 root bin
+f usr/share/man/man4d/qede.4d 0444 root bin
+f usr/share/man/man4d/qlc.4d 0444 root bin
+f usr/share/man/man4d/ramdisk.4d 0444 root bin
+f usr/share/man/man4d/random.4d 0444 root bin
+f usr/share/man/man4d/rge.4d 0444 root bin
+f usr/share/man/man4d/rtls.4d 0444 root bin
+f usr/share/man/man4d/sad.4d 0444 root bin
+f usr/share/man/man4d/sata.4d 0444 root bin
+f usr/share/man/man4d/scsa1394.4d 0444 root bin
+f usr/share/man/man4d/scsa2usb.4d 0444 root bin
+f usr/share/man/man4d/sd.4d 0444 root bin
+f usr/share/man/man4d/sda.4d 0444 root bin
+f usr/share/man/man4d/sdhost.4d 0444 root bin
+f usr/share/man/man4d/sdt.4d 0444 root bin
+f usr/share/man/man4d/ses.4d 0444 root bin
+f usr/share/man/man4d/sfe.4d 0444 root bin
+f usr/share/man/man4d/sfxge.4d 0444 root bin
+f usr/share/man/man4d/sgen.4d 0444 root bin
+f usr/share/man/man4d/si3124.4d 0444 root bin
+f usr/share/man/man4d/skd.4d 0444 root bin
+f usr/share/man/man4d/smbios.4d 0444 root bin
+f usr/share/man/man4d/smntemp.4d 0444 root bin
+f usr/share/man/man4d/st.4d 0444 root bin
+f usr/share/man/man4d/sysmsg.4d 0444 root bin
+f usr/share/man/man4d/systrace.4d 0444 root bin
+f usr/share/man/man4d/ticlts.4d 0444 root bin
+s usr/share/man/man4d/ticots.4d=ticlts.4d
+s usr/share/man/man4d/ticotsord.4d=ticlts.4d
+f usr/share/man/man4d/tty.4d 0444 root bin
+f usr/share/man/man4d/tzmon.4d 0444 root bin
+f usr/share/man/man4d/ufm.4d 0444 root bin
+f usr/share/man/man4d/ugen.4d 0444 root bin
+f usr/share/man/man4d/uhci.4d 0444 root bin
+s usr/share/man/man4d/urandom.4d=random.4d
+s usr/share/man/man4d/usb.4d=usba.4d
+f usr/share/man/man4d/usb_ac.4d 0444 root bin
+f usr/share/man/man4d/usb_as.4d 0444 root bin
+f usr/share/man/man4d/usb_ia.4d 0444 root bin
+f usr/share/man/man4d/usb_mid.4d 0444 root bin
+f usr/share/man/man4d/usba.4d 0444 root bin
+f usr/share/man/man4d/usbftdi.4d 0444 root bin
+f usr/share/man/man4d/usbsacm.4d 0444 root bin
+f usr/share/man/man4d/usbsksp.4d 0444 root bin
+f usr/share/man/man4d/usbsprl.4d 0444 root bin
+f usr/share/man/man4d/vioblk.4d 0444 root bin
+f usr/share/man/man4d/vioif.4d 0444 root bin
+f usr/share/man/man4d/virtio.4d 0444 root bin
+f usr/share/man/man4d/virtualkm.4d 0444 root bin
+f usr/share/man/man4d/vnd.4d 0444 root bin
+f usr/share/man/man4d/vni.4d 0444 root bin
+f usr/share/man/man4d/vr.4d 0444 root bin
+f usr/share/man/man4d/wscons.4d 0444 root bin
+f usr/share/man/man4d/xge.4d 0444 root bin
+f usr/share/man/man4d/xhci.4d 0444 root bin
+f usr/share/man/man4d/yge.4d 0444 root bin
+f usr/share/man/man4d/zcons.4d 0444 root bin
+f usr/share/man/man4d/zero.4d 0444 root bin
+f usr/share/man/man4d/zfd.4d 0444 root bin
+d usr/share/man/man4fs 0755 root bin
+f usr/share/man/man4fs/bootfs.4fs 0444 root bin
+f usr/share/man/man4fs/ctfs.4fs 0444 root bin
+f usr/share/man/man4fs/dcfs.4fs 0444 root bin
+f usr/share/man/man4fs/dev.4fs 0444 root bin
+f usr/share/man/man4fs/devfs.4fs 0444 root bin
+f usr/share/man/man4fs/fd.4fs 0444 root bin
+f usr/share/man/man4fs/hsfs.4fs 0444 root bin
+f usr/share/man/man4fs/hyprlofs.4fs 0444 root bin
+f usr/share/man/man4fs/lofs.4fs 0444 root bin
+f usr/share/man/man4fs/lxproc.4fs 0444 root bin
+f usr/share/man/man4fs/objfs.4fs 0444 root bin
+f usr/share/man/man4fs/pcfs.4fs 0444 root bin
+f usr/share/man/man4fs/sharefs.4fs 0444 root bin
+f usr/share/man/man4fs/smbfs.4fs 0444 root bin
+s usr/share/man/man4fs/stderr.4fs=fd.4fs
+s usr/share/man/man4fs/stdin.4fs=fd.4fs
+s usr/share/man/man4fs/stdout.4fs=fd.4fs
+f usr/share/man/man4fs/tmpfs.4fs 0444 root bin
+f usr/share/man/man4fs/udfs.4fs 0444 root bin
+f usr/share/man/man4fs/ufs.4fs 0444 root bin
+d usr/share/man/man4i 0755 root bin
+f usr/share/man/man4i/cdio.4i 0444 root bin
+f usr/share/man/man4i/dkio.4i 0444 root bin
+f usr/share/man/man4i/fbio.4i 0444 root bin
+f usr/share/man/man4i/fdio.4i 0444 root bin
+f usr/share/man/man4i/hdio.4i 0444 root bin
+f usr/share/man/man4i/iec61883.4i 0444 root bin
+f usr/share/man/man4i/ipnat.4i 0444 root bin
+f usr/share/man/man4i/mhd.4i 0444 root bin
+f usr/share/man/man4i/mtio.4i 0444 root bin
+f usr/share/man/man4i/prnio.4i 0444 root bin
+f usr/share/man/man4i/quotactl.4i 0444 root bin
+f usr/share/man/man4i/sesio.4i 0444 root bin
+f usr/share/man/man4i/sockio.4i 0444 root bin
+f usr/share/man/man4i/streamio.4i 0444 root bin
+f usr/share/man/man4i/termio.4i 0444 root bin
+f usr/share/man/man4i/termiox.4i 0444 root bin
+s usr/share/man/man4i/uccid.4i=../man4d/ccid.4d
+f usr/share/man/man4i/uscsi.4i 0444 root bin
+f usr/share/man/man4i/visual_io.4i 0444 root bin
+f usr/share/man/man4i/vt.4i 0444 root bin
+d usr/share/man/man4ipp 0755 root bin
+f usr/share/man/man4ipp/dlcosmk.4ipp 0444 root bin
+f usr/share/man/man4ipp/dscpmk.4ipp 0444 root bin
+f usr/share/man/man4ipp/flowacct.4ipp 0444 root bin
+f usr/share/man/man4ipp/ipgpc.4ipp 0444 root bin
+f usr/share/man/man4ipp/ipqos.4ipp 0444 root bin
+f usr/share/man/man4ipp/tokenmt.4ipp 0444 root bin
+f usr/share/man/man4ipp/tswtclmt.4ipp 0444 root bin
+d usr/share/man/man4m 0755 root bin
+f usr/share/man/man4m/bufmod.4m 0444 root bin
+f usr/share/man/man4m/connld.4m 0444 root bin
+f usr/share/man/man4m/datafilt.4m 0444 root bin
+f usr/share/man/man4m/ldterm.4m 0444 root bin
+f usr/share/man/man4m/pckt.4m 0444 root bin
+f usr/share/man/man4m/pfmod.4m 0444 root bin
+f usr/share/man/man4m/pipemod.4m 0444 root bin
+f usr/share/man/man4m/ptem.4m 0444 root bin
+f usr/share/man/man4m/sppptun.4m 0444 root bin
+f usr/share/man/man4m/timod.4m 0444 root bin
+f usr/share/man/man4m/tirdwr.4m 0444 root bin
+f usr/share/man/man4m/ttcompat.4m 0444 root bin
+f usr/share/man/man4m/usb_ah.4m 0444 root bin
+f usr/share/man/man4m/usbkbm.4m 0444 root bin
+f usr/share/man/man4m/usbms.4m 0444 root bin
+s usr/share/man/man4m/vuid2ps2.4m=vuidmice.4m
+s usr/share/man/man4m/vuid3ps2.4m=vuidmice.4m
+s usr/share/man/man4m/vuidm3p.4m=vuidmice.4m
+s usr/share/man/man4m/vuidm4p.4m=vuidmice.4m
+s usr/share/man/man4m/vuidm5p.4m=vuidmice.4m
+f usr/share/man/man4m/vuidmice.4m 0444 root bin
+d usr/share/man/man4p 0755 root bin
+s usr/share/man/man4p/AH.4p=ipsecah.4p
+s usr/share/man/man4p/ARP.4p=arp.4p
+s usr/share/man/man4p/ESP.4p=ipsecesp.4p
+s usr/share/man/man4p/ICMP.4p=icmp.4p
+s usr/share/man/man4p/IP.4p=ip.4p
+s usr/share/man/man4p/NDP.4p=ndp.4p
+s usr/share/man/man4p/RARP.4p=rarp.4p
+s usr/share/man/man4p/SCTP.4p=sctp.4p
+s usr/share/man/man4p/TCP.4p=tcp.4p
+s usr/share/man/man4p/UDP.4p=udp.4p
+s usr/share/man/man4p/VXLAN.4p=vxlan.4p
+f usr/share/man/man4p/arp.4p 0444 root bin
+f usr/share/man/man4p/dlpi.4p 0444 root bin
+f usr/share/man/man4p/icmp.4p 0444 root bin
+f usr/share/man/man4p/icmp6.4p 0444 root bin
+s usr/share/man/man4p/if.4p=if_tcp.4p
+f usr/share/man/man4p/if_tcp.4p 0444 root bin
+f usr/share/man/man4p/inet.4p 0444 root bin
+f usr/share/man/man4p/inet6.4p 0444 root bin
+f usr/share/man/man4p/ip.4p 0444 root bin
+f usr/share/man/man4p/ip6.4p 0444 root bin
+f usr/share/man/man4p/ipsec.4p 0444 root bin
+f usr/share/man/man4p/ipsecah.4p 0444 root bin
+f usr/share/man/man4p/ipsecesp.4p 0444 root bin
+f usr/share/man/man4p/ndp.4p 0444 root bin
+f usr/share/man/man4p/pf_key.4p 0444 root bin
+f usr/share/man/man4p/rarp.4p 0444 root bin
+f usr/share/man/man4p/route.4p 0444 root bin
+f usr/share/man/man4p/routing.4p 0444 root bin
+f usr/share/man/man4p/sctp.4p 0444 root bin
+f usr/share/man/man4p/sip.4p 0444 root bin
+f usr/share/man/man4p/slp.4p 0444 root bin
+f usr/share/man/man4p/tcp.4p 0444 root bin
+f usr/share/man/man4p/udp.4p 0444 root bin
+f usr/share/man/man4p/vxlan.4p 0444 root bin
 d usr/share/man/man5 0755 root bin
-s usr/share/man/man5/ANSI.5=standards.5
-s usr/share/man/man5/C++.5=standards.5
-s usr/share/man/man5/C.5=standards.5
-s usr/share/man/man5/CSI.5=attributes.5
-s usr/share/man/man5/ISO.5=standards.5
 f usr/share/man/man5/Intro.5 0444 root bin
-s usr/share/man/man5/MT-Level.5=attributes.5
-s usr/share/man/man5/POSIX.1.5=standards.5
-s usr/share/man/man5/POSIX.2.5=standards.5
-s usr/share/man/man5/POSIX.5=standards.5
-s usr/share/man/man5/RBAC.5=rbac.5
-s usr/share/man/man5/SUS.5=standards.5
-s usr/share/man/man5/SUSv2.5=standards.5
-s usr/share/man/man5/SUSv3.5=standards.5
-s usr/share/man/man5/SVID.5=standards.5
-s usr/share/man/man5/SVID3.5=standards.5
-s usr/share/man/man5/XNS.5=standards.5
-s usr/share/man/man5/XNS4.5=standards.5
-s usr/share/man/man5/XNS5.5=standards.5
-s usr/share/man/man5/XPG.5=standards.5
-s usr/share/man/man5/XPG3.5=standards.5
-s usr/share/man/man5/XPG4.5=standards.5
-s usr/share/man/man5/XPG4v2.5=standards.5
-f usr/share/man/man5/acl.5 0444 root bin
-f usr/share/man/man5/ad.5 0444 root bin
-s usr/share/man/man5/advance.5=regexp.5
-s usr/share/man/man5/architecture.5=attributes.5
-f usr/share/man/man5/ascii.5 0444 root bin
-f usr/share/man/man5/attributes.5 0444 root bin
-f usr/share/man/man5/audit_binfile.5 0444 root bin
-f usr/share/man/man5/audit_remote.5 0444 root bin
-f usr/share/man/man5/audit_syslog.5 0444 root bin
-s usr/share/man/man5/availability.5=attributes.5
-f usr/share/man/man5/beastie.4th.5 0444 root bin
-f usr/share/man/man5/brand.4th.5 0444 root bin
-f usr/share/man/man5/brands.5 0444 root bin
-f usr/share/man/man5/byteorder.5 0444 root bin
-f usr/share/man/man5/cancellation.5 0444 root bin
-f usr/share/man/man5/charmap.5 0444 root bin
-f usr/share/man/man5/check-password.4th.5 0444 root bin
-f usr/share/man/man5/color.4th.5 0444 root bin
-s usr/share/man/man5/compile.5=regexp.5
-f usr/share/man/man5/condition.5 0444 root bin
-f usr/share/man/man5/crypt_bsdbf.5 0444 root bin
-f usr/share/man/man5/crypt_bsdmd5.5 0444 root bin
-f usr/share/man/man5/crypt_sha256.5 0444 root bin
-f usr/share/man/man5/crypt_sha512.5 0444 root bin
-f usr/share/man/man5/crypt_sunmd5.5 0444 root bin
-f usr/share/man/man5/crypt_unix.5 0444 root bin
-f usr/share/man/man5/delay.4th.5 0444 root bin
-f usr/share/man/man5/device_clean.5 0444 root bin
-f usr/share/man/man5/dhcp.5 0444 root bin
-s usr/share/man/man5/endian.5=byteorder.5
-f usr/share/man/man5/environ.5 0444 root bin
-f usr/share/man/man5/epoll.5 0444 root bin
-f usr/share/man/man5/eqn.5 0444 root bin
-f usr/share/man/man5/eqnchar.5 0444 root bin
-f usr/share/man/man5/eventfd.5 0444 root bin
-f usr/share/man/man5/extendedFILE.5 0444 root bin
-f usr/share/man/man5/filesystem.5 0444 root bin
-f usr/share/man/man5/fnmatch.5 0444 root bin
-f usr/share/man/man5/formats.5 0444 root bin
-f usr/share/man/man5/fsattr.5 0444 root bin
-f usr/share/man/man5/gptzfsboot.5 0444 root bin
-f usr/share/man/man5/grub.5 0444 root bin
-f usr/share/man/man5/gss_auth_rules.5 0444 root bin
-f usr/share/man/man5/iconv.5 0444 root bin
-f usr/share/man/man5/iconv_unicode.5 0444 root bin
-f usr/share/man/man5/ieee802.11.5 0444 root bin
-f usr/share/man/man5/ieee802.3.5 0444 root bin
-f usr/share/man/man5/inotify.5 0444 root bin
+f usr/share/man/man5/NISLDAPmapping.5 0444 root bin
+s usr/share/man/man5/TIMEZONE.5=init.5
+f usr/share/man/man5/a.out.5 0444 root bin
+s usr/share/man/man5/addresses.5=aliases.5
+f usr/share/man/man5/admin.5 0444 root bin
+f usr/share/man/man5/alias.5 0444 root bin
+f usr/share/man/man5/aliases.5 0444 root bin
+f usr/share/man/man5/au.5 0444 root bin
+f usr/share/man/man5/audit.log.5 0444 root bin
+f usr/share/man/man5/audit_class.5 0444 root bin
+f usr/share/man/man5/audit_event.5 0444 root bin
+f usr/share/man/man5/auth_attr.5 0444 root bin
+f usr/share/man/man5/autofs.5 0444 root bin
+f usr/share/man/man5/bart_manifest.5 0444 root bin
+f usr/share/man/man5/bart_rules.5 0444 root bin
+f usr/share/man/man5/bhyve_config.5 0444 root bin
+f usr/share/man/man5/bootparams.5 0444 root bin
+f usr/share/man/man5/cardbus.5 0444 root bin
+f usr/share/man/man5/compver.5 0444 root bin
+f usr/share/man/man5/contents.5 0444 root bin
+f usr/share/man/man5/contract.5 0444 root bin
+f usr/share/man/man5/copyright.5 0444 root bin
+f usr/share/man/man5/core.5 0444 root bin
+f usr/share/man/man5/crypt.conf.5 0444 root bin
+f usr/share/man/man5/crypto_certs.5 0444 root bin
+f usr/share/man/man5/ctf.5 0444 root bin
+f usr/share/man/man5/d_passwd.5 0444 root bin
+f usr/share/man/man5/dacf.conf.5 0444 root bin
+f usr/share/man/man5/dat.conf.5 0444 root bin
+f usr/share/man/man5/default_fs.5 0444 root bin
+f usr/share/man/man5/defaultdomain.5 0444 root bin
+f usr/share/man/man5/defaultrouter.5 0444 root bin
+f usr/share/man/man5/depend.5 0444 root bin
+f usr/share/man/man5/device_allocate.5 0444 root bin
+f usr/share/man/man5/device_contract.5 0444 root bin
+f usr/share/man/man5/device_maps.5 0444 root bin
+f usr/share/man/man5/devices.5 0444 root bin
+s usr/share/man/man5/devid_cache.5=devices.5
+s usr/share/man/man5/devname_cache.5=devices.5
+f usr/share/man/man5/dfstab.5 0444 root bin
+f usr/share/man/man5/dhcp_inittab.5 0444 root bin
+f usr/share/man/man5/dialups.5 0444 root bin
+s usr/share/man/man5/dir.5=dir_ufs.5
+f usr/share/man/man5/dir_ufs.5 0444 root bin
+f usr/share/man/man5/driver.conf.5 0444 root bin
+s usr/share/man/man5/dumpdates.5=ufsdump.5
+f usr/share/man/man5/ethers.5 0444 root bin
+f usr/share/man/man5/exec_attr.5 0444 root bin
+s usr/share/man/man5/fbtab.5=logindevperm.5
+f usr/share/man/man5/fdi.5 0444 root bin
+f usr/share/man/man5/format.dat.5 0444 root bin
+s usr/share/man/man5/forward.5=aliases.5
+s usr/share/man/man5/fs.5=default_fs.5
+f usr/share/man/man5/fspec.5 0444 root bin
+f usr/share/man/man5/fstypes.5 0444 root bin
+f usr/share/man/man5/ftp.5 0444 root bin
+f usr/share/man/man5/ftpusers.5 0444 root bin
+f usr/share/man/man5/fx_dptbl.5 0444 root bin
+f usr/share/man/man5/gateways.5 0444 root bin
+f usr/share/man/man5/group.5 0444 root bin
+f usr/share/man/man5/gsscred.conf.5 0444 root bin
+f usr/share/man/man5/hba.conf.5 0444 root bin
+f usr/share/man/man5/holidays.5 0444 root bin
+f usr/share/man/man5/hosts.5 0444 root bin
+s usr/share/man/man5/hosts.allow.5=hosts_access.5
+s usr/share/man/man5/hosts.deny.5=hosts_access.5
+f usr/share/man/man5/hosts.equiv.5 0444 root bin
+f usr/share/man/man5/hosts_access.5 0444 root bin
+f usr/share/man/man5/hosts_options.5 0444 root bin
+f usr/share/man/man5/ib.5 0444 root bin
+f usr/share/man/man5/ike.config.5 0444 root bin
+f usr/share/man/man5/ike.preshared.5 0444 root bin
+f usr/share/man/man5/inet_type.5 0444 root bin
+f usr/share/man/man5/inetd.conf.5 0444 root bin
+f usr/share/man/man5/init.5 0444 root bin
+f usr/share/man/man5/init.d.5 0444 root bin
+f usr/share/man/man5/inittab.5 0444 root bin
 s usr/share/man/man5/intro.5=Intro.5
-f usr/share/man/man5/ipfilter.5 0444 root bin
-f usr/share/man/man5/isalist.5 0444 root bin
-f usr/share/man/man5/isoboot.5 0444 root bin
-f usr/share/man/man5/kerberos.5 0444 root bin
-f usr/share/man/man5/krb5_auth_rules.5 0444 root bin
-f usr/share/man/man5/krb5envvar.5 0444 root bin
-f usr/share/man/man5/largefile.5 0444 root bin
-f usr/share/man/man5/lf64.5 0444 root bin
-f usr/share/man/man5/lfcompile.5 0444 root bin
-f usr/share/man/man5/lfcompile64.5 0444 root bin
-f usr/share/man/man5/loader.4th.5 0444 root bin
-f usr/share/man/man5/loader.5 0444 root bin
-f usr/share/man/man5/locale.5 0444 root bin
-f usr/share/man/man5/lx.5 0444 root bin
-f usr/share/man/man5/man.5 0444 root bin
-f usr/share/man/man5/mandoc_char.5 0444 root bin
-f usr/share/man/man5/mandoc_roff.5 0444 root bin
-f usr/share/man/man5/mansun.5 0444 root bin
-f usr/share/man/man5/mdoc.5 0444 root bin
-f usr/share/man/man5/me.5 0444 root bin
-f usr/share/man/man5/mech_spnego.5 0444 root bin
-f usr/share/man/man5/menu.4th.5 0444 root bin
-f usr/share/man/man5/menusets.4th.5 0444 root bin
-f usr/share/man/man5/mm.5 0444 root bin
-f usr/share/man/man5/ms.5 0444 root bin
-f usr/share/man/man5/mutex.5 0444 root bin
-f usr/share/man/man5/nfssec.5 0444 root bin
-f usr/share/man/man5/overlay.5 0444 root bin
-f usr/share/man/man5/pam_allow.5 0444 root bin
-f usr/share/man/man5/pam_authtok_check.5 0444 root bin
-f usr/share/man/man5/pam_authtok_get.5 0444 root bin
-f usr/share/man/man5/pam_authtok_store.5 0444 root bin
-f usr/share/man/man5/pam_deny.5 0444 root bin
-f usr/share/man/man5/pam_dhkeys.5 0444 root bin
-f usr/share/man/man5/pam_dial_auth.5 0444 root bin
-f usr/share/man/man5/pam_krb5.5 0444 root bin
-f usr/share/man/man5/pam_krb5_migrate.5 0444 root bin
-f usr/share/man/man5/pam_ldap.5 0444 root bin
-f usr/share/man/man5/pam_list.5 0444 root bin
-f usr/share/man/man5/pam_passwd_auth.5 0444 root bin
-f usr/share/man/man5/pam_rhosts_auth.5 0444 root bin
-f usr/share/man/man5/pam_roles.5 0444 root bin
-f usr/share/man/man5/pam_sample.5 0444 root bin
-f usr/share/man/man5/pam_smb_passwd.5 0444 root bin
-f usr/share/man/man5/pam_smbfs_login.5 0444 root bin
-f usr/share/man/man5/pam_timestamp.5 0444 root bin
-f usr/share/man/man5/pam_unix_account.5 0444 root bin
-f usr/share/man/man5/pam_unix_auth.5 0444 root bin
-f usr/share/man/man5/pam_unix_cred.5 0444 root bin
-f usr/share/man/man5/pam_unix_session.5 0444 root bin
-f usr/share/man/man5/pkcs11_kernel.5 0444 root bin
-f usr/share/man/man5/pkcs11_softtoken.5 0444 root bin
-f usr/share/man/man5/privileges.5 0444 root bin
-f usr/share/man/man5/prof.5 0444 root bin
-s usr/share/man/man5/pthreads.5=threads.5
-f usr/share/man/man5/pxeboot.5 0444 root bin
-f usr/share/man/man5/rbac.5 0444 root bin
-f usr/share/man/man5/regex.5 0444 root bin
-f usr/share/man/man5/regexp.5 0444 root bin
-f usr/share/man/man5/resource_controls.5 0444 root bin
-f usr/share/man/man5/security-flags.5 0444 root bin
-f usr/share/man/man5/smf.5 0444 root bin
-f usr/share/man/man5/smf_bootstrap.5 0444 root bin
-f usr/share/man/man5/smf_method.5 0444 root bin
-f usr/share/man/man5/smf_restarter.5 0444 root bin
-f usr/share/man/man5/smf_security.5 0444 root bin
-f usr/share/man/man5/smf_template.5 0444 root bin
-s usr/share/man/man5/stability.5=attributes.5
-s usr/share/man/man5/standard.5=attributes.5
-f usr/share/man/man5/standards.5 0444 root bin
-s usr/share/man/man5/step.5=regexp.5
-f usr/share/man/man5/sticky.5 0444 root bin
-f usr/share/man/man5/tbl.5 0444 root bin
-f usr/share/man/man5/tecla.5 0444 root bin
-s usr/share/man/man5/teclarc.5=tecla.5
+f usr/share/man/man5/ipaddrsel.conf.5 0444 root bin
+f usr/share/man/man5/ipf.5 0444 root bin
+s usr/share/man/man5/ipf.conf.5=ipf.5
+s usr/share/man/man5/ipf6.conf.5=ipf.5
+f usr/share/man/man5/ipmon.5 0444 root bin
+s usr/share/man/man5/ipmon.conf.5=ipmon.5
+f usr/share/man/man5/ipnat.5 0444 root bin
+s usr/share/man/man5/ipnat.conf.5=ipnat.5
+f usr/share/man/man5/ipnodes.5 0444 root bin
+f usr/share/man/man5/ippool.5 0444 root bin
+s usr/share/man/man5/ippool.conf.5=ippool.5
+s usr/share/man/man5/isa.5=sysbus.5
+f usr/share/man/man5/issue.5 0444 root bin
+f usr/share/man/man5/kadm5.acl.5 0444 root bin
+f usr/share/man/man5/kdc.conf.5 0444 root bin
+f usr/share/man/man5/keytables.5 0444 root bin
+f usr/share/man/man5/krb5.conf.5 0444 root bin
+f usr/share/man/man5/ldapfilter.conf.5 0444 root bin
+f usr/share/man/man5/ldapsearchprefs.conf.5 0444 root bin
+f usr/share/man/man5/ldaptemplates.conf.5 0444 root bin
+f usr/share/man/man5/loader.conf.5 0444 root bin
+f usr/share/man/man5/logadm.conf.5 0444 root bin
+f usr/share/man/man5/logindevperm.5 0444 root bin
+f usr/share/man/man5/loginlog.5 0444 root bin
+f usr/share/man/man5/magic.5 0444 root bin
+f usr/share/man/man5/mailer.conf.5 0444 root bin
+s usr/share/man/man5/mdi_ib_cache.5=devices.5
+s usr/share/man/man5/mdi_scsi_vhci_cache.5=devices.5
+f usr/share/man/man5/mech.5 0444 root bin
+f usr/share/man/man5/mnttab.5 0444 root bin
+f usr/share/man/man5/mpapi.conf.5 0444 root bin
+f usr/share/man/man5/nca.if.5 0444 root bin
+f usr/share/man/man5/ncad_addr.5 0444 root bin
+f usr/share/man/man5/ncakmod.conf.5 0444 root bin
+f usr/share/man/man5/ncalogd.conf.5 0444 root bin
+f usr/share/man/man5/ncaport.conf.5 0444 root bin
+f usr/share/man/man5/ndmp.5 0444 root bin
+f usr/share/man/man5/ndpd.conf.5 0444 root bin
+f usr/share/man/man5/netconfig.5 0444 root bin
+f usr/share/man/man5/netgroup.5 0444 root bin
+f usr/share/man/man5/netid.5 0444 root bin
+f usr/share/man/man5/netmasks.5 0444 root bin
+f usr/share/man/man5/netrc.5 0444 root bin
+f usr/share/man/man5/networks.5 0444 root bin
+f usr/share/man/man5/nfs.5 0444 root bin
+f usr/share/man/man5/nfslog.conf.5 0444 root bin
+f usr/share/man/man5/nfssec.conf.5 0444 root bin
+f usr/share/man/man5/nodename.5 0444 root bin
+f usr/share/man/man5/nologin.5 0444 root bin
+f usr/share/man/man5/note.5 0444 root bin
+f usr/share/man/man5/notrouter.5 0444 root bin
+f usr/share/man/man5/nscd.conf.5 0444 root bin
+f usr/share/man/man5/nsmbrc.5 0444 root bin
+f usr/share/man/man5/nss.5 0444 root bin
+f usr/share/man/man5/nsswitch.conf.5 0444 root bin
+f usr/share/man/man5/overlay_files.5 0444 root bin
+f usr/share/man/man5/packingrules.5 0444 root bin
+f usr/share/man/man5/pam.conf.5 0444 root bin
+f usr/share/man/man5/passwd.5 0444 root bin
+f usr/share/man/man5/path_to_inst.5 0444 root bin
+f usr/share/man/man5/pci.5 0444 root bin
+s usr/share/man/man5/pci_unitaddr_persistent.5=devices.5
+s usr/share/man/man5/pcie.5=pci.5
+f usr/share/man/man5/phones.5 0444 root bin
+f usr/share/man/man5/pkginfo.5 0444 root bin
+f usr/share/man/man5/pkgmap.5 0444 root bin
+f usr/share/man/man5/policy.conf.5 0444 root bin
+f usr/share/man/man5/power.conf.5 0444 root bin
+f usr/share/man/man5/printers.5 0444 root bin
+f usr/share/man/man5/printers.conf.5 0444 root bin
+f usr/share/man/man5/priv_names.5 0444 root bin
+f usr/share/man/man5/proc.5 0444 root bin
+f usr/share/man/man5/process.5 0444 root bin
+f usr/share/man/man5/prof_attr.5 0444 root bin
+f usr/share/man/man5/profile.5 0444 root bin
+f usr/share/man/man5/project.5 0444 root bin
+f usr/share/man/man5/protocols.5 0444 root bin
+f usr/share/man/man5/prototype.5 0444 root bin
+f usr/share/man/man5/pseudo.5 0444 root bin
+f usr/share/man/man5/publickey.5 0444 root bin
+s usr/share/man/man5/qop.5=mech.5
+f usr/share/man/man5/queuedefs.5 0444 root bin
+f usr/share/man/man5/rcmscript.5 0444 root bin
+f usr/share/man/man5/remote.5 0444 root bin
+f usr/share/man/man5/resolv.conf.5 0444 root bin
+s usr/share/man/man5/rhosts.5=hosts.equiv.5
+f usr/share/man/man5/rmtab.5 0444 root bin
+f usr/share/man/man5/rpc.5 0444 root bin
+f usr/share/man/man5/rt_dptbl.5 0444 root bin
+f usr/share/man/man5/sasl_appname.conf.5 0444 root bin
+f usr/share/man/man5/scsi.5 0444 root bin
+f usr/share/man/man5/securenets.5 0444 root bin
+f usr/share/man/man5/sendmail.5 0444 root bin
+s usr/share/man/man5/sendmail.cf.5=sendmail.5
+f usr/share/man/man5/service_bundle.5 0444 root bin
+f usr/share/man/man5/service_provider.conf.5 0444 root bin
+f usr/share/man/man5/services.5 0444 root bin
+f usr/share/man/man5/shadow.5 0444 root bin
+f usr/share/man/man5/sharetab.5 0444 root bin
+f usr/share/man/man5/shells.5 0444 root bin
+f usr/share/man/man5/slp.conf.5 0444 root bin
+f usr/share/man/man5/slpd.reg.5 0444 root bin
+f usr/share/man/man5/smb.5 0444 root bin
+f usr/share/man/man5/smbautohome.5 0444 root bin
+f usr/share/man/man5/smhba.conf.5 0444 root bin
+s usr/share/man/man5/snapshot_cache.5=devices.5
+f usr/share/man/man5/sock2path.d.5 0444 root bin
+f usr/share/man/man5/space.5 0444 root bin
+s usr/share/man/man5/submit.cf.5=sendmail.5
+f usr/share/man/man5/sulog.5 0444 root bin
+f usr/share/man/man5/sysbus.5 0444 root bin
+f usr/share/man/man5/syslog.conf.5 0444 root bin
+f usr/share/man/man5/system.5 0444 root bin
 f usr/share/man/man5/term.5 0444 root bin
-f usr/share/man/man5/threads.5 0444 root bin
-f usr/share/man/man5/timerfd.5 0444 root bin
-f usr/share/man/man5/version.4th.5 0444 root bin
-f usr/share/man/man5/vgrindefs.5 0444 root bin
-f usr/share/man/man5/zones.5 0444 root bin
-f usr/share/man/man5/zpool-features.5 0444 root bin
+f usr/share/man/man5/terminfo.5 0444 root bin
+f usr/share/man/man5/timezone.5 0444 root bin
+f usr/share/man/man5/tnf_kernel_probes.5 0444 root bin
+f usr/share/man/man5/ts_dptbl.5 0444 root bin
+f usr/share/man/man5/ttydefs.5 0444 root bin
+f usr/share/man/man5/ttysrch.5 0444 root bin
+f usr/share/man/man5/ufsdump.5 0444 root bin
+f usr/share/man/man5/updaters.5 0444 root bin
+f usr/share/man/man5/user_attr.5 0444 root bin
+f usr/share/man/man5/utmp.5 0444 root bin
+f usr/share/man/man5/utmpx.5 0444 root bin
+f usr/share/man/man5/vfstab.5 0444 root bin
+f usr/share/man/man5/warn.conf.5 0444 root bin
+s usr/share/man/man5/wtmp.5=utmp.5
+s usr/share/man/man5/wtmpx.5=utmpx.5
+f usr/share/man/man5/ypfiles.5 0444 root bin
+f usr/share/man/man5/yppasswdd.5 0444 root bin
+f usr/share/man/man5/ypserv.5 0444 root bin
+f usr/share/man/man5/zoneinfo.5 0444 root bin
+d usr/share/man/man5b 0755 root bin
 d usr/share/man/man7 0755 root bin
-f usr/share/man/man7/FSS.7 0444 root bin
+s usr/share/man/man7/ANSI.7=standards.7
+s usr/share/man/man7/C++.7=standards.7
+s usr/share/man/man7/C.7=standards.7
+s usr/share/man/man7/CSI.7=attributes.7
+s usr/share/man/man7/ISO.7=standards.7
 f usr/share/man/man7/Intro.7 0444 root bin
-f usr/share/man/man7/cpr.7 0444 root bin
+s usr/share/man/man7/MT-Level.7=attributes.7
+s usr/share/man/man7/POSIX.1.7=standards.7
+s usr/share/man/man7/POSIX.2.7=standards.7
+s usr/share/man/man7/POSIX.7=standards.7
+s usr/share/man/man7/RBAC.7=rbac.7
+s usr/share/man/man7/SUS.7=standards.7
+s usr/share/man/man7/SUSv2.7=standards.7
+s usr/share/man/man7/SUSv3.7=standards.7
+s usr/share/man/man7/SVID.7=standards.7
+s usr/share/man/man7/SVID3.7=standards.7
+s usr/share/man/man7/XNS.7=standards.7
+s usr/share/man/man7/XNS4.7=standards.7
+s usr/share/man/man7/XNS5.7=standards.7
+s usr/share/man/man7/XPG.7=standards.7
+s usr/share/man/man7/XPG3.7=standards.7
+s usr/share/man/man7/XPG4.7=standards.7
+s usr/share/man/man7/XPG4v2.7=standards.7
+f usr/share/man/man7/acl.7 0444 root bin
+f usr/share/man/man7/ad.7 0444 root bin
+s usr/share/man/man7/advance.7=regexp.7
+s usr/share/man/man7/architecture.7=attributes.7
+f usr/share/man/man7/ascii.7 0444 root bin
+f usr/share/man/man7/attributes.7 0444 root bin
+f usr/share/man/man7/audit_binfile.7 0444 root bin
+f usr/share/man/man7/audit_remote.7 0444 root bin
+f usr/share/man/man7/audit_syslog.7 0444 root bin
+s usr/share/man/man7/availability.7=attributes.7
+f usr/share/man/man7/beastie.4th.7 0444 root bin
+f usr/share/man/man7/brand.4th.7 0444 root bin
+f usr/share/man/man7/brands.7 0444 root bin
+f usr/share/man/man7/byteorder.7 0444 root bin
+f usr/share/man/man7/cancellation.7 0444 root bin
+f usr/share/man/man7/charmap.7 0444 root bin
+f usr/share/man/man7/check-password.4th.7 0444 root bin
+f usr/share/man/man7/color.4th.7 0444 root bin
+s usr/share/man/man7/compile.7=regexp.7
+f usr/share/man/man7/condition.7 0444 root bin
+f usr/share/man/man7/crypt_bsdbf.7 0444 root bin
+f usr/share/man/man7/crypt_bsdmd5.7 0444 root bin
+f usr/share/man/man7/crypt_sha256.7 0444 root bin
+f usr/share/man/man7/crypt_sha512.7 0444 root bin
+f usr/share/man/man7/crypt_sunmd5.7 0444 root bin
+f usr/share/man/man7/crypt_unix.7 0444 root bin
+f usr/share/man/man7/delay.4th.7 0444 root bin
+f usr/share/man/man7/device_clean.7 0444 root bin
+f usr/share/man/man7/dhcp.7 0444 root bin
+s usr/share/man/man7/endian.7=byteorder.7
+f usr/share/man/man7/environ.7 0444 root bin
+f usr/share/man/man7/epoll.7 0444 root bin
+f usr/share/man/man7/eqn.7 0444 root bin
+f usr/share/man/man7/eqnchar.7 0444 root bin
+f usr/share/man/man7/eventfd.7 0444 root bin
+f usr/share/man/man7/extendedFILE.7 0444 root bin
+f usr/share/man/man7/filesystem.7 0444 root bin
+f usr/share/man/man7/fnmatch.7 0444 root bin
+f usr/share/man/man7/formats.7 0444 root bin
+f usr/share/man/man7/fsattr.7 0444 root bin
+f usr/share/man/man7/gptzfsboot.7 0444 root bin
+f usr/share/man/man7/grub.7 0444 root bin
+f usr/share/man/man7/gss_auth_rules.7 0444 root bin
+f usr/share/man/man7/iconv.7 0444 root bin
+f usr/share/man/man7/iconv_unicode.7 0444 root bin
+f usr/share/man/man7/ieee802.11.7 0444 root bin
+f usr/share/man/man7/ieee802.3.7 0444 root bin
+f usr/share/man/man7/inotify.7 0444 root bin
 s usr/share/man/man7/intro.7=Intro.7
-f usr/share/man/man7/swap.7 0444 root bin
-d usr/share/man/man7d 0755 root bin
-s usr/share/man/man7d/1394.7d=ieee1394.7d
-f usr/share/man/man7d/aac.7d 0444 root bin
-f usr/share/man/man7d/afe.7d 0444 root bin
-f usr/share/man/man7d/ahci.7d 0444 root bin
-s usr/share/man/man7d/allkmem.7d=mem.7d
-f usr/share/man/man7d/amd8111s.7d 0444 root bin
-f usr/share/man/man7d/amdf17nbdf.7d 0444 root bin
-f usr/share/man/man7d/amdnbtemp.7d 0444 root bin
-f usr/share/man/man7d/amr.7d 0444 root bin
-f usr/share/man/man7d/arcmsr.7d 0444 root bin
-f usr/share/man/man7d/asy.7d 0444 root bin
-f usr/share/man/man7d/ata.7d 0444 root bin
-f usr/share/man/man7d/atge.7d 0444 root bin
-f usr/share/man/man7d/bcm_sata.7d 0444 root bin
-f usr/share/man/man7d/bfe.7d 0444 root bin
-f usr/share/man/man7d/bge.7d 0444 root bin
-f usr/share/man/man7d/blkdev.7d 0444 root bin
-f usr/share/man/man7d/bnxe.7d 0444 root bin
-f usr/share/man/man7d/ccid.7d 0444 root bin
-f usr/share/man/man7d/chxge.7d 0444 root bin
-f usr/share/man/man7d/cmdk.7d 0444 root bin
-f usr/share/man/man7d/coretemp.7d 0444 root bin
-f usr/share/man/man7d/cpqary3.7d 0444 root bin
-f usr/share/man/man7d/cpuid.7d 0444 root bin
-f usr/share/man/man7d/devinfo.7d 0444 root bin
-f usr/share/man/man7d/dmfe.7d 0444 root bin
-f usr/share/man/man7d/dnet.7d 0444 root bin
-f usr/share/man/man7d/dtrace.7d 0444 root bin
-f usr/share/man/man7d/e1000g.7d 0444 root bin
-f usr/share/man/man7d/ehci.7d 0444 root bin
-f usr/share/man/man7d/fasttrap.7d 0444 root bin
-f usr/share/man/man7d/fbt.7d 0444 root bin
-f usr/share/man/man7d/fcp.7d 0444 root bin
-f usr/share/man/man7d/fctl.7d 0444 root bin
-f usr/share/man/man7d/fd.7d 0444 root bin
-s usr/share/man/man7d/fdc.7d=fd.7d
-s usr/share/man/man7d/firewire.7d=ieee1394.7d
-f usr/share/man/man7d/fp.7d 0444 root bin
-f usr/share/man/man7d/full.7d 0444 root bin
-f usr/share/man/man7d/gld.7d 0444 root bin
-f usr/share/man/man7d/hci1394.7d 0444 root bin
-f usr/share/man/man7d/hid.7d 0444 root bin
-f usr/share/man/man7d/hubd.7d 0444 root bin
-f usr/share/man/man7d/hxge.7d 0444 root bin
-f usr/share/man/man7d/i40e.7d 0444 root bin
-f usr/share/man/man7d/ieee1394.7d 0444 root bin
-f usr/share/man/man7d/igb.7d 0444 root bin
-f usr/share/man/man7d/imc.7d 0444 root bin
-f usr/share/man/man7d/imcstub.7d 0444 root bin
-f usr/share/man/man7d/ipmi.7d 0444 root bin
-f usr/share/man/man7d/ipnet.7d 0444 root bin
-f usr/share/man/man7d/iprb.7d 0444 root bin
-f usr/share/man/man7d/iscsi.7d 0444 root bin
-f usr/share/man/man7d/iwn.7d 0444 root bin
-f usr/share/man/man7d/ixgbe.7d 0444 root bin
-f usr/share/man/man7d/kmdb.7d 0444 root bin
-s usr/share/man/man7d/kmem.7d=mem.7d
-f usr/share/man/man7d/kstat.7d 0444 root bin
-f usr/share/man/man7d/ksyms.7d 0444 root bin
-f usr/share/man/man7d/llc1.7d 0444 root bin
-s usr/share/man/man7d/lo0.7d=ipnet.7d
-f usr/share/man/man7d/lockstat.7d 0444 root bin
-f usr/share/man/man7d/lofi.7d 0444 root bin
-f usr/share/man/man7d/log.7d 0444 root bin
-f usr/share/man/man7d/mega_sas.7d 0444 root bin
-f usr/share/man/man7d/mem.7d 0444 root bin
-f usr/share/man/man7d/mlxcx.7d 0444 root bin
-f usr/share/man/man7d/mpt_sas.7d 0444 root bin
-f usr/share/man/man7d/mr_sas.7d 0444 root bin
-f usr/share/man/man7d/msglog.7d 0444 root bin
-f usr/share/man/man7d/mt.7d 0444 root bin
-f usr/share/man/man7d/mxfe.7d 0444 root bin
-f usr/share/man/man7d/myri10ge.7d 0444 root bin
-f usr/share/man/man7d/npe.7d 0444 root bin
-f usr/share/man/man7d/ntxn.7d 0444 root bin
-f usr/share/man/man7d/null.7d 0444 root bin
-f usr/share/man/man7d/nulldriver.7d 0444 root bin
-f usr/share/man/man7d/nv_sata.7d 0444 root bin
-f usr/share/man/man7d/nvme.7d 0444 root bin
-f usr/share/man/man7d/nxge.7d 0444 root bin
-f usr/share/man/man7d/ohci.7d 0444 root bin
-f usr/share/man/man7d/openprom.7d 0444 root bin
-f usr/share/man/man7d/pchtemp.7d 0444 root bin
-f usr/share/man/man7d/pcn.7d 0444 root bin
-f usr/share/man/man7d/physmem.7d 0444 root bin
-f usr/share/man/man7d/pm.7d 0444 root bin
-f usr/share/man/man7d/poll.7d 0444 root bin
-f usr/share/man/man7d/profile.7d 0444 root bin
-f usr/share/man/man7d/ptm.7d 0444 root bin
-f usr/share/man/man7d/pts.7d 0444 root bin
-f usr/share/man/man7d/pty.7d 0444 root bin
-f usr/share/man/man7d/qede.7d 0444 root bin
-f usr/share/man/man7d/qlc.7d 0444 root bin
-f usr/share/man/man7d/ramdisk.7d 0444 root bin
-f usr/share/man/man7d/random.7d 0444 root bin
-f usr/share/man/man7d/rge.7d 0444 root bin
-f usr/share/man/man7d/rtls.7d 0444 root bin
-f usr/share/man/man7d/sad.7d 0444 root bin
-f usr/share/man/man7d/sata.7d 0444 root bin
-f usr/share/man/man7d/scsa1394.7d 0444 root bin
-f usr/share/man/man7d/scsa2usb.7d 0444 root bin
-f usr/share/man/man7d/sd.7d 0444 root bin
-f usr/share/man/man7d/sda.7d 0444 root bin
-f usr/share/man/man7d/sdhost.7d 0444 root bin
-f usr/share/man/man7d/sdt.7d 0444 root bin
-f usr/share/man/man7d/ses.7d 0444 root bin
-f usr/share/man/man7d/sfe.7d 0444 root bin
-f usr/share/man/man7d/sfxge.7d 0444 root bin
-f usr/share/man/man7d/sgen.7d 0444 root bin
-f usr/share/man/man7d/si3124.7d 0444 root bin
-f usr/share/man/man7d/skd.7d 0444 root bin
-f usr/share/man/man7d/smbios.7d 0444 root bin
-f usr/share/man/man7d/st.7d 0444 root bin
-f usr/share/man/man7d/sysmsg.7d 0444 root bin
-f usr/share/man/man7d/systrace.7d 0444 root bin
-f usr/share/man/man7d/ticlts.7d 0444 root bin
-s usr/share/man/man7d/ticots.7d=ticlts.7d
-s usr/share/man/man7d/ticotsord.7d=ticlts.7d
-f usr/share/man/man7d/tty.7d 0444 root bin
-f usr/share/man/man7d/tzmon.7d 0444 root bin
-f usr/share/man/man7d/ufm.7d 0444 root bin
-f usr/share/man/man7d/ugen.7d 0444 root bin
-f usr/share/man/man7d/uhci.7d 0444 root bin
-s usr/share/man/man7d/urandom.7d=random.7d
-s usr/share/man/man7d/usb.7d=usba.7d
-f usr/share/man/man7d/usb_ac.7d 0444 root bin
-f usr/share/man/man7d/usb_as.7d 0444 root bin
-f usr/share/man/man7d/usb_ia.7d 0444 root bin
-f usr/share/man/man7d/usb_mid.7d 0444 root bin
-f usr/share/man/man7d/usba.7d 0444 root bin
-f usr/share/man/man7d/usbftdi.7d 0444 root bin
-f usr/share/man/man7d/usbsacm.7d 0444 root bin
-f usr/share/man/man7d/usbsksp.7d 0444 root bin
-f usr/share/man/man7d/usbsprl.7d 0444 root bin
-f usr/share/man/man7d/virtualkm.7d 0444 root bin
-f usr/share/man/man7d/vnd.7d 0444 root bin
-f usr/share/man/man7d/vni.7d 0444 root bin
-f usr/share/man/man7d/vr.7d 0444 root bin
-f usr/share/man/man7d/wscons.7d 0444 root bin
-f usr/share/man/man7d/xge.7d 0444 root bin
-f usr/share/man/man7d/xhci.7d 0444 root bin
-f usr/share/man/man7d/yge.7d 0444 root bin
-f usr/share/man/man7d/zcons.7d 0444 root bin
-f usr/share/man/man7d/zero.7d 0444 root bin
-f usr/share/man/man7d/zfd.7d 0444 root bin
-d usr/share/man/man7fs 0755 root bin
-f usr/share/man/man7fs/bootfs.7fs 0444 root bin
-f usr/share/man/man7fs/ctfs.7fs 0444 root bin
-f usr/share/man/man7fs/dcfs.7fs 0444 root bin
-f usr/share/man/man7fs/dev.7fs 0444 root bin
-f usr/share/man/man7fs/devfs.7fs 0444 root bin
-f usr/share/man/man7fs/fd.7fs 0444 root bin
-f usr/share/man/man7fs/hsfs.7fs 0444 root bin
-f usr/share/man/man7fs/hyprlofs.7fs 0444 root bin
-f usr/share/man/man7fs/lofs.7fs 0444 root bin
-f usr/share/man/man7fs/lxproc.7fs 0444 root bin
-f usr/share/man/man7fs/objfs.7fs 0444 root bin
-f usr/share/man/man7fs/pcfs.7fs 0444 root bin
-f usr/share/man/man7fs/sharefs.7fs 0444 root bin
-f usr/share/man/man7fs/smbfs.7fs 0444 root bin
-s usr/share/man/man7fs/stderr.7fs=fd.7fs
-s usr/share/man/man7fs/stdin.7fs=fd.7fs
-s usr/share/man/man7fs/stdout.7fs=fd.7fs
-f usr/share/man/man7fs/tmpfs.7fs 0444 root bin
-f usr/share/man/man7fs/udfs.7fs 0444 root bin
-f usr/share/man/man7fs/ufs.7fs 0444 root bin
-d usr/share/man/man7i 0755 root bin
-f usr/share/man/man7i/cdio.7i 0444 root bin
-f usr/share/man/man7i/dkio.7i 0444 root bin
-f usr/share/man/man7i/fbio.7i 0444 root bin
-f usr/share/man/man7i/fdio.7i 0444 root bin
-f usr/share/man/man7i/hdio.7i 0444 root bin
-f usr/share/man/man7i/iec61883.7i 0444 root bin
-f usr/share/man/man7i/ipnat.7i 0444 root bin
-f usr/share/man/man7i/mhd.7i 0444 root bin
-f usr/share/man/man7i/mtio.7i 0444 root bin
-f usr/share/man/man7i/prnio.7i 0444 root bin
-f usr/share/man/man7i/quotactl.7i 0444 root bin
-f usr/share/man/man7i/sesio.7i 0444 root bin
-f usr/share/man/man7i/sockio.7i 0444 root bin
-f usr/share/man/man7i/streamio.7i 0444 root bin
-f usr/share/man/man7i/termio.7i 0444 root bin
-f usr/share/man/man7i/termiox.7i 0444 root bin
-s usr/share/man/man7i/uccid.7i=../man7d/ccid.7d
-f usr/share/man/man7i/uscsi.7i 0444 root bin
-f usr/share/man/man7i/visual_io.7i 0444 root bin
-f usr/share/man/man7i/vt.7i 0444 root bin
-d usr/share/man/man7ipp 0755 root bin
-f usr/share/man/man7ipp/dlcosmk.7ipp 0444 root bin
-f usr/share/man/man7ipp/dscpmk.7ipp 0444 root bin
-f usr/share/man/man7ipp/flowacct.7ipp 0444 root bin
-f usr/share/man/man7ipp/ipgpc.7ipp 0444 root bin
-f usr/share/man/man7ipp/ipqos.7ipp 0444 root bin
-f usr/share/man/man7ipp/tokenmt.7ipp 0444 root bin
-f usr/share/man/man7ipp/tswtclmt.7ipp 0444 root bin
-d usr/share/man/man7m 0755 root bin
-f usr/share/man/man7m/bufmod.7m 0444 root bin
-f usr/share/man/man7m/connld.7m 0444 root bin
-f usr/share/man/man7m/datafilt.7m 0444 root bin
-f usr/share/man/man7m/ldterm.7m 0444 root bin
-f usr/share/man/man7m/pckt.7m 0444 root bin
-f usr/share/man/man7m/pfmod.7m 0444 root bin
-f usr/share/man/man7m/pipemod.7m 0444 root bin
-f usr/share/man/man7m/ptem.7m 0444 root bin
-f usr/share/man/man7m/sppptun.7m 0444 root bin
-f usr/share/man/man7m/timod.7m 0444 root bin
-f usr/share/man/man7m/tirdwr.7m 0444 root bin
-f usr/share/man/man7m/ttcompat.7m 0444 root bin
-f usr/share/man/man7m/usb_ah.7m 0444 root bin
-f usr/share/man/man7m/usbkbm.7m 0444 root bin
-f usr/share/man/man7m/usbms.7m 0444 root bin
-s usr/share/man/man7m/vuid2ps2.7m=vuidmice.7m
-s usr/share/man/man7m/vuid3ps2.7m=vuidmice.7m
-s usr/share/man/man7m/vuidm3p.7m=vuidmice.7m
-s usr/share/man/man7m/vuidm4p.7m=vuidmice.7m
-s usr/share/man/man7m/vuidm5p.7m=vuidmice.7m
-f usr/share/man/man7m/vuidmice.7m 0444 root bin
-d usr/share/man/man7p 0755 root bin
-s usr/share/man/man7p/AH.7p=ipsecah.7p
-s usr/share/man/man7p/ARP.7p=arp.7p
-s usr/share/man/man7p/ESP.7p=ipsecesp.7p
-s usr/share/man/man7p/ICMP.7p=icmp.7p
-s usr/share/man/man7p/IP.7p=ip.7p
-s usr/share/man/man7p/NDP.7p=ndp.7p
-s usr/share/man/man7p/RARP.7p=rarp.7p
-s usr/share/man/man7p/SCTP.7p=sctp.7p
-s usr/share/man/man7p/TCP.7p=tcp.7p
-s usr/share/man/man7p/UDP.7p=udp.7p
-s usr/share/man/man7p/VXLAN.7p=vxlan.7p
-f usr/share/man/man7p/arp.7p 0444 root bin
-f usr/share/man/man7p/dlpi.7p 0444 root bin
-f usr/share/man/man7p/icmp.7p 0444 root bin
-f usr/share/man/man7p/icmp6.7p 0444 root bin
-s usr/share/man/man7p/if.7p=if_tcp.7p
-f usr/share/man/man7p/if_tcp.7p 0444 root bin
-f usr/share/man/man7p/inet.7p 0444 root bin
-f usr/share/man/man7p/inet6.7p 0444 root bin
-f usr/share/man/man7p/ip.7p 0444 root bin
-f usr/share/man/man7p/ip6.7p 0444 root bin
-f usr/share/man/man7p/ipsec.7p 0444 root bin
-f usr/share/man/man7p/ipsecah.7p 0444 root bin
-f usr/share/man/man7p/ipsecesp.7p 0444 root bin
-f usr/share/man/man7p/ndp.7p 0444 root bin
-f usr/share/man/man7p/pf_key.7p 0444 root bin
-f usr/share/man/man7p/rarp.7p 0444 root bin
-f usr/share/man/man7p/route.7p 0444 root bin
-f usr/share/man/man7p/routing.7p 0444 root bin
-f usr/share/man/man7p/sctp.7p 0444 root bin
-f usr/share/man/man7p/sip.7p 0444 root bin
-f usr/share/man/man7p/slp.7p 0444 root bin
-f usr/share/man/man7p/tcp.7p 0444 root bin
-f usr/share/man/man7p/udp.7p 0444 root bin
-f usr/share/man/man7p/vxlan.7p 0444 root bin
+f usr/share/man/man7/ipfilter.7 0444 root bin
+f usr/share/man/man7/isalist.7 0444 root bin
+f usr/share/man/man7/isoboot.7 0444 root bin
+f usr/share/man/man7/kerberos.7 0444 root bin
+f usr/share/man/man7/krb5_auth_rules.7 0444 root bin
+f usr/share/man/man7/krb5envvar.7 0444 root bin
+f usr/share/man/man7/largefile.7 0444 root bin
+f usr/share/man/man7/lf64.7 0444 root bin
+f usr/share/man/man7/lfcompile.7 0444 root bin
+f usr/share/man/man7/lfcompile64.7 0444 root bin
+f usr/share/man/man7/loader.4th.7 0444 root bin
+f usr/share/man/man7/loader.7 0444 root bin
+f usr/share/man/man7/locale.7 0444 root bin
+f usr/share/man/man7/lx.7 0444 root bin
+f usr/share/man/man7/man.7 0444 root bin
+f usr/share/man/man7/mandoc_char.7 0444 root bin
+f usr/share/man/man7/mandoc_roff.7 0444 root bin
+f usr/share/man/man7/mansun.7 0444 root bin
+f usr/share/man/man7/mdoc.7 0444 root bin
+f usr/share/man/man7/me.7 0444 root bin
+f usr/share/man/man7/mech_spnego.7 0444 root bin
+f usr/share/man/man7/menu.4th.7 0444 root bin
+f usr/share/man/man7/menusets.4th.7 0444 root bin
+f usr/share/man/man7/mm.7 0444 root bin
+f usr/share/man/man7/ms.7 0444 root bin
+f usr/share/man/man7/mutex.7 0444 root bin
+f usr/share/man/man7/nfssec.7 0444 root bin
+f usr/share/man/man7/overlay.7 0444 root bin
+f usr/share/man/man7/pam_allow.7 0444 root bin
+f usr/share/man/man7/pam_authtok_check.7 0444 root bin
+f usr/share/man/man7/pam_authtok_get.7 0444 root bin
+f usr/share/man/man7/pam_authtok_store.7 0444 root bin
+f usr/share/man/man7/pam_deny.7 0444 root bin
+f usr/share/man/man7/pam_dhkeys.7 0444 root bin
+f usr/share/man/man7/pam_dial_auth.7 0444 root bin
+f usr/share/man/man7/pam_krb5.7 0444 root bin
+f usr/share/man/man7/pam_krb5_migrate.7 0444 root bin
+f usr/share/man/man7/pam_ldap.7 0444 root bin
+f usr/share/man/man7/pam_list.7 0444 root bin
+f usr/share/man/man7/pam_passwd_auth.7 0444 root bin
+f usr/share/man/man7/pam_rhosts_auth.7 0444 root bin
+f usr/share/man/man7/pam_roles.7 0444 root bin
+f usr/share/man/man7/pam_sample.7 0444 root bin
+f usr/share/man/man7/pam_smb_passwd.7 0444 root bin
+f usr/share/man/man7/pam_smbfs_login.7 0444 root bin
+f usr/share/man/man7/pam_timestamp.7 0444 root bin
+f usr/share/man/man7/pam_unix_account.7 0444 root bin
+f usr/share/man/man7/pam_unix_auth.7 0444 root bin
+f usr/share/man/man7/pam_unix_cred.7 0444 root bin
+f usr/share/man/man7/pam_unix_session.7 0444 root bin
+f usr/share/man/man7/pkcs11_kernel.7 0444 root bin
+f usr/share/man/man7/pkcs11_softtoken.7 0444 root bin
+f usr/share/man/man7/privileges.7 0444 root bin
+f usr/share/man/man7/prof.7 0444 root bin
+s usr/share/man/man7/pthreads.7=threads.7
+f usr/share/man/man7/pxeboot.7 0444 root bin
+f usr/share/man/man7/rbac.7 0444 root bin
+f usr/share/man/man7/regex.7 0444 root bin
+f usr/share/man/man7/regexp.7 0444 root bin
+f usr/share/man/man7/resource_controls.7 0444 root bin
+f usr/share/man/man7/security-flags.7 0444 root bin
+f usr/share/man/man7/smf.7 0444 root bin
+f usr/share/man/man7/smf_bootstrap.7 0444 root bin
+f usr/share/man/man7/smf_method.7 0444 root bin
+f usr/share/man/man7/smf_restarter.7 0444 root bin
+f usr/share/man/man7/smf_security.7 0444 root bin
+f usr/share/man/man7/smf_template.7 0444 root bin
+s usr/share/man/man7/stability.7=attributes.7
+s usr/share/man/man7/standard.7=attributes.7
+f usr/share/man/man7/standards.7 0444 root bin
+s usr/share/man/man7/step.7=regexp.7
+f usr/share/man/man7/sticky.7 0444 root bin
+f usr/share/man/man7/tbl.7 0444 root bin
+f usr/share/man/man7/tecla.7 0444 root bin
+s usr/share/man/man7/teclarc.7=tecla.7
+f usr/share/man/man7/term.7 0444 root bin
+f usr/share/man/man7/threads.7 0444 root bin
+f usr/share/man/man7/timerfd.7 0444 root bin
+f usr/share/man/man7/version.4th.7 0444 root bin
+f usr/share/man/man7/vgrindefs.7 0444 root bin
+f usr/share/man/man7/zones.7 0444 root bin
+f usr/share/man/man7/zpool-features.7 0444 root bin
+d usr/share/man/man8 0755 root bin
+f usr/share/man/man8/6to4relay.8 0444 root bin
+f usr/share/man/man8/Intro.8 0444 root bin
+f usr/share/man/man8/acctadm.8 0444 root bin
+f usr/share/man/man8/acpidump.8 0444 root bin
+f usr/share/man/man8/acpixtract.8 0444 root bin
+f usr/share/man/man8/add_drv.8 0444 root bin
+f usr/share/man/man8/addbadsec.8 0444 root bin
+f usr/share/man/man8/arcstat.8 0444 root bin
+f usr/share/man/man8/arp.8 0444 root bin
+f usr/share/man/man8/audit.8 0444 root bin
+f usr/share/man/man8/audit_warn.8 0444 root bin
+f usr/share/man/man8/auditconfig.8 0444 root bin
+f usr/share/man/man8/auditd.8 0444 root bin
+f usr/share/man/man8/auditrecord.8 0444 root bin
+f usr/share/man/man8/auditreduce.8 0444 root bin
+f usr/share/man/man8/auditstat.8 0444 root bin
+s usr/share/man/man8/audlinks.8=devfsadm.8
+f usr/share/man/man8/automount.8 0444 root bin
+f usr/share/man/man8/automountd.8 0444 root bin
+f usr/share/man/man8/autopush.8 0444 root bin
+f usr/share/man/man8/bart.8 0444 root bin
+f usr/share/man/man8/bhyve.8 0444 root bin
+f usr/share/man/man8/bhyvectl.8 0444 root bin
+f usr/share/man/man8/bootadm.8 0444 root bin
+f usr/share/man/man8/busstat.8 0444 root bin
+f usr/share/man/man8/captoinfo.8 0444 root bin
+f usr/share/man/man8/catman.8 0444 root bin
+f usr/share/man/man8/ccidadm.8 0444 root bin
+f usr/share/man/man8/cfgadm.8 0444 root bin
+f usr/share/man/man8/cfgadm_fp.8 0444 root bin
+f usr/share/man/man8/cfgadm_pci.8 0444 root bin
+f usr/share/man/man8/cfgadm_sata.8 0444 root bin
+f usr/share/man/man8/cfgadm_scsi.8 0444 root bin
+f usr/share/man/man8/cfgadm_usb.8 0444 root bin
+f usr/share/man/man8/check-hostname.8 0444 root bin
+f usr/share/man/man8/check-permissions.8 0444 root bin
+f usr/share/man/man8/chroot.8 0444 root bin
+f usr/share/man/man8/clear_locks.8 0444 root bin
+f usr/share/man/man8/clinfo.8 0444 root bin
+f usr/share/man/man8/clri.8 0444 root bin
+f usr/share/man/man8/connstat.8 0444 root bin
+f usr/share/man/man8/consadm.8 0444 root bin
+f usr/share/man/man8/coreadm.8 0444 root bin
+f usr/share/man/man8/cpustat.8 0444 root bin
+f usr/share/man/man8/cron.8 0444 root bin
+f usr/share/man/man8/cryptoadm.8 0444 root bin
+s usr/share/man/man8/dcopy.8=clri.8
+f usr/share/man/man8/dd.8 0444 root bin
+f usr/share/man/man8/devattr.8 0444 root bin
+f usr/share/man/man8/devfree.8 0444 root bin
+f usr/share/man/man8/devfsadm.8 0444 root bin
+s usr/share/man/man8/devfsadmd.8=devfsadm.8
+f usr/share/man/man8/devinfo.8 0444 root bin
+f usr/share/man/man8/devlinks.8 0444 root bin
+f usr/share/man/man8/devnm.8 0444 root bin
+f usr/share/man/man8/devprop.8 0444 root bin
+f usr/share/man/man8/devreserv.8 0444 root bin
+f usr/share/man/man8/df.8 0444 root bin
+f usr/share/man/man8/df_ufs.8 0444 root bin
+f usr/share/man/man8/dfmounts.8 0444 root bin
+f usr/share/man/man8/dfmounts_nfs.8 0444 root bin
+f usr/share/man/man8/dfshares.8 0444 root bin
+f usr/share/man/man8/dfshares_nfs.8 0444 root bin
+f usr/share/man/man8/dhcpagent.8 0444 root bin
+f usr/share/man/man8/diskinfo.8 0444 root bin
+f usr/share/man/man8/disks.8 0444 root bin
+f usr/share/man/man8/diskscan.8 0444 root bin
+f usr/share/man/man8/dispadmin.8 0444 root bin
+f usr/share/man/man8/dladm.8 0444 root bin
+f usr/share/man/man8/dlmgmtd.8 0444 root bin
+f usr/share/man/man8/dmesg.8 0444 root bin
+f usr/share/man/man8/dminfo.8 0444 root bin
+f usr/share/man/man8/dns-sd.8 0444 root bin
+f usr/share/man/man8/domainname.8 0444 root bin
+f usr/share/man/man8/drvconfig.8 0444 root bin
+f usr/share/man/man8/dtrace.8 0444 root bin
+f usr/share/man/man8/dumpadm.8 0444 root bin
+f usr/share/man/man8/editmap.8 0444 root bin
+f usr/share/man/man8/edquota.8 0444 root bin
+f usr/share/man/man8/eeprom.8 0444 root bin
+f usr/share/man/man8/embedded_su.8 0444 root bin
+f usr/share/man/man8/etrn.8 0444 root bin
+s usr/share/man/man8/fcadm.8=fcinfo.8
+f usr/share/man/man8/fcinfo.8 0444 root bin
+f usr/share/man/man8/fdetach.8 0444 root bin
+f usr/share/man/man8/fdisk.8 0444 root bin
+f usr/share/man/man8/ff.8 0444 root bin
+f usr/share/man/man8/ff_ufs.8 0444 root bin
+f usr/share/man/man8/fiocompress.8 0444 root bin
+f usr/share/man/man8/flowadm.8 0444 root bin
+f usr/share/man/man8/fmadm.8 0444 root bin
+f usr/share/man/man8/fmd.8 0444 root bin
+f usr/share/man/man8/fmdump.8 0444 root bin
+f usr/share/man/man8/fmstat.8 0444 root bin
+f usr/share/man/man8/fmthard.8 0444 root bin
+f usr/share/man/man8/format.8 0444 root bin
+f usr/share/man/man8/fsck.8 0444 root bin
+f usr/share/man/man8/fsck_ufs.8 0444 root bin
+f usr/share/man/man8/fsdb.8 0444 root bin
+f usr/share/man/man8/fsdb_ufs.8 0444 root bin
+f usr/share/man/man8/fsirand.8 0444 root bin
+f usr/share/man/man8/fssnap.8 0444 root bin
+f usr/share/man/man8/fssnap_ufs.8 0444 root bin
+f usr/share/man/man8/fsstat.8 0444 root bin
+f usr/share/man/man8/fstyp.8 0444 root bin
+f usr/share/man/man8/fuser.8 0444 root bin
+f usr/share/man/man8/fwflash.8 0444 root bin
+f usr/share/man/man8/getdev.8 0444 root bin
+f usr/share/man/man8/getdevpolicy.8 0444 root bin
+f usr/share/man/man8/getdgrp.8 0444 root bin
+f usr/share/man/man8/getent.8 0444 root bin
+f usr/share/man/man8/getty.8 0444 root bin
+f usr/share/man/man8/getvol.8 0444 root bin
+f usr/share/man/man8/groupadd.8 0444 root bin
+f usr/share/man/man8/groupdel.8 0444 root bin
+f usr/share/man/man8/groupmod.8 0444 root bin
+s usr/share/man/man8/grpck.8=pwck.8
+f usr/share/man/man8/gsscred.8 0444 root bin
+f usr/share/man/man8/gssd.8 0444 root bin
+f usr/share/man/man8/halt.8 0444 root bin
+f usr/share/man/man8/hostconfig.8 0444 root bin
+f usr/share/man/man8/hotplug.8 0444 root bin
+f usr/share/man/man8/id.8 0444 root bin
+f usr/share/man/man8/idmap.8 0444 root bin
+f usr/share/man/man8/idmapd.8 0444 root bin
+f usr/share/man/man8/if_mpadm.8 0444 root bin
+f usr/share/man/man8/ifconfig.8 0444 root bin
+f usr/share/man/man8/ifparse.8 0444 root bin
+f usr/share/man/man8/ikeadm.8 0444 root bin
+f usr/share/man/man8/ikecert.8 0444 root bin
+f usr/share/man/man8/in.comsat.8 0444 root bin
+f usr/share/man/man8/in.fingerd.8 0444 root bin
+f usr/share/man/man8/in.iked.8 0444 root bin
+f usr/share/man/man8/in.mpathd.8 0444 root bin
+f usr/share/man/man8/in.ndpd.8 0444 root bin
+f usr/share/man/man8/in.rdisc.8 0444 root bin
+f usr/share/man/man8/in.rexecd.8 0444 root bin
+f usr/share/man/man8/in.ripngd.8 0444 root bin
+f usr/share/man/man8/in.rlogind.8 0444 root bin
+f usr/share/man/man8/in.routed.8 0444 root bin
+f usr/share/man/man8/in.rshd.8 0444 root bin
+f usr/share/man/man8/in.rwhod.8 0444 root bin
+f usr/share/man/man8/in.talkd.8 0444 root bin
+f usr/share/man/man8/in.telnetd.8 0444 root bin
+f usr/share/man/man8/in.tftpd.8 0444 root bin
+f usr/share/man/man8/inetadm.8 0444 root bin
+f usr/share/man/man8/inetconv.8 0444 root bin
+f usr/share/man/man8/inetd.8 0444 root bin
+f usr/share/man/man8/infocmp.8 0444 root bin
+f usr/share/man/man8/init.8 0444 root bin
+f usr/share/man/man8/install.8 0444 root bin
+f usr/share/man/man8/installboot.8 0444 root bin
+f usr/share/man/man8/installgrub.8 0444 root bin
+f usr/share/man/man8/intrd.8 0444 root bin
+s usr/share/man/man8/intro.8=Intro.8
+f usr/share/man/man8/intrstat.8 0444 root bin
+f usr/share/man/man8/iostat.8 0444 root bin
+f usr/share/man/man8/ipaddrsel.8 0444 root bin
+f usr/share/man/man8/ipadm.8 0444 root bin
+f usr/share/man/man8/ipdadm.8 0444 root bin
+f usr/share/man/man8/ipf.8 0444 root bin
+f usr/share/man/man8/ipfs.8 0444 root bin
+f usr/share/man/man8/ipfstat.8 0444 root bin
+f usr/share/man/man8/ipmon.8 0444 root bin
+f usr/share/man/man8/ipmpstat.8 0444 root bin
+f usr/share/man/man8/ipnat.8 0444 root bin
+f usr/share/man/man8/ippool.8 0444 root bin
+f usr/share/man/man8/ipqosconf.8 0444 root bin
+f usr/share/man/man8/ipsecalgs.8 0444 root bin
+f usr/share/man/man8/ipsecconf.8 0444 root bin
+f usr/share/man/man8/ipseckey.8 0444 root bin
+f usr/share/man/man8/iscsiadm.8 0444 root bin
+f usr/share/man/man8/itadm.8 0444 root bin
+f usr/share/man/man8/kernel.8 0444 root bin
+f usr/share/man/man8/keyserv.8 0444 root bin
+f usr/share/man/man8/killall.8 0444 root bin
+f usr/share/man/man8/ksslcfg.8 0444 root bin
+f usr/share/man/man8/kstat.8 0444 root bin
+f usr/share/man/man8/labelit.8 0444 root bin
+f usr/share/man/man8/labelit_hsfs.8 0444 root bin
+f usr/share/man/man8/labelit_ufs.8 0444 root bin
+f usr/share/man/man8/ldap_cachemgr.8 0444 root bin
+f usr/share/man/man8/ldapaddent.8 0444 root bin
+f usr/share/man/man8/ldapclient.8 0444 root bin
+f usr/share/man/man8/link.8 0444 root bin
+f usr/share/man/man8/listdgrp.8 0444 root bin
+f usr/share/man/man8/listen.8 0444 root bin
+f usr/share/man/man8/locator.8 0444 root bin
+f usr/share/man/man8/lockfs.8 0444 root bin
+f usr/share/man/man8/lockstat.8 0444 root bin
+f usr/share/man/man8/lofiadm.8 0444 root bin
+f usr/share/man/man8/logadm.8 0444 root bin
+f usr/share/man/man8/logins.8 0444 root bin
+f usr/share/man/man8/mail.local.8 0444 root bin
+f usr/share/man/man8/mailwrapper.8 0444 root bin
+f usr/share/man/man8/makedbm.8 0444 root bin
+f usr/share/man/man8/makemap.8 0444 root bin
+f usr/share/man/man8/mdnsd.8 0444 root bin
+f usr/share/man/man8/mkdevalloc.8 0444 root bin
+f usr/share/man/man8/mkdevmaps.8 0444 root bin
+f usr/share/man/man8/mkfifo.8 0444 root bin
+f usr/share/man/man8/mkfile.8 0444 root bin
+f usr/share/man/man8/mkfs.8 0444 root bin
+f usr/share/man/man8/mkfs_pcfs.8 0444 root bin
+f usr/share/man/man8/mkfs_udfs.8 0444 root bin
+f usr/share/man/man8/mkfs_ufs.8 0444 root bin
+f usr/share/man/man8/mknod.8 0444 root bin
+f usr/share/man/man8/mkpwdict.8 0444 root bin
+f usr/share/man/man8/modinfo.8 0444 root bin
+f usr/share/man/man8/modload.8 0444 root bin
+f usr/share/man/man8/modunload.8 0444 root bin
+f usr/share/man/man8/mount.8 0444 root bin
+f usr/share/man/man8/mount_hsfs.8 0444 root bin
+f usr/share/man/man8/mount_nfs.8 0444 root bin
+f usr/share/man/man8/mount_pcfs.8 0444 root bin
+f usr/share/man/man8/mount_smbfs.8 0444 root bin
+f usr/share/man/man8/mount_tmpfs.8 0444 root bin
+f usr/share/man/man8/mount_udfs.8 0444 root bin
+f usr/share/man/man8/mount_ufs.8 0444 root bin
+f usr/share/man/man8/mountall.8 0444 root bin
+f usr/share/man/man8/mountd.8 0444 root bin
+f usr/share/man/man8/mpathadm.8 0444 root bin
+f usr/share/man/man8/mpstat.8 0444 root bin
+f usr/share/man/man8/msgid.8 0444 root bin
+f usr/share/man/man8/mvdir.8 0444 root bin
+f usr/share/man/man8/ncheck.8 0444 root bin
+f usr/share/man/man8/ncheck_ufs.8 0444 root bin
+f usr/share/man/man8/ndd.8 0444 root bin
+f usr/share/man/man8/ndp.8 0444 root bin
+f usr/share/man/man8/netstat.8 0444 root bin
+f usr/share/man/man8/netstrategy.8 0444 root bin
+f usr/share/man/man8/newaliases.8 0444 root bin
+f usr/share/man/man8/newfs.8 0444 root bin
+f usr/share/man/man8/newkey.8 0444 root bin
+f usr/share/man/man8/nfs4cbd.8 0444 root bin
+f usr/share/man/man8/nfsd.8 0444 root bin
+f usr/share/man/man8/nfslogd.8 0444 root bin
+f usr/share/man/man8/nfsmapid.8 0444 root bin
+f usr/share/man/man8/nfsstat.8 0444 root bin
+f usr/share/man/man8/nlsadmin.8 0444 root bin
+f usr/share/man/man8/nscd.8 0444 root bin
+f usr/share/man/man8/nvmeadm.8 0444 root bin
+f usr/share/man/man8/nwamd.8 0444 root bin
+f usr/share/man/man8/passmgmt.8 0444 root bin
+f usr/share/man/man8/pbind.8 0444 root bin
+f usr/share/man/man8/pcitool.8 0444 root bin
+f usr/share/man/man8/picld.8 0444 root bin
+f usr/share/man/man8/ping.8 0444 root bin
+f usr/share/man/man8/plockstat.8 0444 root bin
+f usr/share/man/man8/pmadm.8 0444 root bin
+f usr/share/man/man8/pmconfig.8 0444 root bin
+f usr/share/man/man8/ports.8 0444 root bin
+s usr/share/man/man8/poweroff.8=halt.8
+f usr/share/man/man8/pptadm.8 0444 root bin
+f usr/share/man/man8/praudit.8 0444 root bin
+f usr/share/man/man8/projadd.8 0444 root bin
+f usr/share/man/man8/projdel.8 0444 root bin
+f usr/share/man/man8/projmod.8 0444 root bin
+f usr/share/man/man8/prstat.8 0444 root bin
+f usr/share/man/man8/prtconf.8 0444 root bin
+f usr/share/man/man8/prtdiag.8 0444 root bin
+f usr/share/man/man8/prtpicl.8 0444 root bin
+f usr/share/man/man8/prtvtoc.8 0444 root bin
+f usr/share/man/man8/psradm.8 0444 root bin
+f usr/share/man/man8/psrinfo.8 0444 root bin
+f usr/share/man/man8/psrset.8 0444 root bin
+f usr/share/man/man8/putdev.8 0444 root bin
+f usr/share/man/man8/putdgrp.8 0444 root bin
+f usr/share/man/man8/pwck.8 0444 root bin
+f usr/share/man/man8/pwconv.8 0444 root bin
+f usr/share/man/man8/quot.8 0444 root bin
+f usr/share/man/man8/quota.8 0444 root bin
+f usr/share/man/man8/quotacheck.8 0444 root bin
+s usr/share/man/man8/quotaoff.8=quotaon.8
+f usr/share/man/man8/quotaon.8 0444 root bin
+f usr/share/man/man8/raidctl.8 0444 root bin
+f usr/share/man/man8/ramdiskadm.8 0444 root bin
+f usr/share/man/man8/rcapadm.8 0444 root bin
+f usr/share/man/man8/rcapd.8 0444 root bin
+f usr/share/man/man8/rctladm.8 0444 root bin
+f usr/share/man/man8/rdate.8 0444 root bin
+s usr/share/man/man8/rdisc.8=in.rdisc.8
+f usr/share/man/man8/rdmsr.8 0444 root bin
+f usr/share/man/man8/reboot.8 0444 root bin
+f usr/share/man/man8/rem_drv.8 0444 root bin
+f usr/share/man/man8/repquota.8 0444 root bin
+s usr/share/man/man8/restricted_shell.8=rsh.8
+f usr/share/man/man8/rmt.8 0444 root bin
+f usr/share/man/man8/roleadd.8 0444 root bin
+f usr/share/man/man8/roledel.8 0444 root bin
+f usr/share/man/man8/rolemod.8 0444 root bin
+f usr/share/man/man8/route.8 0444 root bin
+f usr/share/man/man8/routeadm.8 0444 root bin
+s usr/share/man/man8/routed.8=in.routed.8
+f usr/share/man/man8/rpcbind.8 0444 root bin
+f usr/share/man/man8/rpcinfo.8 0444 root bin
+f usr/share/man/man8/rquotad.8 0444 root bin
+f usr/share/man/man8/rsh.8 0444 root bin
+f usr/share/man/man8/rtc.8 0444 root bin
+f usr/share/man/man8/rtquery.8 0444 root bin
+f usr/share/man/man8/rwall.8 0444 root bin
+f usr/share/man/man8/sac.8 0444 root bin
+f usr/share/man/man8/sacadm.8 0444 root bin
+f usr/share/man/man8/saf.8 0444 root bin
+f usr/share/man/man8/sasinfo.8 0444 root bin
+f usr/share/man/man8/savecore.8 0444 root bin
+f usr/share/man/man8/sbdadm.8 0444 root bin
+f usr/share/man/man8/sendmail.8 0444 root bin
+f usr/share/man/man8/setuname.8 0444 root bin
+f usr/share/man/man8/share.8 0444 root bin
+f usr/share/man/man8/share_nfs.8 0444 root bin
+f usr/share/man/man8/shareall.8 0444 root bin
+f usr/share/man/man8/sharectl.8 0444 root bin
+f usr/share/man/man8/sharemgr.8 0444 root bin
+f usr/share/man/man8/showmount.8 0444 root bin
+f usr/share/man/man8/shutdown.8 0444 root bin
+f usr/share/man/man8/slpd.8 0444 root bin
+f usr/share/man/man8/smbadm.8 0444 root bin
+f usr/share/man/man8/smbd.8 0444 root bin
+f usr/share/man/man8/smbiod.8 0444 root bin
+f usr/share/man/man8/smbios.8 0444 root bin
+f usr/share/man/man8/smbstat.8 0444 root bin
+f usr/share/man/man8/smrsh.8 0444 root bin
+f usr/share/man/man8/snoop.8 0444 root bin
+f usr/share/man/man8/soconfig.8 0444 root bin
+f usr/share/man/man8/sppptun.8 0444 root bin
+f usr/share/man/man8/spray.8 0444 root bin
+f usr/share/man/man8/statd.8 0444 root bin
+f usr/share/man/man8/stmfadm.8 0444 root bin
+f usr/share/man/man8/stmsboot.8 0444 root bin
+f usr/share/man/man8/strclean.8 0444 root bin
+f usr/share/man/man8/strerr.8 0444 root bin
+f usr/share/man/man8/sttydefs.8 0444 root bin
+f usr/share/man/man8/su.8 0444 root bin
+f usr/share/man/man8/sulogin.8 0444 root bin
+f usr/share/man/man8/svc.configd.8 044 root bin
+f usr/share/man/man8/svc.ipfd.8 044 root bin
+f usr/share/man/man8/svc.startd.8 044 root bin
+f usr/share/man/man8/svcadm.8 0444 root bin
+f usr/share/man/man8/svccfg.8 0444 root bin
+f usr/share/man/man8/swap.8 0444 root bin
+f usr/share/man/man8/sync.8 0444 root bin
+f usr/share/man/man8/syncinit.8 0444 root bin
+f usr/share/man/man8/syncloop.8 0444 root bin
+f usr/share/man/man8/syncstat.8 0444 root bin
+f usr/share/man/man8/sysdef.8 0444 root bin
+f usr/share/man/man8/syseventadm.8 0444 root bin
+f usr/share/man/man8/syseventconfd.8 0444 root bin
+f usr/share/man/man8/syseventd.8 0444 root bin
+f usr/share/man/man8/syslogd.8 0444 root bin
+f usr/share/man/man8/tapes.8 0444 root bin
+f usr/share/man/man8/tcpd.8 0444 root bin
+f usr/share/man/man8/tcpdchk.8 0444 root bin
+f usr/share/man/man8/tcpdmatch.8 0444 root bin
+f usr/share/man/man8/tic.8 0444 root bin
+f usr/share/man/man8/traceroute.8 0444 root bin
+f usr/share/man/man8/trapstat.8 0444 root bin
+f usr/share/man/man8/ttyadm.8 0444 root bin
+f usr/share/man/man8/ttymon.8 0444 root bin
+f usr/share/man/man8/tunefs.8 0444 root bin
+f usr/share/man/man8/tzreload.8 0444 root bin
+f usr/share/man/man8/tzselect.8 0444 root bin
+f usr/share/man/man8/uadmin.8 0444 root bin
+f usr/share/man/man8/ucodeadm.8 0444 root bin
+f usr/share/man/man8/ufsdump.8 0444 root bin
+f usr/share/man/man8/ufsrestore.8 0444 root bin
+s usr/share/man/man8/umount.8=mount.8
+s usr/share/man/man8/umount_smbfs.8=mount_smbfs.8
+s usr/share/man/man8/umountall.8=mountall.8
+s usr/share/man/man8/unlink.8=link.8
+f usr/share/man/man8/unshare.8 0444 root bin
+f usr/share/man/man8/unshare_nfs.8 0444 root bin
+s usr/share/man/man8/unshareall.8=shareall.8
+f usr/share/man/man8/update_drv.8 0444 root bin
+f usr/share/man/man8/useradd.8 0444 root bin
+f usr/share/man/man8/userdel.8 0444 root bin
+f usr/share/man/man8/usermod.8 0444 root bin
+f usr/share/man/man8/utmpd.8 0444 root bin
+f usr/share/man/man8/vfsstat.8 0444 root bin
+f usr/share/man/man8/vmstat.8 0444 root bin
+f usr/share/man/man8/vndadm.8 0444 root bin
+f usr/share/man/man8/vndstat.8 0444 root bin
+f usr/share/man/man8/volcopy.8 0444 root bin
+f usr/share/man/man8/volcopy_ufs.8 0444 root bin
+f usr/share/man/man8/wall.8 0444 root bin
+f usr/share/man/man8/whodo.8 0444 root bin
+f usr/share/man/man8/wracct.8 0444 root bin
+f usr/share/man/man8/ypinit.8 0444 root bin
+f usr/share/man/man8/yppoll.8 0444 root bin
+f usr/share/man/man8/ypset.8 0444 root bin
+f usr/share/man/man8/zdb.8 0444 root bin
+f usr/share/man/man8/zdump.8 0444 root bin
+f usr/share/man/man8/zfs-program.8 0444 root bin
+f usr/share/man/man8/zfs.8 0444 root bin
+f usr/share/man/man8/zic.8 0444 root bin
+f usr/share/man/man8/zoneadm.8 0444 root bin
+f usr/share/man/man8/zoneadmd.8 0444 root bin
+f usr/share/man/man8/zonecfg.8 0444 root bin
+f usr/share/man/man8/zonestatd.8 0444 root bin
+f usr/share/man/man8/zpool.8 0444 root bin
+f usr/share/man/man8/zstreamdump.8 0444 root bin
+f usr/share/man/man8/ztest.8 0444 root bin
 d usr/share/man/man9 0755 root bin
 f usr/share/man/man9/Intro.9 0444 root bin
 s usr/share/man/man9/intro.9=Intro.9
@@ -19871,6 +20021,7 @@ d usr/share/man/man9f 0755 root bin
 f usr/share/man/man9f/ASSERT.9f 0444 root bin
 s usr/share/man/man9f/AVL_NEXT.9f=avl.9f
 s usr/share/man/man9f/AVL_PREV.9f=avl.9f
+s usr/share/man/man9f/CRED.9f=credentials.9f
 f usr/share/man/man9f/Intro.9f 0444 root bin
 f usr/share/man/man9f/OTHERQ.9f 0444 root bin
 f usr/share/man/man9f/RD.9f 0444 root bin
@@ -20053,6 +20204,10 @@ f usr/share/man/man9f/copyb.9f 0444 root bin
 f usr/share/man/man9f/copyin.9f 0444 root bin
 f usr/share/man/man9f/copymsg.9f 0444 root bin
 f usr/share/man/man9f/copyout.9f 0444 root bin
+f usr/share/man/man9f/credentials.9f 0444 root bin
+s usr/share/man/man9f/crdup.9f=credentials.9f
+s usr/share/man/man9f/crfree.9f=credentials.9f
+s usr/share/man/man9f/crget.9f=credentials.9f
 s usr/share/man/man9f/crgetgid.9f=ddi_cred.9f
 s usr/share/man/man9f/crgetgroups.9f=ddi_cred.9f
 s usr/share/man/man9f/crgetngroups.9f=ddi_cred.9f
@@ -20062,6 +20217,7 @@ s usr/share/man/man9f/crgetsgid.9f=ddi_cred.9f
 s usr/share/man/man9f/crgetsuid.9f=ddi_cred.9f
 s usr/share/man/man9f/crgetuid.9f=ddi_cred.9f
 s usr/share/man/man9f/crgetzoneid.9f=ddi_cred.9f
+s usr/share/man/man9f/crhold.9f=credentials.9f
 f usr/share/man/man9f/csx_AccessConfigurationRegister.9f 0444 root bin
 f usr/share/man/man9f/csx_CS_DDI_Info.9f 0444 root bin
 f usr/share/man/man9f/csx_ConvertSize.9f 0444 root bin
@@ -20467,6 +20623,7 @@ s usr/share/man/man9f/ddi_ufm_image_set_nslots.9f=ddi_ufm_image.9f
 s usr/share/man/man9f/ddi_ufm_init.9f=ddi_ufm.9f
 f usr/share/man/man9f/ddi_ufm_slot.9f 0444 root bin
 s usr/share/man/man9f/ddi_ufm_slot_set_attrs.9f=ddi_ufm_slot.9f
+s usr/share/man/man9f/ddi_ufm_slot_set_imgsize.9f=ddi_ufm_slot.9f
 s usr/share/man/man9f/ddi_ufm_slot_set_misc.9f=ddi_ufm_slot.9f
 s usr/share/man/man9f/ddi_ufm_slot_set_version.9f=ddi_ufm_slot.9f
 s usr/share/man/man9f/ddi_ufm_update.9f=ddi_ufm.9f
@@ -20478,6 +20635,7 @@ s usr/share/man/man9f/ddi_umem_unlock.9f=ddi_umem_lock.9f
 s usr/share/man/man9f/ddi_unmap_regs.9f=ddi_map_regs.9f
 f usr/share/man/man9f/delay.9f 0444 root bin
 s usr/share/man/man9f/desballoc.9f=esballoc.9f
+s usr/share/man/man9f/desballoca.9f=esballoc.9f
 s usr/share/man/man9f/dev_err.9f=cmn_err.9f
 f usr/share/man/man9f/devfs_clean.9f 0444 root bin
 f usr/share/man/man9f/devmap_default_access.9f 0444 root bin
@@ -20504,6 +20662,7 @@ f usr/share/man/man9f/dupmsg.9f 0444 root bin
 f usr/share/man/man9f/enableok.9f 0444 root bin
 f usr/share/man/man9f/esballoc.9f 0444 root bin
 f usr/share/man/man9f/esbbcall.9f 0444 root bin
+s usr/share/man/man9f/esballoca.9f=esballoc.9f
 f usr/share/man/man9f/firmload.9f 0444 root bin
 s usr/share/man/man9f/firmware_close.9f=firmload.9f
 s usr/share/man/man9f/firmware_free.9f=firmload.9f
@@ -20553,6 +20712,7 @@ s usr/share/man/man9f/inl.9f=inb.9f
 f usr/share/man/man9f/insq.9f 0444 root bin
 s usr/share/man/man9f/intro.9f=Intro.9f
 s usr/share/man/man9f/inw.9f=inb.9f
+s usr/share/man/man9f/kcred.9f=credentials.9f
 f usr/share/man/man9f/kiconv.9f 0444 root bin
 f usr/share/man/man9f/kiconv_close.9f 0444 root bin
 f usr/share/man/man9f/kiconv_open.9f 0444 root bin
@@ -20647,6 +20807,7 @@ f usr/share/man/man9f/mac_link_update.9f 0444 root bin
 f usr/share/man/man9f/mac_lso_get.9f 0444 root bin
 f usr/share/man/man9f/mac_maxsdu_update.9f 0444 root bin
 f usr/share/man/man9f/mac_prop_info.9f 0444 root bin
+s usr/share/man/man9f/mac_prop_info_set_default_fec.9f=mac_prop_info.9f
 s usr/share/man/man9f/mac_prop_info_set_default_link_flowctrl.9f=mac_prop_info.9f
 s usr/share/man/man9f/mac_prop_info_set_default_str.9f=mac_prop_info.9f
 s usr/share/man/man9f/mac_prop_info_set_default_uint32.9f=mac_prop_info.9f
@@ -21160,6 +21321,7 @@ s usr/share/man/man9f/vsprintf.9f=sprintf.9f
 s usr/share/man/man9f/vzcmn_err.9f=cmn_err.9f
 s usr/share/man/man9f/wr.9f=WR.9f
 s usr/share/man/man9f/zcmn_err.9f=cmn_err.9f
+s usr/share/man/man9f/zone_kcred.9f=credentials.9f
 d usr/share/man/man9p 0755 root bin
 s usr/share/man/man9p/Nblock.9p=size.9p
 s usr/share/man/man9p/blksize.9p=size.9p
@@ -21255,6 +21417,7 @@ f usr/share/man/man9s/usb_ep_descr.9s 0444 root bin
 f usr/share/man/man9s/usb_ep_ss_comp_descr.9s 0444 root bin
 s usr/share/man/man9s/usb_ep_ss_comp_descr_t.9s=usb_ep_ss_comp_descr.9s
 f usr/share/man/man9s/usb_ep_xdescr.9s 0444 root bin
+s usr/share/man/man9s/usb_ep_xdescr_t.9s=usb_ep_xdescr.9s
 f usr/share/man/man9s/usb_if_descr.9s 0444 root bin
 f usr/share/man/man9s/usb_intr_req.9s 0444 root bin
 s usr/share/man/man9s/usb_intr_req_t.9s=usb_intr_req.9s
@@ -21274,18 +21437,18 @@ s usr/share/man/man9s/usba_hcdi_register_args_t.9s=usba_hcdi_register_args.9s
 f usr/share/man/man9s/usba_pipe_handle_data.9s 0444 root bin
 s usr/share/man/man9s/usba_pipe_handle_data_t.9s=usba_pipe_handle_data.9s
 d usr/share/src 0755 root sys
+s usr/share/terminfo=../share/lib/terminfo
 s usr/spool=../var/spool
 s usr/src=share/src
 s usr/tmp=../var/tmp
 d usr/ucb 0755 root bin
 d usr/ucb/amd64 0755 root bin
-f usr/ucb/amd64/ps 0555 root bin
 f usr/ucb/df 0755 root bin
 d usr/ucb/i86 0755 root bin
 f usr/ucb/ls 0755 root bin
 s usr/ucb/more=../bin/more
 s usr/ucb/page=../bin/more
-h usr/ucb/ps=usr/lib/isaexec
+h usr/ucb/ps=usr/bin/ps
 f usr/ucb/shutdown 0755 root bin
 f usr/ucb/touch 0755 root bin
 s usr/ucb/uptime=../bin/uptime

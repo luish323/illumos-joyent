@@ -269,7 +269,6 @@ ipd 188
 tap 271
 tun 272
 ipmi 273
-dr_sas 274
 t4nex 275
 cxgbe 276
 virtio 277
@@ -309,3 +308,9 @@ ufmtest 312
 imcstub 313
 imc 314
 ccid 315
+ksensor 316
+mlxcx 317
+amdzen_stub 318
+amdzen 319
+smntemp 320
+ena 321

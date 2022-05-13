@@ -72,7 +72,7 @@ CERRWARN	+= -_gcc=-Wno-unused-function
 SMATCH=off
 
 CFLAGS +=	$(CCVERBOSE) -I..
-DYNFLAGS +=	$(KRUNPATH) $(KMECHLIB) -znodelete
+DYNFLAGS +=	$(KRUNPATH) $(KMECHLIB) $(ZNODELETE)
 LDLIBS +=	-L $(ROOTLIBDIR) -lsunw_crypto -lc
 
 ROOTLIBDIR= $(ROOT)/usr/lib/krb5/plugins/preauth
@@ -84,7 +84,6 @@ $(ROOTLIBDIR):
 
 all:	$(LIBS)
 
-lint:	lintcheck
 
 # include library targets
 include $(SRC)/lib/krb5/Makefile.targ

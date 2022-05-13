@@ -52,6 +52,7 @@ sparc_CFLAGS	+= -Wa,-xarch=v8plus
 
 CPPFLAGS	+= -I$(LIBMSRC)/C \
 		-I$(LIBMSRC)/$(LDBLDIR) -I$(LIBMDIR)/$(TARGET_ARCH)/src
+$(RELEASE_BUILD)CPPFLAGS += -DNDEBUG
 
 # GCC needs __C99FEATURES__ such that the implementations of isunordered,
 # isgreaterequal, islessequal, etc, exist.  This is basically equivalent to
@@ -68,11 +69,10 @@ CFLAGS64	+= -_gcc=-fno-strict-overflow
 CFLAGS		+= -_smatch=off
 CFLAGS64	+= -_smatch=off
 
-$(DYNLIB) 	:= LDLIBS += -lc
+$(DYNLIB)	:= LDLIBS += -lc
 
-$(LINTLIB) 	:= SRCS = $(LIBMSRC)/$(LINTSRC)
 
-CLEANFILES 	+= pics/*.s pics/*.S
+CLEANFILES	+= pics/*.s pics/*.S
 
 FPDEF_amd64	= -DARCH_amd64
 FPDEF_sparc	= -DCG89 -DARCH_v8plus -DFPADD_TRAPS_INCOMPLETE_ON_NAN
@@ -89,7 +89,7 @@ XARCH		= $(XARCH_$(TARGET_ARCH))
 
 ASOPT_sparc	= -xarch=$(XARCH) $(AS_PICFLAGS)
 ASOPT_sparcv9	= -xarch=$(XARCH) $(AS_PICFLAGS)
-ASOPT_i386	= 
+ASOPT_i386	=
 ASOPT_amd64	= -xarch=$(XARCH) $(AS_PICFLAGS)
 ASOPT		= $(ASOPT_$(TARGET_ARCH))
 

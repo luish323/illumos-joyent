@@ -25,9 +25,11 @@
 # Copyright (c) 2013 by Saso Kiselkov. All rights reserved.
 # Copyright 2018 Nexenta Systems, Inc.
 # Copyright 2016 Garrett D'Amore <garrett@damore.org>
-# Copyright 2020 Joyent, Inc.
+# Copyright 2021 Joyent, Inc.
 # Copyright 2016 OmniTI Computer Consulting, Inc.  All rights reserved.
 # Copyright 2016 Hans Rosenfeld <rosenfeld@grumpf.hope-2000.org>
+# Copyright 2020 RackTop Systems, Inc.
+# Copyright 2021 Oxide Computer Company
 #
 
 #
@@ -110,6 +112,7 @@ GENUNIX_OBJS +=	\
 		bio.o		\
 		bitmap.o	\
 		blabel.o	\
+		bootbanner.o	\
 		brandsys.o	\
 		bz2blocksort.o	\
 		bz2compress.o	\
@@ -128,7 +131,9 @@ GENUNIX_OBJS +=	\
 		class.o		\
 		clock.o		\
 		clock_highres.o	\
+		clock_process.o	\
 		clock_realtime.o\
+		clock_thread.o	\
 		close.o		\
 		compress.o	\
 		condvar.o	\
@@ -216,6 +221,7 @@ GENUNIX_OBJS +=	\
 		kiconv.o	\
 		klpd.o		\
 		kmem.o		\
+		ksensor.o	\
 		ksyms_snapshot.o	\
 		l_strplumb.o	\
 		labelsys.o	\
@@ -384,6 +390,7 @@ GENUNIX_OBJS +=	\
 		uname.o		\
 		unix_bb.o	\
 		unlink.o	\
+		upanic.o	\
 		urw.o		\
 		utime.o		\
 		utssys.o	\
@@ -763,6 +770,9 @@ SOL_UMAD_OBJS += sol_umad.o
 
 KSTAT_OBJS +=	kstat.o
 
+KSENSOR_OBJS +=	ksensor_drv.o
+KSENSOR_TEST_OBJS += ksensor_test.o
+
 KSYMS_OBJS +=	ksyms.o
 
 INSTANCE_OBJS += inst_sync.o
@@ -1072,7 +1082,7 @@ RTLS_OBJS +=	rtls.o
 #
 AOUTEXEC_OBJS +=aout.o
 
-ELFEXEC_OBJS +=	elf.o elf_notes.o old_notes.o
+ELFEXEC_OBJS +=	elf.o elf_notes.o old_notes.o core_shstrtab.o
 
 INTPEXEC_OBJS +=intp.o
 
@@ -1274,7 +1284,9 @@ SMBSRV_OBJS +=	$(SMBSRV_SHARED_OBJS)			\
 		smb2_write.o \
 		\
 		smb3_encrypt.o \
-		smb3_encrypt_kcf.o
+		smb3_encrypt_kcf.o \
+		smb3_kdf.o \
+		smb31_preauth.o
 
 PCFS_OBJS +=	pc_alloc.o	pc_dir.o	pc_node.o	pc_subr.o \
 		pc_vfsops.o	pc_vnops.o
@@ -1357,7 +1369,15 @@ LUA_OBJS +=			\
 	llex.o			\
 	lparser.o
 
+amd64_ZFS_OBJS +=		\
+	vdev_raidz_math_avx2.o	\
+	vdev_raidz_math_sse2.o	\
+	vdev_raidz_math_ssse3.o
+
+sparcv9_ZFS_OBJS +=
+
 ZFS_COMMON_OBJS +=		\
+	$($(MACH64)_ZFS_OBJS)	\
 	abd.o			\
 	aggsum.o		\
 	arc.o			\
@@ -1433,6 +1453,8 @@ ZFS_COMMON_OBJS +=		\
 	vdev_missing.o		\
 	vdev_queue.o		\
 	vdev_raidz.o		\
+	vdev_raidz_math.o	\
+	vdev_raidz_math_scalar.o \
 	vdev_removal.o		\
 	vdev_root.o		\
 	vdev_trim.o		\
@@ -1675,7 +1697,7 @@ TEM_OBJS += tem.o tem_safe.o
 #	Font data for generated console fonts
 #
 i386_FONT	= 8x16
-i386_FONT_SRC= ter-u16n
+i386_FONT_SRC= ter-u16b
 sparc_FONT	= 12x22
 sparc_FONT_SRC= Gallant19
 FONT=$($(MACH)_FONT)
@@ -1921,8 +1943,7 @@ ZYD_OBJS += zyd.o zyd_usb.o zyd_hw.o zyd_fw.o
 
 MXFE_OBJS += mxfe.o
 
-MPTSAS_OBJS += mptsas.o mptsas_impl.o mptsas_init.o \
-		mptsas_raid.o mptsas_smhba.o
+MPTSAS_OBJS += mptsas.o mptsas_impl.o mptsas_init.o mptsas_raid.o mptsas_smhba.o
 
 SFE_OBJS += sfe.o sfe_util.o
 
@@ -1948,7 +1969,6 @@ NVME_OBJS = nvme.o
 #
 #	Build up defines and paths.
 #
-LINT_DEFS	+= -Dunix
 
 #
 #	This duality can be removed when the native and target compilers
@@ -2026,7 +2046,7 @@ E1000G_OBJS +=	e1000g_debug.o e1000g_main.o e1000g_alloc.o \
 #	Intel 82575 1G NIC driver module
 #
 IGB_OBJS =	igb_buf.o igb_debug.o igb_gld.o igb_log.o igb_main.o \
-		igb_rx.o igb_stat.o igb_tx.o igb_osdep.o
+		igb_rx.o igb_stat.o igb_tx.o igb_osdep.o igb_sensor.o
 
 #
 #	Intel Pro/100 NIC driver module
@@ -2057,7 +2077,7 @@ I40E_OBJS =	i40e_main.o i40e_osdep.o i40e_intr.o i40e_transceiver.o \
 		i40e_stats.o i40e_gld.o
 # Intel-written ones.
 I40E_INTC_OBJS = i40e_adminq.o i40e_common.o i40e_hmc.o i40e_lan_hmc.o \
-		 i40e_nvm.o
+		 i40e_nvm.o i40e_dcb.o
 
 #
 #	Solarflare 1/10/40GbE NIC driver module
@@ -2156,11 +2176,6 @@ MEGA_SAS_OBJS = megaraid_sas.o
 #	MR_SAS module
 #
 MR_SAS_OBJS = ld_pd_map.o mr_sas.o mr_sas_tbolt.o mr_sas_list.o
-
-#
-#	DR_SAS module
-#
-DR_SAS_OBJS = dr_sas.o
 
 #
 #	CPQARY3 module
@@ -2320,7 +2335,14 @@ BNX_OBJS += \
 	bnx_lm_send.o
 
 #
-# mlxcx(7D)
+# mlxcx(4D)
 #
 MLXCX_OBJS +=	mlxcx.o mlxcx_dma.o mlxcx_cmd.o mlxcx_intr.o mlxcx_gld.o \
-		mlxcx_ring.o
+		mlxcx_ring.o mlxcx_sensor.o
+
+#
+# ena(4D)
+#
+ENA_OBJS +=	ena.o ena_admin.o ena_dma.o ena_gld.o ena_hw.o ena_intr.o \
+		ena_stats.o ena_tx.o ena_rx.o
+

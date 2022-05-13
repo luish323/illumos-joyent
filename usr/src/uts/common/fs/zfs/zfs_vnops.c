@@ -738,6 +738,57 @@ out:
 	return (error);
 }
 
+static void
+zfs_write_clear_setid_bits_if_necessary(zfsvfs_t *zfsvfs, znode_t *zp,
+    cred_t *cr, boolean_t *did_check, dmu_tx_t *tx)
+{
+	ASSERT(did_check != NULL);
+	ASSERT(tx != NULL);
+
+	if (*did_check)
+		return;
+
+	zilog_t *zilog = zfsvfs->z_log;
+
+	/*
+	 * Clear Set-UID/Set-GID bits on successful write if not
+	 * privileged and at least one of the execute bits is set.
+	 *
+	 * It would be nice to do this after all writes have
+	 * been done, but that would still expose the ISUID/ISGID
+	 * to another app after the partial write is committed.
+	 *
+	 * Note: we don't call zfs_fuid_map_id() here because
+	 * user 0 is not an ephemeral uid.
+	 */
+	mutex_enter(&zp->z_acl_lock);
+	if ((zp->z_mode & (S_IXUSR | (S_IXUSR >> 3) | (S_IXUSR >> 6))) != 0 &&
+	    (zp->z_mode & (S_ISUID | S_ISGID)) != 0 &&
+	    secpolicy_vnode_setid_retain(cr,
+	    ((zp->z_mode & S_ISUID) != 0 && zp->z_uid == 0)) != 0) {
+		uint64_t newmode;
+		vattr_t va;
+
+		zp->z_mode &= ~(S_ISUID | S_ISGID);
+		newmode = zp->z_mode;
+		(void) sa_update(zp->z_sa_hdl, SA_ZPL_MODE(zfsvfs),
+		    (void *)&newmode, sizeof (uint64_t), tx);
+
+		/*
+		 * Make sure SUID/SGID bits will be removed when we replay the
+		 * log.
+		 */
+		bzero(&va, sizeof (va));
+		va.va_mask = AT_MODE;
+		va.va_nodeid = zp->z_id;
+		va.va_mode = newmode;
+		zfs_log_setattr(zilog, tx, TX_SETATTR, zp, &va, AT_MODE, NULL);
+	}
+	mutex_exit(&zp->z_acl_lock);
+
+	*did_check = B_TRUE;
+}
+
 /*
  * Write the bytes to a file.
  *
@@ -784,6 +835,7 @@ zfs_write(vnode_t *vp, uio_t *uio, int ioflag, cred_t *cr, caller_context_t *ct)
 	int		count = 0;
 	sa_bulk_attr_t	bulk[4];
 	uint64_t	mtime[2], ctime[2];
+	boolean_t	did_clear_setid_bits = B_FALSE;
 
 	/*
 	 * Fasttrack empty write
@@ -973,6 +1025,11 @@ zfs_write(vnode_t *vp, uio_t *uio, int ioflag, cred_t *cr, caller_context_t *ct)
 		}
 
 		/*
+		 * NB: We must call zfs_write_clear_setid_bits_if_necessary
+		 * before committing the transaction!
+		 */
+
+		/*
 		 * If rangelock_enter() over-locked we grow the blocksize
 		 * and then reduce the lock range.  This will only happen
 		 * on the first iteration since rangelock_reduce() will
@@ -1049,30 +1106,8 @@ zfs_write(vnode_t *vp, uio_t *uio, int ioflag, cred_t *cr, caller_context_t *ct)
 			break;
 		}
 
-		/*
-		 * Clear Set-UID/Set-GID bits on successful write if not
-		 * privileged and at least one of the excute bits is set.
-		 *
-		 * It would be nice to to this after all writes have
-		 * been done, but that would still expose the ISUID/ISGID
-		 * to another app after the partial write is committed.
-		 *
-		 * Note: we don't call zfs_fuid_map_id() here because
-		 * user 0 is not an ephemeral uid.
-		 */
-		mutex_enter(&zp->z_acl_lock);
-		if ((zp->z_mode & (S_IXUSR | (S_IXUSR >> 3) |
-		    (S_IXUSR >> 6))) != 0 &&
-		    (zp->z_mode & (S_ISUID | S_ISGID)) != 0 &&
-		    secpolicy_vnode_setid_retain(cr,
-		    (zp->z_mode & S_ISUID) != 0 && zp->z_uid == 0) != 0) {
-			uint64_t newmode;
-			zp->z_mode &= ~(S_ISUID | S_ISGID);
-			newmode = zp->z_mode;
-			(void) sa_update(zp->z_sa_hdl, SA_ZPL_MODE(zfsvfs),
-			    (void *)&newmode, sizeof (uint64_t), tx);
-		}
-		mutex_exit(&zp->z_acl_lock);
+		zfs_write_clear_setid_bits_if_necessary(zfsvfs, zp, cr,
+		    &did_clear_setid_bits, tx);
 
 		zfs_tstamp_update_setup(zp, CONTENT_MODIFIED, mtime, ctime,
 		    B_TRUE);
@@ -1100,6 +1135,11 @@ zfs_write(vnode_t *vp, uio_t *uio, int ioflag, cred_t *cr, caller_context_t *ct)
 		prev_error = error;
 		error = sa_bulk_update(zp->z_sa_hdl, bulk, count, tx);
 
+		/*
+		 * NB: During replay, the TX_SETATTR record logged by
+		 * zfs_write_clear_setid_bits_if_necessary must precede
+		 * any of the TX_WRITE records logged here.
+		 */
 		zfs_log_write(zilog, tx, TX_WRITE, zp, woff, tx_bytes, ioflag);
 		dmu_tx_commit(tx);
 
@@ -4839,7 +4879,7 @@ zfs_seek(vnode_t *vp, offset_t ooff, offset_t *noffp,
 {
 	if (vp->v_type == VDIR)
 		return (0);
-	return ((*noffp < 0 || *noffp > MAXOFFSET_T) ? EINVAL : 0);
+	return ((*noffp < 0) ? EINVAL : 0);
 }
 
 /*
@@ -5147,27 +5187,6 @@ zfs_addmap(vnode_t *vp, offset_t off, struct as *as, caddr_t addr,
 	return (0);
 }
 
-/*
- * The reason we push dirty pages as part of zfs_delmap() is so that we get a
- * more accurate mtime for the associated file.  Since we don't have a way of
- * detecting when the data was actually modified, we have to resort to
- * heuristics.  If an explicit msync() is done, then we mark the mtime when the
- * last page is pushed.  The problem occurs when the msync() call is omitted,
- * which by far the most common case:
- *
- *	open()
- *	mmap()
- *	<modify memory>
- *	munmap()
- *	close()
- *	<time lapse>
- *	putpage() via fsflush
- *
- * If we wait until fsflush to come along, we can have a modification time that
- * is some arbitrary point in the future.  In order to prevent this in the
- * common case, we flush pages whenever a (MAP_SHARED, PROT_WRITE) mapping is
- * torn down.
- */
 /* ARGSUSED */
 static int
 zfs_delmap(vnode_t *vp, offset_t off, struct as *as, caddr_t addr,
@@ -5610,7 +5629,6 @@ zfs_isdir()
 /*
  * Directory vnode operations template
  */
-vnodeops_t *zfs_dvnodeops;
 const fs_operation_def_t zfs_dvnodeops_template[] = {
 	VOPNAME_OPEN,		{ .vop_open = zfs_open },
 	VOPNAME_CLOSE,		{ .vop_close = zfs_close },
@@ -5643,7 +5661,6 @@ const fs_operation_def_t zfs_dvnodeops_template[] = {
 /*
  * Regular file vnode operations template
  */
-vnodeops_t *zfs_fvnodeops;
 const fs_operation_def_t zfs_fvnodeops_template[] = {
 	VOPNAME_OPEN,		{ .vop_open = zfs_open },
 	VOPNAME_CLOSE,		{ .vop_close = zfs_close },
@@ -5678,7 +5695,6 @@ const fs_operation_def_t zfs_fvnodeops_template[] = {
 /*
  * Symbolic link vnode operations template
  */
-vnodeops_t *zfs_symvnodeops;
 const fs_operation_def_t zfs_symvnodeops_template[] = {
 	VOPNAME_GETATTR,	{ .vop_getattr = zfs_getattr },
 	VOPNAME_SETATTR,	{ .vop_setattr = zfs_setattr },
@@ -5695,7 +5711,6 @@ const fs_operation_def_t zfs_symvnodeops_template[] = {
 /*
  * special share hidden files vnode operations template
  */
-vnodeops_t *zfs_sharevnodeops;
 const fs_operation_def_t zfs_sharevnodeops_template[] = {
 	VOPNAME_GETATTR,	{ .vop_getattr = zfs_getattr },
 	VOPNAME_ACCESS,		{ .vop_access = zfs_access },
@@ -5721,7 +5736,6 @@ const fs_operation_def_t zfs_sharevnodeops_template[] = {
  *	zfs_link()	- no links into/out of attribute space
  *	zfs_rename()	- no moves into/out of attribute space
  */
-vnodeops_t *zfs_xdvnodeops;
 const fs_operation_def_t zfs_xdvnodeops_template[] = {
 	VOPNAME_OPEN,		{ .vop_open = zfs_open },
 	VOPNAME_CLOSE,		{ .vop_close = zfs_close },
@@ -5752,7 +5766,6 @@ const fs_operation_def_t zfs_xdvnodeops_template[] = {
 /*
  * Error vnode operations template
  */
-vnodeops_t *zfs_evnodeops;
 const fs_operation_def_t zfs_evnodeops_template[] = {
 	VOPNAME_INACTIVE,	{ .vop_inactive = zfs_inactive },
 	VOPNAME_PATHCONF,	{ .vop_pathconf = zfs_pathconf },

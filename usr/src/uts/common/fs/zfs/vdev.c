@@ -27,6 +27,7 @@
  * Copyright 2016 Toomas Soome <tsoome@me.com>
  * Copyright 2019 Joyent, Inc.
  * Copyright (c) 2017, Intel Corporation.
+ * Copyright (c) 2019, Datto Inc. All rights reserved.
  */
 
 #include <sys/zfs_context.h>
@@ -96,6 +97,12 @@ boolean_t vdev_validate_skip = B_FALSE;
  * entries, we default its block size to 4K.
  */
 int zfs_vdev_dtl_sm_blksz = (1 << 12);
+
+/*
+ * Ignore errors during scrub/resilver.  Allows to work around resilver
+ * upon import when there are pool errors.
+ */
+int zfs_scan_ignore_errors = 0;
 
 /*
  * vdev-wide space maps that have lots of entries written to them at
@@ -196,7 +203,7 @@ vdev_getops(const char *type)
 
 /*
  * Derive the enumerated alloction bias from string input.
- * String origin is either the per-vdev zap or zpool(1M).
+ * String origin is either the per-vdev zap or zpool(8).
  */
 static vdev_alloc_bias_t
 vdev_derive_alloc_bias(const char *bias)
@@ -772,7 +779,7 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 		    &vd->vdev_resilver_txg);
 
 		if (nvlist_exists(nv, ZPOOL_CONFIG_RESILVER_DEFER))
-			vdev_set_deferred_resilver(spa, vd);
+			vdev_defer_resilver(vd);
 
 		/*
 		 * When importing a pool, we want to ignore the persistent fault
@@ -1358,7 +1365,7 @@ vdev_probe_done(zio_t *zio)
 		} else {
 			ASSERT(zio->io_error != 0);
 			vdev_dbgmsg(vd, "failed probe");
-			zfs_ereport_post(FM_EREPORT_ZFS_PROBE_FAILURE,
+			(void) zfs_ereport_post(FM_EREPORT_ZFS_PROBE_FAILURE,
 			    spa, vd, NULL, NULL, 0, 0);
 			zio->io_error = SET_ERROR(ENXIO);
 		}
@@ -1462,7 +1469,7 @@ vdev_probe(vdev_t *vd, zio_t *zio)
 	for (int l = 1; l < VDEV_LABELS; l++) {
 		zio_nowait(zio_read_phys(pio, vd,
 		    vdev_label_offset(vd->vdev_psize, l,
-		    offsetof(vdev_label_t, vl_pad2)), VDEV_PAD_SIZE,
+		    offsetof(vdev_label_t, vl_be)), VDEV_PAD_SIZE,
 		    abd_alloc_for_io(VDEV_PAD_SIZE, B_TRUE),
 		    ZIO_CHECKSUM_OFF, vdev_probe_done, vps,
 		    ZIO_PRIORITY_SYNC_READ, vps->vps_flags, B_TRUE));
@@ -1710,7 +1717,8 @@ vdev_open(vdev_t *vd)
 		 */
 		if (ashift > vd->vdev_top->vdev_ashift &&
 		    vd->vdev_ops->vdev_op_leaf) {
-			zfs_ereport_post(FM_EREPORT_ZFS_DEVICE_BAD_ASHIFT,
+			(void) zfs_ereport_post(
+			    FM_EREPORT_ZFS_DEVICE_BAD_ASHIFT,
 			    spa, vd, NULL, NULL, 0, 0);
 		}
 
@@ -1764,18 +1772,12 @@ vdev_open(vdev_t *vd)
 	}
 
 	/*
-	 * If a leaf vdev has a DTL, and seems healthy, then kick off a
-	 * resilver.  But don't do this if we are doing a reopen for a scrub,
-	 * since this would just restart the scrub we are already doing.
+	 * If this is a leaf vdev, assess whether a resilver is needed.
+	 * But don't do this if we are doing a reopen for a scrub, since
+	 * this would just restart the scrub we are already doing.
 	 */
-	if (vd->vdev_ops->vdev_op_leaf && !spa->spa_scrub_reopen &&
-	    vdev_resilver_needed(vd, NULL, NULL)) {
-		if (dsl_scan_resilvering(spa->spa_dsl_pool) &&
-		    spa_feature_is_enabled(spa, SPA_FEATURE_RESILVER_DEFER))
-			vdev_set_deferred_resilver(spa, vd);
-		else
-			spa_async_request(spa, SPA_ASYNC_RESILVER);
-	}
+	if (vd->vdev_ops->vdev_op_leaf && !spa->spa_scrub_reopen)
+		dsl_scan_assess_vdev(spa->spa_dsl_pool, vd);
 
 	return (0);
 }
@@ -2134,7 +2136,7 @@ vdev_hold(vdev_t *vd)
 	for (int c = 0; c < vd->vdev_children; c++)
 		vdev_hold(vd->vdev_child[c]);
 
-	if (vd->vdev_ops->vdev_op_leaf)
+	if (vd->vdev_ops->vdev_op_leaf && vd->vdev_ops->vdev_op_hold != NULL)
 		vd->vdev_ops->vdev_op_hold(vd);
 }
 
@@ -2147,7 +2149,7 @@ vdev_rele(vdev_t *vd)
 	for (int c = 0; c < vd->vdev_children; c++)
 		vdev_rele(vd->vdev_child[c]);
 
-	if (vd->vdev_ops->vdev_op_leaf)
+	if (vd->vdev_ops->vdev_op_leaf && vd->vdev_ops->vdev_op_rele != NULL)
 		vd->vdev_ops->vdev_op_rele(vd);
 }
 
@@ -2177,9 +2179,22 @@ vdev_reopen(vdev_t *vd)
 	if (vd->vdev_aux) {
 		(void) vdev_validate_aux(vd);
 		if (vdev_readable(vd) && vdev_writeable(vd) &&
-		    vd->vdev_aux == &spa->spa_l2cache &&
-		    !l2arc_vdev_present(vd))
-			l2arc_add_vdev(spa, vd);
+		    vd->vdev_aux == &spa->spa_l2cache) {
+			/*
+			 * When reopening we can assume the device label has
+			 * already the attribute l2cache_persistent, since we've
+			 * opened the device in the past and updated the label.
+			 * In case the vdev is present we should evict all ARC
+			 * buffers and pointers to log blocks and reclaim their
+			 * space before restoring its contents to L2ARC.
+			 */
+			if (l2arc_vdev_present(vd)) {
+				l2arc_rebuild_vdev(vd, B_TRUE);
+			} else {
+				l2arc_add_vdev(spa, vd);
+			}
+			spa_async_request(spa, SPA_ASYNC_L2CACHE_REBUILD);
+		}
 	} else {
 		(void) vdev_validate(vd);
 	}
@@ -2470,7 +2485,6 @@ vdev_dtl_should_excise(vdev_t *vd)
 	spa_t *spa = vd->vdev_spa;
 	dsl_scan_t *scn = spa->spa_dsl_pool->dp_scan;
 
-	ASSERT0(scn->scn_phys.scn_errors);
 	ASSERT0(vd->vdev_children);
 
 	if (vd->vdev_state < VDEV_STATE_DEGRADED)
@@ -2520,8 +2534,27 @@ vdev_dtl_reassess(vdev_t *vd, uint64_t txg, uint64_t scrub_txg, int scrub_done)
 
 	if (vd->vdev_ops->vdev_op_leaf) {
 		dsl_scan_t *scn = spa->spa_dsl_pool->dp_scan;
+		boolean_t wasempty = B_TRUE;
 
 		mutex_enter(&vd->vdev_dtl_lock);
+
+		/*
+		 * If requested, pretend the scan completed cleanly.
+		 */
+		if (zfs_scan_ignore_errors && scn)
+			scn->scn_phys.scn_errors = 0;
+
+		if (scrub_txg != 0 &&
+		    !range_tree_is_empty(vd->vdev_dtl[DTL_MISSING])) {
+			wasempty = B_FALSE;
+			zfs_dbgmsg("guid:%llu txg:%llu scrub:%llu started:%d "
+			    "dtl:%llu/%llu errors:%llu",
+			    (u_longlong_t)vd->vdev_guid, (u_longlong_t)txg,
+			    (u_longlong_t)scrub_txg, spa->spa_scrub_started,
+			    (u_longlong_t)vdev_dtl_min(vd),
+			    (u_longlong_t)vdev_dtl_max(vd),
+			    (u_longlong_t)(scn ? scn->scn_phys.scn_errors : 0));
+		}
 
 		/*
 		 * If we've completed a scan cleanly then determine
@@ -2559,6 +2592,14 @@ vdev_dtl_reassess(vdev_t *vd, uint64_t txg, uint64_t scrub_txg, int scrub_done)
 			space_reftree_generate_map(&reftree,
 			    vd->vdev_dtl[DTL_MISSING], 1);
 			space_reftree_destroy(&reftree);
+
+			if (!range_tree_is_empty(vd->vdev_dtl[DTL_MISSING])) {
+				zfs_dbgmsg("update DTL_MISSING:%llu/%llu",
+				    (u_longlong_t)vdev_dtl_min(vd),
+				    (u_longlong_t)vdev_dtl_max(vd));
+			} else if (!wasempty) {
+				zfs_dbgmsg("DTL_MISSING is now empty");
+			}
 		}
 		range_tree_vacate(vd->vdev_dtl[DTL_PARTIAL], NULL, NULL);
 		range_tree_walk(vd->vdev_dtl[DTL_MISSING],
@@ -3543,14 +3584,11 @@ vdev_clear(spa_t *spa, vdev_t *vd)
 		if (vd != rvd && vdev_writeable(vd->vdev_top))
 			vdev_state_dirty(vd->vdev_top);
 
-		if (vd->vdev_aux == NULL && !vdev_is_dead(vd)) {
-			if (dsl_scan_resilvering(spa->spa_dsl_pool) &&
-			    spa_feature_is_enabled(spa,
-			    SPA_FEATURE_RESILVER_DEFER))
-				vdev_set_deferred_resilver(spa, vd);
-			else
-				spa_async_request(spa, SPA_ASYNC_RESILVER);
-		}
+		/* If a resilver isn't required, check if vdevs can be culled */
+		if (vd->vdev_aux == NULL && !vdev_is_dead(vd) &&
+		    !dsl_scan_resilvering(spa->spa_dsl_pool) &&
+		    !dsl_scan_resilver_scheduled(spa->spa_dsl_pool))
+			spa_async_request(spa, SPA_ASYNC_RESILVER_DONE);
 
 		spa_event_notify(spa, vd, NULL, ESC_ZFS_VDEV_CLEAR);
 	}
@@ -3749,6 +3787,8 @@ void
 vdev_get_stats_ex(vdev_t *vd, vdev_stat_t *vs, vdev_stat_ex_t *vsx)
 {
 	vdev_t *tvd = vd->vdev_top;
+	spa_t *spa = vd->vdev_spa;
+
 	mutex_enter(&vd->vdev_stat_lock);
 	if (vs) {
 		bcopy(&vd->vdev_stat, vs, sizeof (*vs));
@@ -3790,8 +3830,8 @@ vdev_get_stats_ex(vdev_t *vd, vdev_stat_t *vs, vdev_stat_ex_t *vsx)
 		 */
 		if (vd->vdev_aux == NULL && tvd != NULL) {
 			vs->vs_esize = P2ALIGN(
-			    vd->vdev_max_asize - vd->vdev_asize,
-			    1ULL << tvd->vdev_ms_shift);
+			    vd->vdev_max_asize - vd->vdev_asize -
+			    spa->spa_bootsize, 1ULL << tvd->vdev_ms_shift);
 		}
 		if (vd->vdev_aux == NULL && vd == vd->vdev_top &&
 		    vdev_is_concrete(vd)) {
@@ -4384,7 +4424,7 @@ vdev_set_state(vdev_t *vd, boolean_t isopen, vdev_state_t state, vdev_aux_t aux)
 				class = FM_EREPORT_ZFS_DEVICE_UNKNOWN;
 			}
 
-			zfs_ereport_post(class, spa, vd, NULL, NULL,
+			(void) zfs_ereport_post(class, spa, vd, NULL, NULL,
 			    save_state, 0);
 		}
 
@@ -4414,7 +4454,6 @@ vdev_children_are_offline(vdev_t *vd)
 /*
  * Check the vdev configuration to ensure that it's capable of supporting
  * a root pool. We do not support partial configuration.
- * In addition, only a single top-level vdev is allowed.
  */
 boolean_t
 vdev_is_bootable(vdev_t *vd)
@@ -4422,23 +4461,7 @@ vdev_is_bootable(vdev_t *vd)
 	if (!vd->vdev_ops->vdev_op_leaf) {
 		char *vdev_type = vd->vdev_ops->vdev_op_type;
 
-		if (strcmp(vdev_type, VDEV_TYPE_ROOT) == 0 &&
-		    vd->vdev_children > 1) {
-			int non_indirect = 0;
-
-			for (int c = 0; c < vd->vdev_children; c++) {
-				vdev_type =
-				    vd->vdev_child[c]->vdev_ops->vdev_op_type;
-				if (strcmp(vdev_type, VDEV_TYPE_INDIRECT) != 0)
-					non_indirect++;
-			}
-			/*
-			 * non_indirect > 1 means we have more than one
-			 * top-level vdev, so we stop here.
-			 */
-			if (non_indirect > 1)
-				return (B_FALSE);
-		} else if (strcmp(vdev_type, VDEV_TYPE_MISSING) == 0) {
+		if (strcmp(vdev_type, VDEV_TYPE_MISSING) == 0) {
 			return (B_FALSE);
 		}
 	}
@@ -4559,18 +4582,46 @@ vdev_deadman(vdev_t *vd)
 }
 
 void
-vdev_set_deferred_resilver(spa_t *spa, vdev_t *vd)
+vdev_defer_resilver(vdev_t *vd)
 {
-	for (uint64_t i = 0; i < vd->vdev_children; i++)
-		vdev_set_deferred_resilver(spa, vd->vdev_child[i]);
-
-	if (!vd->vdev_ops->vdev_op_leaf || !vdev_writeable(vd) ||
-	    range_tree_is_empty(vd->vdev_dtl[DTL_MISSING])) {
-		return;
-	}
+	ASSERT(vd->vdev_ops->vdev_op_leaf);
 
 	vd->vdev_resilver_deferred = B_TRUE;
-	spa->spa_resilver_deferred = B_TRUE;
+	vd->vdev_spa->spa_resilver_deferred = B_TRUE;
+}
+
+/*
+ * Clears the resilver deferred flag on all leaf devs under vd. Returns
+ * B_TRUE if we have devices that need to be resilvered and are available to
+ * accept resilver I/Os.
+ */
+boolean_t
+vdev_clear_resilver_deferred(vdev_t *vd, dmu_tx_t *tx)
+{
+	boolean_t resilver_needed = B_FALSE;
+	spa_t *spa = vd->vdev_spa;
+
+	for (int c = 0; c < vd->vdev_children; c++) {
+		vdev_t *cvd = vd->vdev_child[c];
+		resilver_needed |= vdev_clear_resilver_deferred(cvd, tx);
+	}
+
+	if (vd == spa->spa_root_vdev &&
+	    spa_feature_is_active(spa, SPA_FEATURE_RESILVER_DEFER)) {
+		spa_feature_decr(spa, SPA_FEATURE_RESILVER_DEFER, tx);
+		vdev_config_dirty(vd);
+		spa->spa_resilver_deferred = B_FALSE;
+		return (resilver_needed);
+	}
+
+	if (!vdev_is_concrete(vd) || vd->vdev_aux ||
+	    !vd->vdev_ops->vdev_op_leaf)
+		return (resilver_needed);
+
+	vd->vdev_resilver_deferred = B_FALSE;
+
+	return (!vdev_is_dead(vd) && !vd->vdev_offline &&
+	    vdev_resilver_needed(vd, NULL, NULL));
 }
 
 /*

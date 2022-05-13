@@ -156,6 +156,24 @@ ifl_setup(const char *name, Ehdr *ehdr, Elf *elf, Word flags, Ofl_desc *ofl,
 }
 
 /*
+ * Return TRUE if shdr is to be excluded via SHF_EXCLUDE.
+ *
+ * If SHF_EXCLUDE is set, a section should be excluded from dynamic output.
+ * Additionally, it will be excluded from kernel modules (-ztype=kmod).
+ */
+static inline Boolean
+section_is_exclude(Ofl_desc *ofl, Shdr *shdr)
+{
+	if (shdr->sh_flags & SHF_EXCLUDE) {
+		if ((ofl->ofl_flags & FLG_OF_RELOBJ) == 0)
+			return (TRUE);
+		if (ofl->ofl_flags & FLG_OF_KMOD)
+			return (TRUE);
+	}
+	return (FALSE);
+}
+
+/*
  * Process a generic section.  The appropriate section information is added
  * to the files input descriptor list.
  */
@@ -170,7 +188,7 @@ process_section(const char *name, Ifl_desc *ifl, Shdr *shdr, Elf_Scn *scn,
 	 * section elf_getdata() will still create a data buffer (the buffer
 	 * will be null and the size will reflect the actual memory size).
 	 */
-	if ((isp = libld_calloc(sizeof (Is_desc), 1)) == NULL)
+	if ((isp = libld_calloc(1, sizeof (Is_desc))) == NULL)
 		return (S_ERROR);
 	isp->is_shdr = shdr;
 	isp->is_file = ifl;
@@ -185,10 +203,8 @@ process_section(const char *name, Ifl_desc *ifl, Shdr *shdr, Elf_Scn *scn,
 		return (0);
 	}
 
-	if ((shdr->sh_flags & SHF_EXCLUDE) &&
-	    ((ofl->ofl_flags & FLG_OF_RELOBJ) == 0)) {
+	if (section_is_exclude(ofl, shdr))
 		isp->is_flags |= FLG_IS_DISCARD;
-	}
 
 	/*
 	 * Add the new input section to the files input section list and
@@ -614,7 +630,7 @@ get_cap_group(Objcapset *ocapset, Word cnum, Ofl_desc *ofl, Is_desc *isp)
 	/*
 	 * If a capabilities group is not found, create a new one.
 	 */
-	if (((cgp = libld_calloc(sizeof (Cap_group), 1)) == NULL) ||
+	if (((cgp = libld_calloc(1, sizeof (Cap_group))) == NULL) ||
 	    (aplist_append(&(ofl->ofl_capgroups), cgp,
 	    AL_CNT_CAP_DESCS) == NULL))
 		return (NULL);
@@ -705,7 +721,7 @@ ld_cap_add_family(Ofl_desc *ofl, Sym_desc *lsdp, Sym_desc *csdp, Cap_group *cgp,
 	 * Make sure the capability families have an initialized AVL tree.
 	 */
 	if ((avlt = ofl->ofl_capfamilies) == NULL) {
-		if ((avlt = libld_calloc(sizeof (avl_tree_t), 1)) == NULL)
+		if ((avlt = libld_calloc(1, sizeof (avl_tree_t))) == NULL)
 			return (S_ERROR);
 		avl_create(avlt, &ld_sym_avl_comp, sizeof (Cap_avlnode),
 		    SGSOFFSETOF(Cap_avlnode, cn_symavlnode.sav_node));
@@ -727,7 +743,7 @@ ld_cap_add_family(Ofl_desc *ofl, Sym_desc *lsdp, Sym_desc *csdp, Cap_group *cgp,
 	qcav.cn_symavlnode.sav_name = lsdp->sd_name;
 
 	if ((cav = avl_find(avlt, &qcav, &where)) == NULL) {
-		if ((cav = libld_calloc(sizeof (Cap_avlnode), 1)) == NULL)
+		if ((cav = libld_calloc(1, sizeof (Cap_avlnode))) == NULL)
 			return (S_ERROR);
 		cav->cn_symavlnode.sav_hash = qcav.cn_symavlnode.sav_hash;
 		cav->cn_symavlnode.sav_name = qcav.cn_symavlnode.sav_name;
@@ -1017,7 +1033,7 @@ process_cap(Ofl_desc *ofl, Ifl_desc *ifl, Is_desc *cisp)
 	 * is used, although it will be sparsely populated, as the list provides
 	 * a convenient mechanism for traversal later.
 	 */
-	if (((cdp = libld_calloc(sizeof (Cap_desc), 1)) == NULL) ||
+	if (((cdp = libld_calloc(1, sizeof (Cap_desc))) == NULL) ||
 	    (aplist_append(&(cdp->ca_groups), NULL, cnum) == NULL))
 		return (S_ERROR);
 
@@ -1380,7 +1396,8 @@ invalid_section(const char *name, Ifl_desc *ifl, Shdr *shdr, Elf_Scn *scn,
 	ld_eprintf(ofl, ERR_WARNING, MSG_INTL(MSG_FIL_INVALSEC),
 	    ifl->ifl_name, EC_WORD(ndx), name,
 	    conv_sec_type(ifl->ifl_ehdr->e_ident[EI_OSABI],
-	    ifl->ifl_ehdr->e_machine, shdr->sh_type, 0, &inv_buf));
+	    ifl->ifl_ehdr->e_machine, shdr->sh_type, CONV_FMT_ALT_CF,
+	    &inv_buf));
 	return (1);
 }
 
@@ -1398,7 +1415,7 @@ invalid_section(const char *name, Ifl_desc *ifl, Shdr *shdr, Elf_Scn *scn,
  * exit:
  *	Returns True (1) if the names match, and False (0) otherwise.
  */
-inline static int
+static int
 is_name_cmp(const char *is_name, const char *match_name, size_t match_len)
 {
 	/*
@@ -2369,7 +2386,8 @@ rel_process(Is_desc *isc, Ifl_desc *ifl, Ofl_desc *ofl)
 		ld_eprintf(ofl, ERR_FATAL, MSG_INTL(MSG_FIL_INVALSEC),
 		    ifl->ifl_name, EC_WORD(isc->is_scnndx), isc->is_name,
 		    conv_sec_type(ifl->ifl_ehdr->e_ident[EI_OSABI],
-		    ifl->ifl_ehdr->e_machine, shdr->sh_type, 0, &inv_buf));
+		    ifl->ifl_ehdr->e_machine, shdr->sh_type, CONV_FMT_ALT_CF,
+		    &inv_buf));
 		return (0);
 	}
 
@@ -2639,12 +2657,7 @@ process_elf(Ifl_desc *ifl, Elf *elf, Ofl_desc *ofl)
 
 		row = shdr->sh_type;
 
-		/*
-		 * If the section has the SHF_EXCLUDE flag on, and we're not
-		 * generating a relocatable object, exclude the section.
-		 */
-		if (((shdr->sh_flags & SHF_EXCLUDE) != 0) &&
-		    ((ofl->ofl_flags & FLG_OF_RELOBJ) == 0)) {
+		if (section_is_exclude(ofl, shdr)) {
 			if ((error = process_exclude(name, ifl, shdr, scn,
 			    ndx, ofl)) == S_ERROR)
 				return (S_ERROR);
@@ -2665,10 +2678,15 @@ process_elf(Ifl_desc *ifl, Elf *elf, Ofl_desc *ofl)
 		} else {
 			/*
 			 * If this section is below SHT_LOSUNW then we don't
-			 * really know what to do with it, issue a warning
-			 * message but do the basic section processing anyway.
+			 * really know what to do with it.
+			 *
+			 * If SHF_EXCLUDE is set we're being told we should
+			 * (or may) ignore the section.	 Otherwise issue a
+			 * warning message but do the basic section processing
+			 * anyway.
 			 */
-			if (row < (Word)SHT_LOSUNW) {
+			if ((row < (Word)SHT_LOSUNW) &&
+			    ((shdr->sh_flags & SHF_EXCLUDE) == 0)) {
 				Conv_inv_buf_t inv_buf;
 
 				ld_eprintf(ofl, ERR_WARNING,
@@ -2676,7 +2694,7 @@ process_elf(Ifl_desc *ifl, Elf *elf, Ofl_desc *ofl)
 				    EC_WORD(ndx), name, conv_sec_type(
 				    ifl->ifl_ehdr->e_ident[EI_OSABI],
 				    ifl->ifl_ehdr->e_machine,
-				    shdr->sh_type, 0, &inv_buf));
+				    shdr->sh_type, CONV_FMT_ALT_CF, &inv_buf));
 			}
 
 			/*

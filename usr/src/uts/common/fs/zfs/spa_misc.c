@@ -44,6 +44,7 @@
 #include <sys/vdev_impl.h>
 #include <sys/vdev_initialize.h>
 #include <sys/vdev_trim.h>
+#include <sys/vdev_raidz.h>
 #include <sys/metaslab.h>
 #include <sys/uberblock_impl.h>
 #include <sys/txg.h>
@@ -314,6 +315,16 @@ uint64_t zfs_deadman_checktime_ms = 5000ULL;
  * deadman is enabled except on VMware and sparc deployments.
  */
 int zfs_deadman_enabled = -1;
+
+#if defined(__amd64__) || defined(__i386__)
+/*
+ * Should we allow the use of mechanisms that depend on saving and restoring
+ * the FPU state?  This was disabled initially due to stability issues in
+ * the kernel FPU routines; see bug 13717. As of the fixes for 13902 and
+ * 13915, it has once again been enabled.
+ */
+int zfs_fpu_enabled = 1;
+#endif
 
 /*
  * The worst case is single-sector max-parity RAID-Z blocks, in which
@@ -1373,7 +1384,7 @@ spa_vdev_state_exit(spa_t *spa, vdev_t *vd, int error)
 
 	/*
 	 * If anything changed, wait for it to sync.  This ensures that,
-	 * from the system administrator's perspective, zpool(1M) commands
+	 * from the system administrator's perspective, zpool(8) commands
 	 * are synchronous.  This is important for things like zpool offline:
 	 * when the command completes, you expect no further I/O from ZFS.
 	 */
@@ -2253,6 +2264,7 @@ spa_init(int mode)
 	zil_init();
 	vdev_cache_stat_init();
 	vdev_mirror_stat_init();
+	vdev_raidz_math_init();
 	zfs_prop_init();
 	zpool_prop_init();
 	zpool_feature_init();
@@ -2271,6 +2283,7 @@ spa_fini(void)
 
 	vdev_cache_stat_fini();
 	vdev_mirror_stat_fini();
+	vdev_raidz_math_fini();
 	zil_fini();
 	dmu_fini();
 	zio_fini();

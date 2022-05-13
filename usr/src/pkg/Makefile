@@ -24,7 +24,8 @@
 # Copyright 2015, OmniTI Computer Consulting, Inc. All rights reserved.
 # Copyright 2015 Igor Kozhukhov <ikozhukhov@gmail.com>
 # Copyright 2016 RackTop Systems.
-# Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2020 Peter Tribble
 #
 
 include $(SRC)/Makefile.master
@@ -167,14 +168,13 @@ sparc_ARCH64= sparcv9
 #
 PM_TRANSFORMS= common_actions publish restart_fmri facets defaults \
 	extract_metadata
+PM_FINAL_TRANSFORMS= strip_dependinfo
 PM_INC= transforms manifests
 
-JAVA_7_ONLY=
 JAVA_8_ONLY=
-$(BLD_JAVA_6)JAVA_7_ONLY=$(POUND_SIGN)
-$(BLD_JAVA_6)JAVA_8_ONLY=$(POUND_SIGN)
-$(BLD_JAVA_8)JAVA_7_ONLY=$(POUND_SIGN)
-$(JAVA_7_ONLY)JAVA_8_ONLY=$(POUND_SIGN)
+JAVA_11_ONLY=
+$(BLD_JAVA_11)JAVA_8_ONLY=$(POUND_SIGN)
+$(JAVA_8_ONLY)JAVA_11_ONLY=$(POUND_SIGN)
 
 PKGMOG_DEFINES= \
 	i386_ONLY=$(POUND_SIGN) \
@@ -195,14 +195,17 @@ PKGMOG_DEFINES= \
 	BUILDPERL64=$(BUILDPERL64) \
 	PYTHON_VERSION=$(PYTHON_VERSION) \
 	PYTHON3_VERSION=$(PYTHON3_VERSION) \
+	PYTHON3b_VERSION=$(PYTHON3b_VERSION) \
 	PYTHON_PKGVERS=$(PYTHON_PKGVERS) \
 	PYTHON3_PKGVERS=$(PYTHON3_PKGVERS) \
+	PYTHON3b_PKGVERS=$(PYTHON3b_PKGVERS) \
 	python2_ONLY=$(BUILDPY2) \
 	python3_ONLY=$(BUILDPY3) \
+	python3b_ONLY=$(BUILDPY3b) \
 	python2tools_ONLY=$(BUILDPY2TOOLS) \
 	python3tools_ONLY=$(BUILDPY3TOOLS) \
-	JAVA_8_ONLY=$(JAVA_8_ONLY) \
-	JAVA_7_ONLY=$(JAVA_7_ONLY)
+	JAVA_11_ONLY=$(JAVA_11_ONLY) \
+	JAVA_8_ONLY=$(JAVA_8_ONLY)
 
 PKGDEP_TOKENS_i386= \
 	'PLATFORM=i86hvm' \
@@ -249,23 +252,28 @@ CLOBBERFILES= $(PDIR) proto_list_$(PKGMACH) install-$(PKGMACH).out \
 # SUNW.* as one useful example.
 #
 SPECIAL_MANIFESTS = system-library-python-.*
-LIST_MANIFESTS_CMD = (cd manifests ; /usr/bin/ls -1 *.mf |\
+LIST_MANIFESTS_CMD = (cd manifests ; /usr/bin/ls -1 *.p5m |\
 	$(SED) $(SPECIAL_MANIFESTS:%=-e '/^%$$/d') )
 MANIFESTS = $(LIST_MANIFESTS_CMD:sh)
 
 # Conditionally add back python modules
 $(BUILDPY2) MANIFESTS += \
-	system-library-python-libbe-2.mf \
-	system-library-python-solaris-2.mf \
-	system-library-python-zfs-2.mf
+	system-library-python-libbe-2.p5m \
+	system-library-python-solaris-2.p5m \
+	system-library-python-zfs-2.p5m
 $(BUILDPY3) MANIFESTS += \
-	system-library-python-libbe-3.mf \
-	system-library-python-solaris-3.mf \
-	system-library-python-zfs-3.mf
+	system-library-python-libbe-3.p5m \
+	system-library-python-solaris-3.p5m \
+	system-library-python-zfs-3.p5m
+$(BUILDPY3b) MANIFESTS += \
+	system-library-python-libbe-3b.p5m \
+	system-library-python-solaris-3b.p5m \
+	system-library-python-zfs-3b.p5m
 
-PKGS= $(MANIFESTS:%.mf=%)
+PKGS= $(MANIFESTS:%.p5m=%)
 DEP_PKGS= $(PKGS:%=$(PDIR)/%.dep)
 PROC_PKGS= $(PKGS:%=$(PDIR)/%.mog)
+FIN_PKGS= $(PKGS:%=$(PDIR)/%.fin)
 
 #
 # Track the synthetic manifests separately so we can properly express
@@ -320,12 +328,12 @@ PKGLISTS= \
 .KEEP_STATE:
 
 .PARALLEL: $(PKGS) $(PROC_PKGS) $(DEP_PKGS) \
-	$(PROC_SYNTH_PKGS) $(DEP_SYNTH_PKGS) $(PUB_PKGS)
+	$(PROC_SYNTH_PKGS) $(DEP_SYNTH_PKGS) $(FIN_PKGS) $(PUB_PKGS)
 
 #
 # For a single manifest, the dependency chain looks like this:
 #
-#	raw manifest (mypkg.mf)
+#	raw manifest (mypkg.p5m)
 #		|
 #		| use pkgmogrify to process raw manifest
 #		|
@@ -338,6 +346,10 @@ PKGLISTS= \
 #	   %    | use pkgdepend resolve to resolve dependencies
 #		|
 #	manifest with dependencies resolved (mypkg.res)
+#		|
+#		| use pkgmogrify to apply final cleanups
+#		|
+#	cleaned up manifest (mypkg.fin)
 #		|
 #		| use pkgsend to publish the package
 #		|
@@ -382,16 +394,19 @@ PKGLISTS= \
 #		 |		|
 #		 |		| pkgsend publish
 #		 |		|
-#	  repositories	    resolved dependencies
+#	  repositories	    final manifests
 #		 |			|
-# pkgsend	 |			| pkgdepend resolve
+# pkgsend	 |			| pkgmogrify final
 # create-repository			|
-#		 |		generated dependencies
+#		 |		resolved dependencies
 #	 repo directories		|
+#					| pkgdepend resolve
+#					|
+#				    generated dependencies
+#					|
 #					| pkgdepend
 #					|
-#				processed manifests
-#
+#                                    processed manifests
 
 ALL_TARGETS= $(PROC_SYNTH_PKGS) proto_list_$(PKGMACH)
 
@@ -408,12 +423,8 @@ $(PDIR):
 #
 # This rule resolves dependencies across all published manifests.
 #
-# We shouldn't have to ignore the error from pkgdepend, but until
-# 16012 and its dependencies are resolved, pkgdepend will always exit
-# with an error.
-#
 $(PDIR)/gendeps: $(DEP_SYNTH_PKGS) $(DEP_PKGS)
-	-$(PKGDEBUG)if [ "$(SUPPRESSPKGDEP)" = "true" ]; then \
+	$(PKGDEBUG)if [ "$(SUPPRESSPKGDEP)" = "true" ]; then \
 		print "Suppressing dependency resolution"; \
 		for p in $(DEP_PKGS:%.dep=%); do \
 			$(CP) $$p.dep $$p.res; \
@@ -528,11 +539,11 @@ $(REPOS:%=$(PKGDEST)/repo.%):
 #   pkgmogrify encounters an abort in the publish transforms.
 #
 
-.SUFFIXES: .mf .mog .dep .res .pub
+.SUFFIXES: .p5m .mog .dep .res .fin .pub
 
-$(PDIR)/%.mog: manifests/%.mf
+$(PDIR)/%.mog: manifests/%.p5m
 	@print "Processing manifest $(<F)"
-	@env PKGFMT_OUTPUT=v1 pkgfmt -c $<
+	@pkgfmt -fv2 -c $<
 	$(PKGDEBUG)$(RM) $(@) $(@:%.mog=%) $(@:%.mog=%.nodepend) \
 		$(@:%.mog=%.lics) $(PDIR)/$(@F:%.mog=%).metadata.* $(@).vars
 	$(PKGDEBUG)$(PKGMOGRIFY) $(PKGMOG_VERBOSE) $(PM_INC:%= -I %) \
@@ -572,7 +583,17 @@ $(PDIR)/%.dep: $(PDIR)/%.mog
 # on a per-manifest basis.  Instead, see the gendeps rule above.
 #
 
-$(PDIR)/%.pub: $(PDIR)/%.res
+$(PDIR)/%.fin: $(PDIR)/%.res
+	$(PKGDEBUG)$(RM) $(@)
+	$(PKGDEBUG)if [ -s $(<) ]; then \
+		print "Running final transforms for $(<F)"; \
+		$(PKGMOGRIFY) $(PKGMOG_VERBOSE) $(PM_INC:%= -I %) -O $(@) \
+		    $(<) $(PM_FINAL_TRANSFORMS); \
+	else \
+		$(TOUCH) $(@); \
+	fi
+
+$(PDIR)/%.pub: $(PDIR)/%.fin
 	$(PKGDEBUG)m=$$(basename $(@:%.pub=%).metadata.*); \
 	r=$${m#$(@F:%.pub=%.metadata.)+(?).}; \
 	if [ -s $(<) ]; then \
@@ -597,12 +618,12 @@ $(PDIR)/%.pub: $(PDIR)/%.res
 # The implementation notes from the previous rule are applicable
 # here, too.
 #
-$(PROC_SYNTH_PKGS): $(PKGLISTS) $$(@F:%.mog=%.mf)
-	@print "Processing synthetic manifest $(@F:%.mog=%.mf)"
+$(PROC_SYNTH_PKGS): $(PKGLISTS) $$(@F:%.mog=%.p5m)
+	@print "Processing synthetic manifest $(@F:%.mog=%.p5m)"
 	$(PKGDEBUG)$(RM) $(@) $(PDIR)/$(@F:%.mog=%).metadata.* $(@).vars
 	$(PKGDEBUG)$(PKGMOGRIFY) $(PKGMOG_VERBOSE) -I transforms -I $(PDIR) \
 		$(PKGMOG_DEFINES:%=-D %) -D PKGDEP_TYPE=$(PKGDEP_TYPE) \
-		-P $(@).vars -O $(@) $(@F:%.mog=%.mf) \
+		-P $(@).vars -O $(@) $(@F:%.mog=%.p5m) \
 		$(PM_TRANSFORMS) synthetic
 	$(PKGDEBUG)eval REPO=redist PKGSTAT=current `$(CAT) -s $(@).vars`; \
 	if [ -f $(@) ]; then \
@@ -690,7 +711,27 @@ pmodes: makesilent
 	@validate_pkg -a $(PKGMACH) -M -m $(PDIR) \
 		-e $(CODEMGR_WS)/exception_lists/pmodes
 
-check: protocmp pmodes
+pkglint: makesilent
+	$(PKGDEBUG)$(CP) etc/pkglintrc $(PDIR)/pkglintrc
+	$(PKGDEBUG)$(GREP) pkg:/ $(CODEMGR_WS)/exception_lists/packaging.deps \
+	    | sed 's/.*/    & \\/' >> $(PDIR)/pkglintrc
+	$(PKGDEBUG)echo "    pkg:/runtime/python$(PYTHON_PKGVERS) \\" \
+	     >> $(PDIR)/pkglintrc
+	$(PKGDEBUG)echo "    pkg:/runtime/python$(PYTHON3_PKGVERS) \\" \
+	     >> $(PDIR)/pkglintrc
+	$(PKGDEBUG) echo "    pkg:/runtime/perl$(PERL_PKGVERS) \\" \
+	     >> $(PDIR)/pkglintrc
+	$(PKGDEBUG)echo >> $(PDIR)/pkglintrc
+	$(PKGDEBUG)$(RM) -rf $(PKGDEST)/lint.image
+	$(PKGDEBUG)for r in $(REPOS); do \
+		pkglint \
+		    -f $(PDIR)/pkglintrc \
+		    -c $(PKGDEST)/lint.image \
+		    -r $(PKGDEST)/repo.$$r \
+		    `$(FIND) $(PDIR) -name \*.fin \! -size 0c -print`; \
+	done
+
+check: protocmp pmodes pkglint
 
 protolist: proto_list_$(PKGMACH)
 

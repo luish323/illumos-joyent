@@ -82,8 +82,8 @@ export CODEMGR_WS="`git rev-parse --show-toplevel`"
 export GNUC_ROOT=/usr/gcc/7
 export PRIMARY_CC=gcc7,$GNUC_ROOT/bin/gcc,gnu
 export PRIMARY_CCC=gcc7,$GNUC_ROOT/bin/g++,gnu
-export SHADOW_CCS=gcc4,/opt/gcc/4.4.4/bin/gcc,gnu
-export SHADOW_CCCS=gcc4,/opt/gcc/4.4.4/bin/g++,gnu
+export SHADOW_CCS=gcc10,/usr/gcc/10/bin/gcc,gnu
+export SHADOW_CCCS=gcc10,/usr/gcc/10/bin/g++,gnu
 
 # comment to disable smatch
 export ENABLE_SMATCH=1
@@ -139,8 +139,8 @@ export ENABLE_SMB_PRINTING=
 # Set if your distribution has different package versioning
 #export PKGVERS_BRANCH=2018.0.0.17900
 
-# Skip Java 8 builds on distributions that don't support it
-#export BLD_JAVA_8=
+# Skip Java 11 builds on distributions that don't support it
+#export BLD_JAVA_11=
 
 # POST_NIGHTLY can be any command to be run at the end of nightly.  See
 # nightly(1) for interactions between environment variables and this command.
@@ -213,7 +213,7 @@ export MAILTO="${MAILTO:-$STAFFER}"
 # MAILFROM.
 #export MAILFROM="user@example.com"
 
-# The project (see project(4)) under which to run this build.  If not
+# The project (see project(5)) under which to run this build.  If not
 # specified, the build is simply run in a new task in the current project.
 export BUILD_PROJECT=''
 
@@ -227,7 +227,7 @@ export MACH="$(uname -p)"
 #  totally freed itself, we can remove this reference.
 #
 # Location of encumbered binaries.
-export ON_CLOSED_BINS="$CODEMGR_WS/closed"
+export ON_CLOSED_BINS="/opt/onbld/closed"
 
 # REF_PROTO_LIST - for comparing the list of stuff in your proto area
 # with. Generally this should be left alone, since you want to see differences
@@ -274,7 +274,7 @@ export PKGARCHIVE="${CODEMGR_WS}/packages/${MACH}/nightly"
 # export PKGPUBLISHER_REDIST='on-redist'
 
 # Package manifest format version.
-export PKGFMT_OUTPUT='v1'
+export PKGFMT_OUTPUT='v2'
 
 # we want make to do as much as it can, just in case there's more than
 # one problem.
@@ -306,7 +306,7 @@ export SPRO_VROOT="$SPRO_ROOT"
 #
 export LD_TOXIC_PATH="$ROOT/lib:$ROOT/usr/lib"
 
-if [[ "$ENABLE_SMATCH" = "1" ]]; then
+if [[ "$ENABLE_SMATCH" == "1" ]]; then
 	SMATCHBIN=$CODEMGR_WS/usr/src/tools/proto/root_$MACH-nd/opt/onbld/bin/$MACH/smatch
 	export SHADOW_CCS="$SHADOW_CCS smatch,$SMATCHBIN,smatch"
 fi

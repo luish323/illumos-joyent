@@ -400,7 +400,7 @@ again:
 	confp->ds_readonly = B_TRUE;
 	nvlbuf = (char *)retvalp + sizeof (dlmgmt_getconfsnapshot_retval_t);
 	if ((err = nvlist_unpack(nvlbuf, retvalp->lr_nvlsz,
-	    &(confp->ds_nvl), NV_ENCODE_NATIVE)) != 0) {
+	    &(confp->ds_nvl), 0)) != 0) {
 		status = dladm_errno2status(err);
 	}
 	free(retvalp);
@@ -679,7 +679,7 @@ dladm_set_conf_field(dladm_handle_t handle, dladm_conf_t conf, const char *attr,
 	setattr.ld_cmd = DLMGMT_CMD_SETATTR;
 	setattr.ld_confid = conf.ds_confid;
 	(void) strlcpy(setattr.ld_attr, attr, MAXLINKATTRLEN);
-	setattr.ld_attrsz = attrsz;
+	setattr.ld_attrsz = (uint32_t)attrsz;
 	setattr.ld_type = type;
 	bcopy(attrval, &setattr.ld_attrval, attrsz);
 

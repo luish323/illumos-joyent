@@ -44,18 +44,12 @@ LIBS =		$(DYNLIB)
 
 ROOTLIBDIR	= $(ROOT_PLAT_PLUGINDIR)
 
-LINTSRC =       $(LINTLIB:%.ln=%)
-ROOTLINTDIR =   $(ROOTLIBDIR)
-ROOTLINT =      $(LINTSRC:%=$(ROOTLINTDIR)/%)
-
-CLEANFILES=	$(LINTOUT) $(LINTLIB)
-
 CPPFLAGS +=	-I$(SRC)/cmd/picl/plugins/common/memcfg
 CFLAGS +=	$(CCVERBOSE)
 LDLIBS +=	-L$(SRC)/lib/libpicltree/$(MACH)
 LDLIBS +=	-L$(SRC)/cmd/picl/plugins/common/devtree
 LDLIBS +=	-L$(ROOT)/usr/lib/picl/plugins
-LDLIBS +=	-lc -lpicltree -lpicldevtree
+LDLIBS +=	-lc -lpicltree
 LDLIBS +=	-R/usr/platform/\$$PLATFORM/lib/picl/plugins:/usr/platform/sun4u/lib/picl/plugins:/usr/lib/picl/plugins
 
 PLATFORM=	SUNW,Sun-Blade-100
@@ -68,7 +62,6 @@ all :=		TARGET= all
 install :=	TARGET= install
 clean :=	TARGET= clean
 clobber :=	TARGET= clobber
-lint :=		TARGET= lint
 _msg :=		TARGET= _msg
 
 POFILE=	piclmemcfg.po
@@ -91,11 +84,7 @@ $(LIBLINKS):	FRC
 include	$(SRC)/cmd/picl/plugins/Makefile.targ
 include	$(SRC)/lib/Makefile.targ
 
-$(ROOTLINTDIR)/%: ../%
-	$(INS.file)
-
 lint :
-	$(LINT.c) $(SRCS)
 
 $(SUBDIRS): FRC
 	@cd $@; pwd; $(MAKE) $(TARGET)

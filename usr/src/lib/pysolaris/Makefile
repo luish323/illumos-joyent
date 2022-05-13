@@ -21,7 +21,7 @@
 #
 # Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
-# Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
 #
 
 include	../Makefile.lib
@@ -30,19 +30,19 @@ SUBDIRS=
 $(BUILDPY2)SUBDIRS += $(MACH)
 $(BUILD64)$(BUILDPY2)SUBDIRS += $(MACH64)
 $(BUILD64)$(BUILDPY3)SUBDIRS += py3
+$(BUILD64)$(BUILDPY3b)SUBDIRS += py3b
 
 all :=		TARGET= all
 install :=	TARGET= install
 clean :=	TARGET= clean
 clobber :=	TARGET= clobber
-lint :=		TARGET= lint
 
 PYCFIND =	$(FIND) . -name '*.pyc'
 PYCFILES =	$(PYCFIND:sh)
 
 .KEEP_STATE:
 
-all install clean lint: $(SUBDIRS)
+all install clean: $(SUBDIRS)
 clobber: $(SUBDIRS)
 	$(RM) $(PYCFILES)
 

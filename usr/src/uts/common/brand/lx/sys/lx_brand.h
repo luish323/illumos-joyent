@@ -41,6 +41,7 @@
 #include <sys/cpuvar.h>
 #include <sys/lx_futex.h>
 #include <sys/lx_userhz.h>
+#include <sys/uuid.h>
 #endif
 
 #ifdef	__cplusplus
@@ -94,6 +95,7 @@ extern "C" {
 #define	B_LPID_TO_SPAIR		128
 #define	B_GET_CURRENT_CONTEXT	129
 #define	B_EMULATION_DONE	130
+/* Some native programs use B_START_NFS_LOCKD, so don't change this. */
 #define	B_START_NFS_LOCKD	131
 #define	B_BLOCK_ALL_SIGS	132
 #define	B_UNBLOCK_ALL_SIGS	133
@@ -396,9 +398,6 @@ typedef struct lx_proc_data {
 #define	LX_AFF_ULONGS	(LX_NCPU / (8 * sizeof (ulong_t)))
 typedef ulong_t lx_affmask_t[LX_AFF_ULONGS];
 
-/* Length of proc boot_id string */
-#define	LX_BOOTID_LEN	37
-
 /*
  * Flag values for uc_brand_data[0] in the ucontext_t:
  */
@@ -636,7 +635,7 @@ typedef struct lx_zone_data {
 	char lxzd_kernel_release[LX_KERN_RELEASE_MAX];
 	char lxzd_kernel_version[LX_KERN_VERSION_MAX];
 	ksocket_t lxzd_ioctl_sock;
-	char lxzd_bootid[LX_BOOTID_LEN];	/* procfs boot_id */
+	char lxzd_bootid[UUID_PRINTABLE_STRING_LENGTH];	/* procfs boot_id */
 	gid_t lxzd_ttygrp;			/* tty gid for pty chown */
 	vfs_t *lxzd_cgroup;			/* cgroup for this zone */
 	pid_t lxzd_lockd_pid;			/* pid of NFS lockd */

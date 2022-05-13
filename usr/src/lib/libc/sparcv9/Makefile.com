@@ -33,7 +33,6 @@
 LIBCDIR=	$(SRC)/lib/libc
 LIB_PIC=	libc_pic.a
 VERS=		.1
-CPP=		/usr/lib/cpp
 TARGET_ARCH=	sparc
 
 # objects are grouped by source directory
@@ -130,12 +129,15 @@ COMOBJS=			\
 	bcopy.o			\
 	bsearch.o		\
 	bzero.o			\
+	explicit_bzero.o	\
 	memccpy.o		\
+	memmem.o		\
 	qsort.o			\
 	strtol.o		\
 	strtoul.o		\
 	strtoll.o		\
-	strtoull.o
+	strtoull.o		\
+	multi3.o
 
 GENOBJS=			\
 	_getsp.o		\
@@ -301,6 +303,7 @@ COMSYSOBJS=			\
 	ulimit.o		\
 	umask.o			\
 	umount2.o		\
+	upanic.o		\
 	utssys.o		\
 	uucopy.o		\
 	vhangup.o		\
@@ -408,7 +411,6 @@ PORTGEN=			\
 	euclen.o		\
 	event_port.o		\
 	execvp.o		\
-	explicit_bzero.o	\
 	fattach.o		\
 	fdetach.o		\
 	fdopendir.o		\
@@ -488,7 +490,7 @@ PORTGEN=			\
 	madvise.o		\
 	malloc.o		\
 	memalign.o		\
-	memmem.o		\
+	memrchr.o		\
 	memset_s.o		\
 	mkdev.o			\
 	mkdtemp.o		\
@@ -558,6 +560,7 @@ PORTGEN=			\
 	sigsend.o		\
 	sigsetops.o		\
 	ssignal.o		\
+	ssp.o			\
 	stack.o			\
 	stpcpy.o		\
 	stpncpy.o		\
@@ -766,6 +769,8 @@ PORTI18N_COND=			\
 PORTLOCALE=			\
 	big5.o			\
 	btowc.o			\
+	c16rtomb.o		\
+	c32rtomb.o		\
 	collate.o		\
 	collcmp.o		\
 	euc.o			\
@@ -791,6 +796,8 @@ PORTLOCALE=			\
 	mbftowc.o		\
 	mblen.o			\
 	mbrlen.o		\
+	mbrtoc16.o		\
+	mbrtoc32.o		\
 	mbrtowc.o		\
 	mbsinit.o		\
 	mbsnrtowcs.o		\
@@ -1071,7 +1078,7 @@ CFLAGS64 += $(XSTRCONST)
 
 ALTPICS= $(TRACEOBJS:%=pics/%)
 
-$(DYNLIB) := BUILD.SO = $(LD) -o $@ -G $(DYNFLAGS) $(PICS) $(ALTPICS) $(EXTPICS)
+$(DYNLIB) := BUILD.SO = $(LD) -o $@ $(GSHARED) $(DYNFLAGS) $(PICS) $(ALTPICS) $(EXTPICS)
 
 MAPFILES =	$(LIBCDIR)/port/mapfile-vers
 
@@ -1235,6 +1242,12 @@ pics/arc4random.o :=	CPPFLAGS += -I$(SRC)/common/crypto/chacha
 # Files which need extra optimization
 pics/getenv.o := sparcv9_COPTFLAG = -xO4
 
+#
+# Disable the stack protector due to issues with bootstrapping rtld. See
+# cmd/sgs/rtld/Makefile.com for more information.
+#
+STACKPROTECT = none
+
 .KEEP_STATE:
 
 all: $(LIBS) $(LIB_PIC)
@@ -1286,7 +1299,9 @@ $(ASSYMDEP_OBJS:%=pics/%): assym.h
 assym.h := CFLAGS64 += $(CCGDEBUG)
 
 GENASSYM_C = $(LIBCDIR)/$(MACH)/genassym.c
-LDFLAGS.native = $(LDASSERTS) $(ZASSERTDEFLIB)=libc.so $(BDIRECT)
+LDFLAGS.native = $(LDASSERTS) $(BDIRECT)
+
+genassym := NATIVE_LIBS += libc.so
 
 genassym: $(GENASSYM_C)
 	$(NATIVECC) $(NATIVE_CFLAGS) -I$(LIBCBASE)/inc -I$(LIBCDIR)/inc \

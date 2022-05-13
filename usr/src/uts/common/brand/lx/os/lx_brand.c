@@ -25,7 +25,8 @@
  */
 
 /*
- * Copyright 2019 Joyent, Inc.
+ * Copyright 2020 Joyent, Inc.
+ * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
  */
 
 /*
@@ -1402,8 +1403,15 @@ lx_brandsys(int cmd, int64_t *rval, uintptr_t arg1, uintptr_t arg2,
 	if (p->p_brand == NULL)
 		return (ENOSYS);
 
-	VERIFY(p->p_brand == &lx_brand);
-	VERIFY(p->p_brand_data != NULL);
+	/*
+	 * Certain native applications may wish to start the lx_lockd process.
+	 * Every other process that's not branded should be denied.
+	 */
+	if (p->p_brand != &lx_brand && cmd != B_START_NFS_LOCKD)
+		return (ENOSYS);
+
+	if (cmd != B_START_NFS_LOCKD)
+		VERIFY(p->p_brand_data != NULL);
 
 	switch (cmd) {
 	case B_REGISTER:
@@ -1869,23 +1877,35 @@ lx_brandsys(int cmd, int64_t *rval, uintptr_t arg1, uintptr_t arg2,
 		(void) lx_start_nfs_lockd();
 		return (0);
 
-	case B_BLOCK_ALL_SIGS:
+	case B_BLOCK_ALL_SIGS: {
+		uint_t result = 0;
+
 		mutex_enter(&p->p_lock);
 		pd = ptolxproc(p);
-		pd->l_block_all_signals++;
+		/*
+		 * This is used to block handling of all signals during vfork()
+		 * or clone(LX_CLONE_VFORK) emulation to match Linux semantics
+		 * and prevent the parent's signal handlers being called before
+		 * they are properly reset.
+		 */
+		if (pd->l_block_all_signals != 0) {
+			result = set_errno(EAGAIN);
+		} else {
+			pd->l_block_all_signals = 1;
+		}
 		mutex_exit(&p->p_lock);
-		return (0);
+		return (result);
+	}
 
 	case B_UNBLOCK_ALL_SIGS: {
-		uint_t result;
+		uint_t result = 0;
 
 		mutex_enter(&p->p_lock);
 		pd = ptolxproc(p);
 		if (pd->l_block_all_signals == 0) {
 			result = set_errno(EINVAL);
 		} else {
-			pd->l_block_all_signals--;
-			result = 0;
+			pd->l_block_all_signals = 0;
 		}
 		mutex_exit(&p->p_lock);
 		return (result);

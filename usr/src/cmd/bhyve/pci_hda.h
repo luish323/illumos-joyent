@@ -28,7 +28,7 @@
  * $FreeBSD$
  */
 
-#ifndef _HDA_EMUL_H_ 
+#ifndef _HDA_EMUL_H_
 #define _HDA_EMUL_H_
 
 #include <stdio.h>
@@ -50,7 +50,7 @@
 #if DEBUG_HDA == 1
 extern FILE *dbg;
 #define DPRINTF(fmt, arg...)						\
-do {fprintf(dbg, "%s-%d: " fmt, __func__, __LINE__, ##arg);		\
+do {fprintf(dbg, "%s-%d: " fmt "\n", __func__, __LINE__, ##arg);		\
 fflush(dbg); } while (0)
 #else
 #define DPRINTF(fmt, arg...)
@@ -72,7 +72,7 @@ struct hda_codec_inst {
 struct hda_codec_class {
 	char *name;
 	int (*init)(struct hda_codec_inst *hci, const char *play,
-		const char *rec, const char *opts);
+		const char *rec);
 	int (*reset)(struct hda_codec_inst *hci);
 	int (*command)(struct hda_codec_inst *hci, uint32_t cmd_data);
 	int (*notify)(struct hda_codec_inst *hci, uint8_t run, uint8_t stream,

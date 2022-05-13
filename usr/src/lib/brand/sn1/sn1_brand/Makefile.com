@@ -70,13 +70,12 @@ DYNFLAGS +=	$(BLOCAL) $(ZNOVERSION) -Wl,-e_start
 #DYNFLAGS +=	-R$(NATIVE_DIR)/lib -R$(NATIVE_DIR)/usr/lib
 LDLIBS +=	-lmapmalloc -lc
 
-ZGUIDANCE =	-zguidance=nounused
+ZGUIDANCE =	-Wl,-zguidance=nounused
 $(LIBS):= PICS += $(SHAREDOBJS)
 
 .KEEP_STATE:
 
 all: $(LIBS)
 
-lint: lintcheck
 
 include $(SRC)/lib/Makefile.targ

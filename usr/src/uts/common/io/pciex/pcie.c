@@ -22,6 +22,7 @@
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2021 Oxide Computer Company
  */
 
 #include <sys/sysmacros.h>
@@ -53,9 +54,9 @@
 static void pcie_init_pfd(dev_info_t *);
 static void pcie_fini_pfd(dev_info_t *);
 
-#if defined(__i386) || defined(__amd64)
+#if defined(__x86)
 static void pcie_check_io_mem_range(ddi_acc_handle_t, boolean_t *, boolean_t *);
-#endif /* defined(__i386) || defined(__amd64) */
+#endif /* defined(__x86) */
 
 #ifdef DEBUG
 uint_t pcie_debug_flags = 0;
@@ -675,7 +676,7 @@ pcie_initchild(dev_info_t *cdip)
 	reg16 = PCIE_GET(16, bus_p, PCI_CONF_COMM);
 	tmp16 = (reg16 & pcie_command_default_fw) | pcie_command_default;
 
-#if defined(__i386) || defined(__amd64)
+#if defined(__x86)
 	boolean_t empty_io_range = B_FALSE;
 	boolean_t empty_mem_range = B_FALSE;
 	/*
@@ -696,7 +697,7 @@ pcie_initchild(dev_info_t *cdip)
 		PCIE_DBG("No Mem range found for %s, bdf 0x%x\n",
 		    ddi_driver_name(cdip), bus_p->bus_bdf);
 	}
-#endif /* defined(__i386) || defined(__amd64) */
+#endif /* defined(__x86) */
 
 	if (pcie_serr_disable_flag && PCIE_IS_PCIE(bus_p))
 		tmp16 &= ~PCI_COMM_SERR_ENABLE;
@@ -1189,11 +1190,18 @@ pcie_capture_speeds(dev_info_t *dip)
 	uint16_t	vers, status;
 	uint32_t	cap, cap2, ctl2;
 	pcie_bus_t	*bus_p = PCIE_DIP2BUS(dip);
+	dev_info_t	*rcdip;
 
 	if (!PCIE_IS_PCIE(bus_p))
 		return;
 
-	vers = PCIE_CAP_GET(16, bus_p, PCIE_PCIECAP);
+	rcdip = pcie_get_rc_dip(dip);
+	if (bus_p->bus_cfg_hdl == NULL) {
+		vers = pci_cfgacc_get16(rcdip, bus_p->bus_bdf,
+		    bus_p->bus_pcie_off + PCIE_PCIECAP);
+	} else {
+		vers = PCIE_CAP_GET(16, bus_p, PCIE_PCIECAP);
+	}
 	if (vers == PCI_EINVAL16)
 		return;
 	vers &= PCIE_PCIECAP_VER_MASK;
@@ -1207,10 +1215,17 @@ pcie_capture_speeds(dev_info_t *dip)
 		ctl2 = 0;
 		break;
 	case PCIE_PCIECAP_VER_2_0:
-		cap2 = PCIE_CAP_GET(32, bus_p, PCIE_LINKCAP2);
+		if (bus_p->bus_cfg_hdl == NULL) {
+			cap2 = pci_cfgacc_get32(rcdip, bus_p->bus_bdf,
+			    bus_p->bus_pcie_off + PCIE_LINKCAP2);
+			ctl2 = pci_cfgacc_get16(rcdip, bus_p->bus_bdf,
+			    bus_p->bus_pcie_off + PCIE_LINKCTL2);
+		} else {
+			cap2 = PCIE_CAP_GET(32, bus_p, PCIE_LINKCAP2);
+			ctl2 = PCIE_CAP_GET(16, bus_p, PCIE_LINKCTL2);
+		}
 		if (cap2 == PCI_EINVAL32)
 			cap2 = 0;
-		ctl2 = PCIE_CAP_GET(16, bus_p, PCIE_LINKCTL2);
 		if (ctl2 == PCI_EINVAL16)
 			ctl2 = 0;
 		break;
@@ -1219,8 +1234,15 @@ pcie_capture_speeds(dev_info_t *dip)
 		return;
 	}
 
-	status = PCIE_CAP_GET(16, bus_p, PCIE_LINKSTS);
-	cap = PCIE_CAP_GET(32, bus_p, PCIE_LINKCAP);
+	if (bus_p->bus_cfg_hdl == NULL) {
+		status = pci_cfgacc_get16(rcdip, bus_p->bus_bdf,
+		    bus_p->bus_pcie_off + PCIE_LINKSTS);
+		cap = pci_cfgacc_get32(rcdip, bus_p->bus_bdf,
+		    bus_p->bus_pcie_off + PCIE_LINKCAP);
+	} else {
+		status = PCIE_CAP_GET(16, bus_p, PCIE_LINKSTS);
+		cap = PCIE_CAP_GET(32, bus_p, PCIE_LINKCAP);
+	}
 	if (status == PCI_EINVAL16 || cap == PCI_EINVAL32)
 		return;
 
@@ -1658,6 +1680,8 @@ initial_done:
 	pcie_init_pfd(dip);
 
 	pcie_init_plat(dip);
+
+	pcie_capture_speeds(dip);
 
 final_done:
 
@@ -2865,7 +2889,7 @@ pcie_dbg(char *fmt, ...)
 }
 #endif	/* DEBUG */
 
-#if defined(__i386) || defined(__amd64)
+#if defined(__x86)
 static void
 pcie_check_io_mem_range(ddi_acc_handle_t cfg_hdl, boolean_t *empty_io_range,
     boolean_t *empty_mem_range)
@@ -2892,7 +2916,7 @@ pcie_check_io_mem_range(ddi_acc_handle_t cfg_hdl, boolean_t *empty_io_range,
 	}
 }
 
-#endif /* defined(__i386) || defined(__amd64) */
+#endif /* defined(__x86) */
 
 boolean_t
 pcie_link_bw_supported(dev_info_t *dip)

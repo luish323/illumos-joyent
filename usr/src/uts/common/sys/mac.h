@@ -23,6 +23,7 @@
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2018 Joyent, Inc.
  * Copyright (c) 2015 Garrett D'Amore <garrett@damore.org>
+ * Copyright 2020 RackTop Systems, Inc.
  */
 
 #ifndef	_SYS_MAC_H
@@ -42,7 +43,7 @@ extern "C" {
 #endif
 
 /*
- * MAC Information (text emitted by modinfo(1m))
+ * MAC Information (text emitted by modinfo(8))
  */
 #define	MAC_INFO	"MAC Services"
 
@@ -88,6 +89,13 @@ typedef enum {
 } link_flowctrl_t;
 
 typedef enum {
+	LINK_FEC_NONE		= 1 << 0,
+	LINK_FEC_AUTO		= 1 << 1,
+	LINK_FEC_RS		= 1 << 2,
+	LINK_FEC_BASE_R		= 1 << 3
+} link_fec_t;
+
+typedef enum {
 	LINK_TAGMODE_VLANONLY = 0,
 	LINK_TAGMODE_NORMAL
 } link_tagmode_t;
@@ -105,7 +113,7 @@ typedef struct mac_propval_uint32_range_s {
  */
 typedef struct mac_propval_str_range_s {
 	uint32_t mpur_nextbyte;
-	char mpur_data[1];
+	char mpur_data[];
 } mac_propval_str_range_t;
 
 /*
@@ -163,6 +171,7 @@ typedef enum {
  * Please append properties to the end of this list. Do not reorder the list.
  */
 typedef enum {
+	MAC_PROP_PRIVATE = -1,
 	MAC_PROP_DUPLEX = 0x00000001,
 	MAC_PROP_SPEED,
 	MAC_PROP_STATUS,
@@ -239,7 +248,8 @@ typedef enum {
 	MAC_PROP_EN_25GFDX_CAP,
 	MAC_PROP_ADV_50GFDX_CAP,
 	MAC_PROP_EN_50GFDX_CAP,
-	MAC_PROP_PRIVATE = -1
+	MAC_PROP_EN_FEC_CAP,
+	MAC_PROP_ADV_FEC_CAP
 } mac_prop_id_t;
 
 /*
@@ -583,7 +593,7 @@ typedef struct mactype_ops_s {
  * Note that the ndd ioctls are obsolete, and may be removed in a future
  * release of Solaris. The ndd ioctls are not typically used in legacy
  * ethernet drivers. New datalink drivers of all link-types should use
- * dladm(1m) interfaces for administering tunables and not have to provide
+ * dladm(8) interfaces for administering tunables and not have to provide
  * a mapping.
  */
 typedef struct mac_ndd_mapping_s {

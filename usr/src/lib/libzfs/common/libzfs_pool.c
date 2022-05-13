@@ -21,12 +21,13 @@
 
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2011, 2017 by Delphix. All rights reserved.
+ * Copyright (c) 2011, 2020 by Delphix. All rights reserved.
  * Copyright 2019 Joyent, Inc.
  * Copyright 2016 Nexenta Systems, Inc.
  * Copyright 2016 Igor Kozhukhov <ikozhukhov@gmail.com>
  * Copyright (c) 2017 Datto Inc.
  * Copyright (c) 2017, Intel Corporation.
+ * Copyright 2022 OmniOS Community Edition (OmniOSce) Association.
  */
 
 #include <ctype.h>
@@ -39,9 +40,12 @@
 #include <strings.h>
 #include <unistd.h>
 #include <libgen.h>
+#include <sys/dkio.h>
 #include <sys/efi_partition.h>
 #include <sys/vtoc.h>
 #include <sys/zfs_ioctl.h>
+#include <sys/modctl.h>
+#include <sys/mkdev.h>
 #include <dlfcn.h>
 #include <libzutil.h>
 
@@ -342,15 +346,23 @@ zpool_get_prop(zpool_handle_t *zhp, zpool_prop_t prop, char *buf, size_t len,
 		case ZPOOL_PROP_FRAGMENTATION:
 			if (intval == UINT64_MAX) {
 				(void) strlcpy(buf, "-", len);
+			} else if (literal) {
+				(void) snprintf(buf, len, "%llu",
+				    (u_longlong_t)intval);
 			} else {
 				(void) snprintf(buf, len, "%llu%%",
 				    (u_longlong_t)intval);
 			}
 			break;
 		case ZPOOL_PROP_DEDUPRATIO:
-			(void) snprintf(buf, len, "%llu.%02llux",
-			    (u_longlong_t)(intval / 100),
-			    (u_longlong_t)(intval % 100));
+			if (literal)
+				(void) snprintf(buf, len, "%llu.%02llu",
+				    (u_longlong_t)(intval / 100),
+				    (u_longlong_t)(intval % 100));
+			else
+				(void) snprintf(buf, len, "%llu.%02llux",
+				    (u_longlong_t)(intval / 100),
+				    (u_longlong_t)(intval % 100));
 			break;
 		case ZPOOL_PROP_HEALTH:
 			verify(nvlist_lookup_nvlist(zpool_get_config(zhp, NULL),
@@ -397,7 +409,7 @@ zpool_get_prop(zpool_handle_t *zhp, zpool_prop_t prop, char *buf, size_t len,
  * Assuming bootfs is a valid dataset name.
  */
 static boolean_t
-bootfs_name_valid(const char *pool, char *bootfs)
+bootfs_name_valid(const char *pool, const char *bootfs)
 {
 	int len = strlen(pool);
 	if (bootfs[0] == '\0')
@@ -474,10 +486,11 @@ zpool_valid_proplist(libzfs_handle_t *hdl, const char *poolname,
 			}
 
 			(void) nvpair_value_string(elem, &strval);
-			if (strcmp(strval, ZFS_FEATURE_ENABLED) != 0) {
+			if (strcmp(strval, ZFS_FEATURE_ENABLED) != 0 &&
+			    strcmp(strval, ZFS_FEATURE_DISABLED) != 0) {
 				zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 				    "property '%s' can only be set to "
-				    "'enabled'"), propname);
+				    "'enabled' or 'disabled'"), propname);
 				(void) zfs_error(hdl, EZFS_BADPROP, errbuf);
 				goto error;
 			}
@@ -1501,13 +1514,6 @@ zpool_add(zpool_handle_t *zhp, nvlist_t *nvroot)
 			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 			    "pool must be upgraded to add these vdevs"));
 			(void) zfs_error(hdl, EZFS_BADVERSION, msg);
-			break;
-
-		case EDOM:
-			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
-			    "root pool can not have multiple vdevs"
-			    " or separate logs"));
-			(void) zfs_error(hdl, EZFS_POOL_NOTSUP, msg);
 			break;
 
 		default:
@@ -2796,12 +2802,14 @@ zpool_get_physpath(zpool_handle_t *zhp, char *physpath, size_t phypath_size)
  * the disk to use the new unallocated space.
  */
 static int
-zpool_relabel_disk(libzfs_handle_t *hdl, const char *name)
+zpool_relabel_disk(libzfs_handle_t *hdl, const char *name, const char *msg)
 {
 	char path[MAXPATHLEN];
-	char errbuf[1024];
 	int fd, error;
 	int (*_efi_use_whole_disk)(int);
+	char drv[MODMAXNAMELEN];
+	major_t maj;
+	struct stat st;
 
 	if ((_efi_use_whole_disk = (int (*)(int))dlsym(RTLD_DEFAULT,
 	    "efi_use_whole_disk")) == NULL)
@@ -2812,7 +2820,7 @@ zpool_relabel_disk(libzfs_handle_t *hdl, const char *name)
 	if ((fd = open(path, O_RDWR | O_NDELAY)) < 0) {
 		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "cannot "
 		    "relabel '%s': unable to open device"), name);
-		return (zfs_error(hdl, EZFS_OPENFAILED, errbuf));
+		return (zfs_error(hdl, EZFS_OPENFAILED, msg));
 	}
 
 	/*
@@ -2821,12 +2829,34 @@ zpool_relabel_disk(libzfs_handle_t *hdl, const char *name)
 	 * ignore that error and continue on.
 	 */
 	error = _efi_use_whole_disk(fd);
-	(void) close(fd);
 	if (error && error != VT_ENOSPC) {
+		(void) close(fd);
 		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "cannot "
 		    "relabel '%s': unable to read disk capacity"), name);
-		return (zfs_error(hdl, EZFS_NOCAP, errbuf));
+		return (zfs_error(hdl, EZFS_NOCAP, msg));
 	}
+
+	/*
+	 * Writing a new EFI partition table to the disk will have marked
+	 * the geometry as needing re-validation. Before returning, force
+	 * it to be checked by querying the device state, otherwise the
+	 * subsequent vdev_reopen() will very likely fail to read the device
+	 * size, faulting the pool.
+	 *
+	 * The dkio(4I) ioctls are implemented by the disk driver rather than
+	 * some generic framework, so we limit its use here to drivers with
+	 * which it has been tested.
+	 */
+	if (fstat(fd, &st) == 0 &&
+	    (maj = major(st.st_rdev)) != (major_t)NODEV &&
+	    modctl(MODGETNAME, drv, sizeof (drv), &maj) == 0 &&
+	    (strcmp(drv, "blkdev") == 0 || strcmp(drv, "sd") == 0)) {
+		enum dkio_state dkst = DKIO_NONE;
+		(void) ioctl(fd, DKIOCSTATE, &dkst);
+	}
+
+	(void) close(fd);
+
 	return (0);
 }
 
@@ -2844,6 +2874,7 @@ zpool_vdev_online(zpool_handle_t *zhp, const char *path, int flags,
 	nvlist_t *tgt;
 	boolean_t avail_spare, l2cache, islog;
 	libzfs_handle_t *hdl = zhp->zpool_hdl;
+	int error;
 
 	if (flags & ZFS_ONLINE_EXPAND) {
 		(void) snprintf(msg, sizeof (msg),
@@ -2882,7 +2913,9 @@ zpool_vdev_online(zpool_handle_t *zhp, const char *path, int flags,
 
 		if (wholedisk) {
 			pathname += strlen(ZFS_DISK_ROOT) + 1;
-			(void) zpool_relabel_disk(hdl, pathname);
+			error = zpool_relabel_disk(hdl, pathname, msg);
+			if (error != 0)
+				return (error);
 		}
 	}
 
@@ -4420,6 +4453,38 @@ zpool_obj_to_path(zpool_handle_t *zhp, uint64_t dsobj, uint64_t obj,
 	free(mntpnt);
 }
 
+int
+zpool_set_bootenv(zpool_handle_t *zhp, const nvlist_t *envmap)
+{
+	int error = lzc_set_bootenv(zhp->zpool_name, envmap);
+	if (error != 0) {
+		(void) zpool_standard_error_fmt(zhp->zpool_hdl, error,
+		    dgettext(TEXT_DOMAIN,
+		    "error setting bootenv in pool '%s'"), zhp->zpool_name);
+	}
+
+	return (error);
+}
+
+int
+zpool_get_bootenv(zpool_handle_t *zhp, nvlist_t **nvlp)
+{
+	nvlist_t *nvl;
+	int error;
+
+	nvl = NULL;
+	error = lzc_get_bootenv(zhp->zpool_name, &nvl);
+	if (error != 0) {
+		(void) zpool_standard_error_fmt(zhp->zpool_hdl, error,
+		    dgettext(TEXT_DOMAIN,
+		    "error getting bootenv in pool '%s'"), zhp->zpool_name);
+	} else {
+		*nvlp = nvl;
+	}
+
+	return (error);
+}
+
 /*
  * Read the EFI label from the config, if a label does not exist then
  * pass back the error to the caller. If the caller has passed a non-NULL
@@ -4678,7 +4743,7 @@ zpool_label_disk(libzfs_handle_t *hdl, zpool_handle_t *zhp, const char *name,
 		efi_free(vtoc);
 
 		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
-		    "try using fdisk(1M) and then provide a specific slice"));
+		    "try using fdisk(8) and then provide a specific slice"));
 		return (zfs_error(hdl, EZFS_LABELFAILED, errbuf));
 	}
 

@@ -35,9 +35,8 @@ OBJECTS = sip_headers.o sip_msg.o sip_gids.o \
 include ../../Makefile.lib
 
 SRCDIR =	../common
-LIBS =		$(DYNLIB) $(LINTLIB)
-$(LINTLIB) :=	SRCS = $(SRCDIR)/$(LINTSRC)
-LDLIBS +=	-lmd5 -lc
+LIBS =		$(DYNLIB)
+LDLIBS +=	-lmd -lc
 
 CFLAGS +=	$(CCVERBOSE)
 CPPFLAGS +=	-DOS='"solaris"' -D__OS_solaris -DNDEBUG
@@ -49,6 +48,5 @@ SMATCH=off
 
 all:		$(LIBS)
 
-lint:		lintcheck
 
 include ../../Makefile.targ

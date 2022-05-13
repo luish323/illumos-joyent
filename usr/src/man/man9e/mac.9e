@@ -10,8 +10,10 @@
 .\"
 .\"
 .\" Copyright 2019 Joyent, Inc.
+.\" Copyright 2020 RackTop Systems, Inc.
+.\" Copyright 2021 Oxide Computer Company
 .\"
-.Dd July 22, 2019
+.Dd February 13, 2021
 .Dt MAC 9E
 .Os
 .Sh NAME
@@ -66,7 +68,7 @@ or
 .Xr close 9E
 routines.
 In addition, all of the work to interact with
-.Xr dlpi 7P
+.Xr dlpi 4P
 is taken care of automatically and transparently.
 .Ss Initializing MAC Support
 For a device to be used in the framework, it must register with the
@@ -438,7 +440,7 @@ family of properties, they may change depending on power settings.
 See the
 .Sy Ethernet Link Properties
 section in
-.Xr dladm 1M
+.Xr dladm 8
 for more information.
 .Pp
 It's worth discussing how these different values get used throughout the
@@ -501,7 +503,7 @@ fail the call to
 .Xr detach 9E .
 .Ss Interacting with Devices
 Administrators always interact with devices through the
-.Xr dladm 1M
+.Xr dladm 8
 command line interface.
 The state of devices such as whether the link is considered
 .Sy up
@@ -518,9 +520,9 @@ are all exposed.
 It is also the preferred way that these properties are set and configured.
 .Pp
 While device tunables may be presented in a
-.Xr driver.conf 4
+.Xr driver.conf 5
 file, it is recommended instead to expose such things through
-.Xr dladm 1M
+.Xr dladm 8
 private properties, whether explicitly documented or not.
 .Sh CAPABILITIES
 Capabilities in the MAC Framework are optional features that a device
@@ -633,7 +635,7 @@ In other words, each mblk_t that is linked together by the
 pointer may have checksum flags set.
 .Pp
 It is recommended that device drivers provide a private property or
-.Xr driver.conf 4
+.Xr driver.conf 5
 property to control whether or not checksumming is enabled for both rx
 and tx; however, the default disposition is recommended to be enabled
 for both.
@@ -649,40 +651,62 @@ The
 capability indicates that the driver supports various forms of large
 send offload (LSO).
 The private data is a pointer to a
-.Sy mac_capab_lso_t
+.Ft mac_capab_lso_t
 structure.
-At the moment, LSO support is limited to TCP inside of IPv4.
+The system currently supports offloading TCP packets over both IPv4 and
+IPv6.
 This structure has the following members which are used to indicate
 various types of LSO support.
 .Bd -literal -offset indent
 t_uscalar_t		lso_flags;
 lso_basic_tcp_ivr4_t	lso_basic_tcp_ipv4;
+lso_basic_tcp_ipv6_t	lso_basic_tcp_ipv6;
 .Ed
 .Pp
 The
-.Sy lso_flags
+.Fa lso_flags
 member is used to indicate which members are valid and should be
 considered.
 Each flag represents a different form of LSO.
 The member should be set to the bitwise inclusive OR of the following values:
 .Bl -tag -width Dv -offset indent
-.It Sy LSO_TX_BASIC_TCP_IPV4
+.It Dv LSO_TX_BASIC_TCP_IPV4
 This indicates hardware support for performing TCP segmentation
 offloading over IPv4.
 When this flag is set, the
-.Sy lso_basic_tcp_ipv4
+.Fa lso_basic_tcp_ipv4
+member must be filled in.
+.It Dv LSO_TX_BASIC_TCP_IPV6
+This indicates hardware support for performing TCP segmentation
+offloading over IPv6.
+The IPv6 packet will have no extension headers present.
+When this flag is set, the
+.Fa lso_basic_tcp_ipv6
 member must be filled in.
 .El
 .Pp
 The
-.Sy lso_basic_tcp_ipv4
+.Fa lso_basic_tcp_ipv4
 member is a structure with the following members:
 .Bd -literal -offset indent
 t_uscalar_t	lso_max
 .Ed
 .Bd -filled -offset indent
 The
-.Sy lso_max
+.Fa lso_max
+member should be set to the maximum size of the TCP data
+payload that can be offloaded to the hardware.
+.Ed
+.Pp
+The
+.Fa lso_basic_tcp_ipv6
+member is a structure with the following members:
+.Bd -literal -offset indent
+t_uscalar_t	lso_max
+.Ed
+.Bd -filled -offset indent
+The
+.Fa lso_max
 member should be set to the maximum size of the TCP data
 payload that can be offloaded to the hardware.
 .Ed
@@ -894,6 +918,57 @@ it has configured the device, not what the device has actually
 negotiated.
 When setting the property, it should update the hardware and allow the link to
 potentially perform auto-negotiation again.
+.It Sy MAC_PROP_EN_FEC_CAP
+.Bd -filled -compact
+Type:
+.Sy link_fec_t |
+Permissions:
+.Sy Read/Write
+.Ed
+.Pp
+The
+.Sy MAC_PROP_EN_FEC_CAP
+property indicates which Forward Error Correction (FEC) code is advertised
+by the device.
+.Pp
+The
+.Sy link_fec_t
+is an enumeration that may be a combination of the following bit values:
+.Bl -tag -width Ds
+.It Sy LINK_FEC_NONE
+No FEC over the link.
+.It Sy LINK_FEC_AUTO
+The FEC coding to use is auto-negotiated,
+.Sy LINK_FEC_AUTO
+cannot be set along with any of the other values.
+This is the default setting the device driver should use.
+.It Sy LINK_FEC_RS
+The link may use Reed-Solomon FEC coding.
+.It Sy LINK_FEC_BASE_R
+The link may use Base-R coding, also common referred to as FireCode.
+.El
+.Pp
+When setting the property, it should update the hardware with the requested, or
+combination of requested codings.
+If a particular combination of codings is not supported by the hardware,
+the device driver should return
+.Er EINVAL .
+When retrieving this property, the device driver should return the current
+value of the property.
+.It Sy MAC_PROP_ADV_FEC_CAP
+.Bd -filled -compact
+Type:
+.Sy link_fec_t |
+Permissions:
+.Sy Read-Only
+.Ed
+.Pp
+The
+.Sy MAC_PROP_ADV_FEC_CAP
+has the same values as
+.Sy MAC_PROP_EN_FEC_CAP .
+The property indicates which Forward Error Correction (FEC) code has been
+negotiated over the link.
 .El
 .Pp
 The remaining properties are all about various auto-negotiation link
@@ -1235,7 +1310,7 @@ structure.
 The driver may define whatever semantics it wants for these private
 properties.
 They will not be listed when running
-.Xr dladm 1M ,
+.Xr dladm 8 ,
 unless explicitly requested by name.
 All such properties should start with a leading underscore character and then
 consist of alphanumeric ASCII characters and additional underscores or hyphens.
@@ -1901,10 +1976,10 @@ to switch from one format to the other.
 This way, data can be gathered to determine what the impact of each method is on
 a given platform.
 .Sh SEE ALSO
-.Xr dladm 1M ,
-.Xr driver.conf 4 ,
-.Xr ieee802.3 5 ,
-.Xr dlpi 7P ,
+.Xr dlpi 4P ,
+.Xr driver.conf 5 ,
+.Xr ieee802.3 7 ,
+.Xr dladm 8 ,
 .Xr _fini 9E ,
 .Xr _info 9E ,
 .Xr _init 9E ,

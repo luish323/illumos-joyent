@@ -24,13 +24,13 @@
 # Copyright 2012 OmniTI Computer Consulting, Inc.  All rights reserved.
 # Copyright 2014 Garrett D'Amore <garrett@damore.org>
 # Copyright 2016 Hans Rosenfeld <rosenfeld@grumpf.hope-2000.org>
-# Copyright 2018 Nexenta Systems, Inc.
 # Copyright 2017 Toomas Soome <tsoome@me.com>
 # Copyright 2017 RackTop Systems.
-# Copyright 2019, Joyent, Inc.
+# Copyright 2018 Nexenta Systems, Inc.
 # Copyright 2018 Jason King
+# Copyright 2019, Joyent, Inc.
+# Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
 # Copyright 2020 Peter Tribble
-# Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
 #
 
 #
@@ -45,7 +45,6 @@ usr/include/auth_list.h
 usr/include/bsm/audit_door_infc.h
 usr/include/bsm/audit_private.h
 usr/include/bsm/devalloc.h
-usr/include/demangle-sys.h
 usr/include/getxby_door.h
 usr/include/passwdutil.h
 usr/include/priv_utils.h
@@ -115,6 +114,8 @@ usr/include/ipadm_ipmgmt.h
 usr/include/ipadm_ndpd.h
 usr/include/libipadm.h
 lib/libipadm.so
+lib/amd64/libipadm.so		i386
+lib/sparcv9/libipadm.so		sparc
 #
 # Private libsocket header file
 #
@@ -161,11 +162,6 @@ usr/include/inet/keysock.h
 usr/include/inet/sadb.h
 usr/include/sys/sha1_consts.h
 usr/include/sys/sha2_consts.h
-#
-#
-# Filtering out directories not shipped
-#
-usr/4lib				i386
 #
 # These files contain definitions shared privately between the kernel
 # and libc.  There is no reason for them to be part of a package that
@@ -389,6 +385,34 @@ usr/lib/libcmdutils.so
 usr/lib/amd64/libcmdutils.so		i386
 usr/lib/sparcv9/libcmdutils.so		sparc
 #
+# Private librename
+#
+usr/lib/librename.so
+usr/lib/amd64/librename.so		i386
+usr/include/librename.h
+#
+# Private libidspace
+#
+usr/lib/libidspace.so
+usr/lib/amd64/libidspace.so		i386
+usr/include/libidspace.h
+#
+# VXLAN
+#
+usr/include/sys/vxlan.h
+lib/libvarpd.so
+lib/amd64/libvarpd.so
+#
+# Overlay
+#
+usr/include/libdloverlay.h
+usr/include/libvarpd.h
+usr/include/libvarpd_client.h
+usr/include/libvarpd_provider.h
+usr/include/sys/overlay.h
+usr/include/sys/overlay_common.h
+usr/include/sys/overlay_target.h
+#
 # Private interfaces in libsec
 #
 usr/include/aclutils.h
@@ -457,6 +481,10 @@ usr/lib/sparcv9/libdll.so		sparc
 # libpp (a helper library needed by AST's msgcc)
 usr/lib/libpp.so
 usr/lib/locale/C/LC_MESSAGES/libpp
+# libcmd
+usr/lib/libcmd.so
+usr/lib/amd64/libcmd.so			i386
+usr/lib/sparcv9/libcmd.so		sparc
 # libshell
 usr/lib/libshell.so
 usr/lib/amd64/libshell.so		i386
@@ -530,6 +558,10 @@ usr/platform/sun4v/include/sys/vlds.h	sparc
 #
 usr/include/sys/u8_textprep_data.h
 #
+# Private, for the boot banner code shared between zone init and the kernel:
+#
+usr/include/sys/bootbanner.h
+#
 # SQLite is private, used by SMF (svc.configd), idmapd and libsmb.
 #
 usr/include/sqlite-sys
@@ -601,9 +633,23 @@ usr/lib/smbsrv/bind-helper
 usr/lib/smbsrv/fksmbd
 usr/lib/smbsrv/libfksmbsrv.so
 usr/lib/smbsrv/libfksmbsrv.so.1
+usr/lib/smbsrv/amd64/libfksmbsrv.so		i386
+usr/lib/smbsrv/amd64/libfksmbsrv.so.1		i386
+usr/lib/smbsrv/sparcv9/libfksmbsrv.so		sparc
+usr/lib/smbsrv/sparcv9/libfksmbsrv.so.1		sparc
 usr/lib/smbsrv/libmlsvc.so
+usr/lib/smbsrv/amd64/libmlsvc.so		i386
+usr/lib/smbsrv/amd64/libmlsvc.so.1		i386
+usr/lib/smbsrv/sparcv9/libmlsvc.so		sparc
+usr/lib/smbsrv/sparcv9/libmlsvc.so.1		sparc
 usr/lib/smbsrv/libsmb.so
+usr/lib/smbsrv/amd64/libsmb.so			i386
+usr/lib/smbsrv/sparcv9/libsmb.so		sparc
 usr/lib/smbsrv/libsmbns.so
+usr/lib/smbsrv/amd64/libsmbns.so		i386
+usr/lib/smbsrv/amd64/libsmbns.so.1		i386
+usr/lib/smbsrv/sparcv9/libsmbns.so		sparc
+usr/lib/smbsrv/sparcv9/libsmbns.so.1		sparc
 usr/lib/smbsrv/nvlprint
 usr/lib/smbsrv/test-msgbuf
 usr/lib/smbsrv/testoplock
@@ -611,9 +657,6 @@ usr/lib/smbsrv/testoplock
 #
 # Private/Internal 64-bit libraries of smbsrv. Do not ship.
 #
-usr/lib/smbsrv/amd64				i386
-usr/lib/smbsrv/sparcv9				sparc
-
 usr/lib/reparse/amd64/libreparse_smb.so		i386
 usr/lib/reparse/amd64/libreparse_smb.so.1	i386
 usr/lib/reparse/sparcv9/libreparse_smb.so	sparc
@@ -745,9 +788,13 @@ usr/lib/sparcv9/libvrrpadm.so		sparc
 #
 opt/onbld/bin/i386/mandoc	i386
 opt/onbld/bin/sparc/mandoc	sparc
+opt/onbld/bin/i386/geniconvtbl	i386
+opt/onbld/bin/sparc/geniconvtbl	sparc
 opt/onbld/bin/i386/makesoftcore	i386
-opt/onbld/bin/i386/vtfontcvt	i386
 opt/onbld/bin/sparc/makesoftcore	sparc
+opt/onbld/bin/i386/rpcgen	i386
+opt/onbld/bin/sparc/rpcgen	sparc
+opt/onbld/bin/i386/vtfontcvt	i386
 opt/onbld/bin/sparc/vtfontcvt	sparc
 
 #
@@ -822,19 +869,12 @@ usr/lib/libsff.so
 #
 lib/amd64/libvmm.so			i386
 lib/amd64/libvmmapi.so			i386
-lib/amd64/llib-lvmmapi.ln		i386
 usr/include/bhyve.h			i386
 usr/include/libppt.h			i386
 usr/include/libvmm.h			i386
 usr/include/vmmapi.h			i386
 usr/lib/amd64/libppt.so			i386
-usr/lib/amd64/llib-lppt.ln		i386
 usr/lib/libppt.so			i386
-usr/lib/llib-lppt			i386
-usr/lib/llib-lppt.ln			i386
-usr/platform/i86pc/include/sys/vmm.h	i386
-usr/platform/i86pc/include/sys/vmm_impl.h	i386
-usr/platform/i86pc/include/sys/vmm_instruction_emul.h	i386
 
 #
 # libcustr is private
@@ -862,16 +902,16 @@ usr/lib/sparcv9/libdwarf.so		sparc
 usr/lib/libdwarf.so
 
 #
+# lib9p is private
+#
+usr/include/lib9p.h
+usr/lib/amd64/lib9p.so			i386
+
+#
 # We're not quite ready to ship ctfconvert and ctfmerge
 #
 usr/bin/ctfconvert
 usr/bin/ctfmerge
-
-#
-# SPARC doesn't currently use this today, though it may in the future.
-#
-usr/include/sys/sensors.h	sparc
-usr/lib/devfsadm/linkmod/SUNW_sensor_link.so	sparc
 
 #
 # libjedec is private
@@ -906,3 +946,10 @@ opt/onbld/man/man1onbld/sgsmsg.1onbld
 # The built link-editor demos are not delivered
 #
 opt/SUNWonld/
+
+#
+# Libraries that are built for tests whose compilation symlinks are only
+# needed at build time.
+#
+opt/os-tests/tests/cores/libdumper.so
+opt/os-tests/tests/cores/amd64/libdumper.so	i386

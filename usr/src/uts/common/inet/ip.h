@@ -177,7 +177,7 @@ typedef struct ipoptp_s
 #define	IPOPTP_ERROR	0x00000001
 #endif	/* _KERNEL */
 
-/* Controls forwarding of IP packets, set via ipadm(1M)/ndd(1M) */
+/* Controls forwarding of IP packets, set via ipadm(8)/ndd(8) */
 #define	IP_FORWARD_NEVER	0
 #define	IP_FORWARD_ALWAYS	1
 
@@ -1596,7 +1596,8 @@ struct ill_zerocopy_capab_s {
 
 struct ill_lso_capab_s {
 	uint_t	ill_lso_flags;		/* capabilities */
-	uint_t	ill_lso_max;		/* maximum size of payload */
+	uint_t	ill_lso_max_tcpv4;	/* maximum size of payload */
+	uint_t	ill_lso_max_tcpv6;	/* maximum size of payload */
 };
 
 /*

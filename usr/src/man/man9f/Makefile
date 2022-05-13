@@ -13,7 +13,7 @@
 # Copyright 2017, Richard Lowe
 # Copyright 2014 Garrett D'Amore <garrett@damore>
 # Copyright 2019 Joyent, Inc.
-# Copyright 2016 Nexenta Systems, Inc.
+# Copyright 2020-2021 Tintri by DDN, Inc. All rights reserved.
 # Copyright 2016 Hans Rosenfeld <rosenfeld@grumpf.hope-2000.org>
 #
 
@@ -70,6 +70,7 @@ MANFILES=	ASSERT.9f				\
 		copyin.9f				\
 		copymsg.9f				\
 		copyout.9f				\
+		credentials.9f				\
 		csx_AccessConfigurationRegister.9f	\
 		csx_CS_DDI_Info.9f			\
 		csx_ConvertSize.9f			\
@@ -556,6 +557,7 @@ MANFILES=	ASSERT.9f				\
 
 MANLINKS=	AVL_NEXT.9f					\
 		AVL_PREV.9f					\
+		CRED.9f						\
 		SIZEOF_PTR.9f					\
 		SIZEOF_STRUCT.9f				\
 		STRUCT_BUF.9f					\
@@ -690,6 +692,9 @@ MANLINKS=	AVL_NEXT.9f					\
 		avl_remove.9f					\
 		avl_swap.9f					\
 		bcanputnext.9f					\
+		crdup.9f					\
+		crfree.9f					\
+		crget.9f					\
 		crgetgid.9f					\
 		crgetgroups.9f					\
 		crgetngroups.9f					\
@@ -699,6 +704,7 @@ MANLINKS=	AVL_NEXT.9f					\
 		crgetsuid.9f					\
 		crgetuid.9f					\
 		crgetzoneid.9f					\
+		crhold.9f					\
 		csx_Get16.9f					\
 		csx_Get32.9f					\
 		csx_Get64.9f					\
@@ -778,14 +784,10 @@ MANLINKS=	AVL_NEXT.9f					\
 		ddi_get_name.9f					\
 		ddi_get_soft_iblock_cookie.9f			\
 		ddi_get_soft_state.9f				\
-		ddi_getb.9f					\
-		ddi_getl.9f					\
-		ddi_getll.9f					\
 		ddi_getlongprop.9f				\
 		ddi_getlongprop_buf.9f				\
 		ddi_getprop.9f					\
 		ddi_getproplen.9f				\
-		ddi_getw.9f					\
 		ddi_intr_block_disable.9f			\
 		ddi_intr_block_enable.9f			\
 		ddi_intr_clr_mask.9f				\
@@ -801,70 +803,34 @@ MANLINKS=	AVL_NEXT.9f					\
 		ddi_intr_trigger_softint.9f			\
 		ddi_io_get16.9f					\
 		ddi_io_get32.9f					\
-		ddi_io_getb.9f					\
-		ddi_io_getl.9f					\
-		ddi_io_getw.9f					\
 		ddi_io_put16.9f					\
 		ddi_io_put32.9f					\
-		ddi_io_putb.9f					\
-		ddi_io_putl.9f					\
-		ddi_io_putw.9f					\
 		ddi_io_rep_get16.9f				\
 		ddi_io_rep_get32.9f				\
-		ddi_io_rep_getb.9f				\
-		ddi_io_rep_getl.9f				\
-		ddi_io_rep_getw.9f				\
 		ddi_io_rep_put16.9f				\
 		ddi_io_rep_put32.9f				\
-		ddi_io_rep_putb.9f				\
-		ddi_io_rep_putl.9f				\
-		ddi_io_rep_putw.9f				\
 		ddi_mem_get16.9f				\
 		ddi_mem_get32.9f				\
 		ddi_mem_get64.9f				\
-		ddi_mem_getb.9f					\
-		ddi_mem_getl.9f					\
-		ddi_mem_getll.9f				\
-		ddi_mem_getw.9f					\
 		ddi_mem_put16.9f				\
 		ddi_mem_put32.9f				\
 		ddi_mem_put64.9f				\
-		ddi_mem_putb.9f					\
-		ddi_mem_putl.9f					\
-		ddi_mem_putll.9f				\
-		ddi_mem_putw.9f					\
 		ddi_mem_rep_get16.9f				\
 		ddi_mem_rep_get32.9f				\
 		ddi_mem_rep_get64.9f				\
-		ddi_mem_rep_getb.9f				\
-		ddi_mem_rep_getl.9f				\
-		ddi_mem_rep_getll.9f				\
-		ddi_mem_rep_getw.9f				\
 		ddi_mem_rep_put16.9f				\
 		ddi_mem_rep_put32.9f				\
 		ddi_mem_rep_put64.9f				\
-		ddi_mem_rep_putb.9f				\
-		ddi_mem_rep_putl.9f				\
-		ddi_mem_rep_putll.9f				\
-		ddi_mem_rep_putw.9f				\
 		ddi_modclose.9f					\
 		ddi_modsym.9f					\
 		ddi_peek16.9f					\
 		ddi_peek32.9f					\
 		ddi_peek64.9f					\
 		ddi_peek8.9f					\
-		ddi_peekc.9f					\
-		ddi_peekd.9f					\
-		ddi_peekl.9f					\
-		ddi_peeks.9f					\
 		ddi_poke16.9f					\
 		ddi_poke32.9f					\
 		ddi_poke64.9f					\
 		ddi_poke8.9f					\
-		ddi_pokec.9f					\
-		ddi_poked.9f					\
-		ddi_pokel.9f					\
-		ddi_pokes.9f					\
 		ddi_prop_free.9f				\
 		ddi_prop_get_int64.9f				\
 		ddi_prop_lookup_byte_array.9f			\
@@ -887,26 +853,14 @@ MANLINKS=	AVL_NEXT.9f					\
 		ddi_put16.9f					\
 		ddi_put32.9f					\
 		ddi_put64.9f					\
-		ddi_putb.9f					\
-		ddi_putl.9f					\
-		ddi_putll.9f					\
-		ddi_putw.9f					\
 		ddi_remove_intr.9f				\
 		ddi_remove_softintr.9f				\
 		ddi_rep_get16.9f				\
 		ddi_rep_get32.9f				\
 		ddi_rep_get64.9f				\
-		ddi_rep_getb.9f					\
-		ddi_rep_getl.9f					\
-		ddi_rep_getll.9f				\
-		ddi_rep_getw.9f					\
 		ddi_rep_put16.9f				\
 		ddi_rep_put32.9f				\
 		ddi_rep_put64.9f				\
-		ddi_rep_putb.9f					\
-		ddi_rep_putl.9f					\
-		ddi_rep_putll.9f				\
-		ddi_rep_putw.9f					\
 		ddi_segmap_setup.9f				\
 		ddi_set_driver_private.9f			\
 		ddi_soft_state_fini.9f				\
@@ -928,6 +882,7 @@ MANLINKS=	AVL_NEXT.9f					\
 		ddi_ufm_image_set_nslots.9f			\
 		ddi_ufm_init.9f					\
 		ddi_ufm_slot_set_attrs.9f			\
+		ddi_ufm_slot_set_imgsize.9f			\
 		ddi_ufm_slot_set_misc.9f			\
 		ddi_ufm_slot_set_version.9f			\
 		ddi_ufm_update.9f				\
@@ -935,6 +890,7 @@ MANLINKS=	AVL_NEXT.9f					\
 		ddi_umem_unlock.9f				\
 		ddi_unmap_regs.9f				\
 		desballoc.9f					\
+		desballoca.9f					\
 		dev_err.9f					\
 		devmap_load.9f					\
 		devmap_umem_setup.9f				\
@@ -942,6 +898,7 @@ MANLINKS=	AVL_NEXT.9f					\
 		dlokack.9f					\
 		dlphysaddrack.9f				\
 		dluderrorind.9f					\
+		esballoca.9f					\
 		firmware_close.9f				\
 		firmware_free.9f				\
 		firmware_get_size.9f				\
@@ -970,6 +927,7 @@ MANLINKS=	AVL_NEXT.9f					\
 		inl.9f						\
 		intro.9f					\
 		inw.9f						\
+		kcred.9f					\
 		kmem_cache_alloc.9f				\
 		kmem_cache_destroy.9f				\
 		kmem_cache_free.9f				\
@@ -1020,6 +978,7 @@ MANLINKS=	AVL_NEXT.9f					\
 		mac_fini_ops.9f					\
 		mac_free.9f					\
 		mac_hcksum_set.9f				\
+		mac_prop_info_set_default_fec.9f		\
 		mac_prop_info_set_default_link_flowctrl.9f	\
 		mac_prop_info_set_default_str.9f		\
 		mac_prop_info_set_default_uint32.9f		\
@@ -1151,18 +1110,10 @@ MANLINKS=	AVL_NEXT.9f					\
 		pci_config_get16.9f				\
 		pci_config_get32.9f				\
 		pci_config_get64.9f				\
-		pci_config_getb.9f				\
-		pci_config_getl.9f				\
-		pci_config_getll.9f				\
-		pci_config_getw.9f				\
 		pci_config_put16.9f				\
 		pci_config_put32.9f				\
 		pci_config_put64.9f				\
 		pci_config_put8.9f				\
-		pci_config_putb.9f				\
-		pci_config_putl.9f				\
-		pci_config_putll.9f				\
-		pci_config_putw.9f				\
 		pci_config_teardown.9f				\
 		pci_ereport_post.9f				\
 		pci_ereport_teardown.9f				\
@@ -1176,12 +1127,6 @@ MANLINKS=	AVL_NEXT.9f					\
 		qprocsoff.9f					\
 		qwait_sig.9f					\
 		rd.9f						\
-		repinsb.9f					\
-		repinsd.9f					\
-		repinsw.9f					\
-		repoutsb.9f					\
-		repoutsd.9f					\
-		repoutsw.9f					\
 		rmallocmap_wait.9f				\
 		rmfreemap.9f					\
 		rw_destroy.9f					\
@@ -1311,7 +1256,8 @@ MANLINKS=	AVL_NEXT.9f					\
 		vsprintf.9f					\
 		vzcmn_err.9f					\
 		wr.9f						\
-		zcmn_err.9f
+		zcmn_err.9f					\
+		zone_kcred.9f
 
 assert.9f				:= LINKSRC = ASSERT.9f
 
@@ -1484,6 +1430,14 @@ cv_timedwait_sig.9f			:= LINKSRC = condvar.9f
 cv_wait.9f				:= LINKSRC = condvar.9f
 cv_wait_sig.9f				:= LINKSRC = condvar.9f
 
+CRED.9f					:= LINKSRC = credentials.9f
+crdup.9f				:= LINKSRC = credentials.9f
+crfree.9f				:= LINKSRC = credentials.9f
+crget.9f				:= LINKSRC = credentials.9f
+crhold.9f				:= LINKSRC = credentials.9f
+kcred.9f				:= LINKSRC = credentials.9f
+zone_kcred.9f				:= LINKSRC = credentials.9f
+
 csx_Get16.9f				:= LINKSRC = csx_Get8.9f
 csx_Get32.9f				:= LINKSRC = csx_Get8.9f
 csx_Get64.9f				:= LINKSRC = csx_Get8.9f
@@ -1596,10 +1550,6 @@ ddi_fm_fini.9f				:= LINKSRC = ddi_fm_init.9f
 ddi_get16.9f				:= LINKSRC = ddi_get8.9f
 ddi_get32.9f				:= LINKSRC = ddi_get8.9f
 ddi_get64.9f				:= LINKSRC = ddi_get8.9f
-ddi_getb.9f				:= LINKSRC = ddi_get8.9f
-ddi_getl.9f				:= LINKSRC = ddi_get8.9f
-ddi_getll.9f				:= LINKSRC = ddi_get8.9f
-ddi_getw.9f				:= LINKSRC = ddi_get8.9f
 
 ddi_set_driver_private.9f		:= LINKSRC = ddi_get_driver_private.9f
 
@@ -1628,61 +1578,33 @@ ddi_intr_clr_mask.9f			:= LINKSRC = ddi_intr_set_mask.9f
 
 ddi_io_get16.9f				:= LINKSRC = ddi_io_get8.9f
 ddi_io_get32.9f				:= LINKSRC = ddi_io_get8.9f
-ddi_io_getb.9f				:= LINKSRC = ddi_io_get8.9f
-ddi_io_getl.9f				:= LINKSRC = ddi_io_get8.9f
-ddi_io_getw.9f				:= LINKSRC = ddi_io_get8.9f
 
 ddi_io_put16.9f				:= LINKSRC = ddi_io_put8.9f
 ddi_io_put32.9f				:= LINKSRC = ddi_io_put8.9f
-ddi_io_putb.9f				:= LINKSRC = ddi_io_put8.9f
-ddi_io_putl.9f				:= LINKSRC = ddi_io_put8.9f
-ddi_io_putw.9f				:= LINKSRC = ddi_io_put8.9f
 
 ddi_io_rep_get16.9f			:= LINKSRC = ddi_io_rep_get8.9f
 ddi_io_rep_get32.9f			:= LINKSRC = ddi_io_rep_get8.9f
-ddi_io_rep_getb.9f			:= LINKSRC = ddi_io_rep_get8.9f
-ddi_io_rep_getl.9f			:= LINKSRC = ddi_io_rep_get8.9f
-ddi_io_rep_getw.9f			:= LINKSRC = ddi_io_rep_get8.9f
 
 ddi_io_rep_put16.9f			:= LINKSRC = ddi_io_rep_put8.9f
 ddi_io_rep_put32.9f			:= LINKSRC = ddi_io_rep_put8.9f
-ddi_io_rep_putb.9f			:= LINKSRC = ddi_io_rep_put8.9f
-ddi_io_rep_putl.9f			:= LINKSRC = ddi_io_rep_put8.9f
-ddi_io_rep_putw.9f			:= LINKSRC = ddi_io_rep_put8.9f
 
 ddi_unmap_regs.9f			:= LINKSRC = ddi_map_regs.9f
 
 ddi_mem_get16.9f			:= LINKSRC = ddi_mem_get8.9f
 ddi_mem_get32.9f			:= LINKSRC = ddi_mem_get8.9f
 ddi_mem_get64.9f			:= LINKSRC = ddi_mem_get8.9f
-ddi_mem_getb.9f				:= LINKSRC = ddi_mem_get8.9f
-ddi_mem_getl.9f				:= LINKSRC = ddi_mem_get8.9f
-ddi_mem_getll.9f			:= LINKSRC = ddi_mem_get8.9f
-ddi_mem_getw.9f				:= LINKSRC = ddi_mem_get8.9f
 
 ddi_mem_put16.9f			:= LINKSRC = ddi_mem_put8.9f
 ddi_mem_put32.9f			:= LINKSRC = ddi_mem_put8.9f
 ddi_mem_put64.9f			:= LINKSRC = ddi_mem_put8.9f
-ddi_mem_putb.9f				:= LINKSRC = ddi_mem_put8.9f
-ddi_mem_putl.9f				:= LINKSRC = ddi_mem_put8.9f
-ddi_mem_putll.9f			:= LINKSRC = ddi_mem_put8.9f
-ddi_mem_putw.9f				:= LINKSRC = ddi_mem_put8.9f
 
 ddi_mem_rep_get16.9f			:= LINKSRC = ddi_mem_rep_get8.9f
 ddi_mem_rep_get32.9f			:= LINKSRC = ddi_mem_rep_get8.9f
 ddi_mem_rep_get64.9f			:= LINKSRC = ddi_mem_rep_get8.9f
-ddi_mem_rep_getb.9f			:= LINKSRC = ddi_mem_rep_get8.9f
-ddi_mem_rep_getl.9f			:= LINKSRC = ddi_mem_rep_get8.9f
-ddi_mem_rep_getll.9f			:= LINKSRC = ddi_mem_rep_get8.9f
-ddi_mem_rep_getw.9f			:= LINKSRC = ddi_mem_rep_get8.9f
 
 ddi_mem_rep_put16.9f			:= LINKSRC = ddi_mem_rep_put8.9f
 ddi_mem_rep_put32.9f			:= LINKSRC = ddi_mem_rep_put8.9f
 ddi_mem_rep_put64.9f			:= LINKSRC = ddi_mem_rep_put8.9f
-ddi_mem_rep_putb.9f			:= LINKSRC = ddi_mem_rep_put8.9f
-ddi_mem_rep_putl.9f			:= LINKSRC = ddi_mem_rep_put8.9f
-ddi_mem_rep_putll.9f			:= LINKSRC = ddi_mem_rep_put8.9f
-ddi_mem_rep_putw.9f			:= LINKSRC = ddi_mem_rep_put8.9f
 
 ddi_modclose.9f				:= LINKSRC = ddi_modopen.9f
 ddi_modsym.9f				:= LINKSRC = ddi_modopen.9f
@@ -1691,19 +1613,11 @@ ddi_peek16.9f				:= LINKSRC = ddi_peek.9f
 ddi_peek32.9f				:= LINKSRC = ddi_peek.9f
 ddi_peek64.9f				:= LINKSRC = ddi_peek.9f
 ddi_peek8.9f				:= LINKSRC = ddi_peek.9f
-ddi_peekc.9f				:= LINKSRC = ddi_peek.9f
-ddi_peekd.9f				:= LINKSRC = ddi_peek.9f
-ddi_peekl.9f				:= LINKSRC = ddi_peek.9f
-ddi_peeks.9f				:= LINKSRC = ddi_peek.9f
 
 ddi_poke16.9f				:= LINKSRC = ddi_poke.9f
 ddi_poke32.9f				:= LINKSRC = ddi_poke.9f
 ddi_poke64.9f				:= LINKSRC = ddi_poke.9f
 ddi_poke8.9f				:= LINKSRC = ddi_poke.9f
-ddi_pokec.9f				:= LINKSRC = ddi_poke.9f
-ddi_poked.9f				:= LINKSRC = ddi_poke.9f
-ddi_pokel.9f				:= LINKSRC = ddi_poke.9f
-ddi_pokes.9f				:= LINKSRC = ddi_poke.9f
 
 ddi_prop_modify.9f			:= LINKSRC = ddi_prop_create.9f
 ddi_prop_remove.9f			:= LINKSRC = ddi_prop_create.9f
@@ -1735,26 +1649,14 @@ ddi_prop_update_string_array.9f		:= LINKSRC = ddi_prop_update.9f
 ddi_put16.9f				:= LINKSRC = ddi_put8.9f
 ddi_put32.9f				:= LINKSRC = ddi_put8.9f
 ddi_put64.9f				:= LINKSRC = ddi_put8.9f
-ddi_putb.9f				:= LINKSRC = ddi_put8.9f
-ddi_putl.9f				:= LINKSRC = ddi_put8.9f
-ddi_putll.9f				:= LINKSRC = ddi_put8.9f
-ddi_putw.9f				:= LINKSRC = ddi_put8.9f
 
 ddi_rep_get16.9f			:= LINKSRC = ddi_rep_get8.9f
 ddi_rep_get32.9f			:= LINKSRC = ddi_rep_get8.9f
 ddi_rep_get64.9f			:= LINKSRC = ddi_rep_get8.9f
-ddi_rep_getb.9f				:= LINKSRC = ddi_rep_get8.9f
-ddi_rep_getl.9f				:= LINKSRC = ddi_rep_get8.9f
-ddi_rep_getll.9f			:= LINKSRC = ddi_rep_get8.9f
-ddi_rep_getw.9f				:= LINKSRC = ddi_rep_get8.9f
 
 ddi_rep_put16.9f			:= LINKSRC = ddi_rep_put8.9f
 ddi_rep_put32.9f			:= LINKSRC = ddi_rep_put8.9f
 ddi_rep_put64.9f			:= LINKSRC = ddi_rep_put8.9f
-ddi_rep_putb.9f				:= LINKSRC = ddi_rep_put8.9f
-ddi_rep_putl.9f				:= LINKSRC = ddi_rep_put8.9f
-ddi_rep_putll.9f			:= LINKSRC = ddi_rep_put8.9f
-ddi_rep_putw.9f				:= LINKSRC = ddi_rep_put8.9f
 
 ddi_segmap_setup.9f			:= LINKSRC = ddi_segmap.9f
 
@@ -1782,6 +1684,7 @@ ddi_ufm_image_set_misc.9f		:= LINKSRC = ddi_ufm_image.9f
 ddi_ufm_image_set_nslots.9f		:= LINKSRC = ddi_ufm_image.9f
 ddi_ufm_init.9f				:= LINKSRC = ddi_ufm.9f
 ddi_ufm_slot_set_attrs.9f		:= LINKSRC = ddi_ufm_slot.9f
+ddi_ufm_slot_set_imgsize.9f		:= LINKSRC = ddi_ufm_slot.9f
 ddi_ufm_slot_set_misc.9f		:= LINKSRC = ddi_ufm_slot.9f
 ddi_ufm_slot_set_version.9f		:= LINKSRC = ddi_ufm_slot.9f
 ddi_ufm_update.9f			:= LINKSRC = ddi_ufm.9f
@@ -1792,6 +1695,8 @@ dlphysaddrack.9f			:= LINKSRC = dlbindack.9f
 dluderrorind.9f				:= LINKSRC = dlbindack.9f
 
 desballoc.9f				:= LINKSRC = esballoc.9f
+desballoca.9f				:= LINKSRC = esballoc.9f
+esballoca.9f				:= LINKSRC = esballoc.9f
 
 unfreezestr.9f				:= LINKSRC = freezestr.9f
 
@@ -1827,9 +1732,6 @@ id32_lookup.9f				:= LINKSRC = id32_alloc.9f
 
 inl.9f					:= LINKSRC = inb.9f
 inw.9f					:= LINKSRC = inb.9f
-repinsb.9f				:= LINKSRC = inb.9f
-repinsd.9f				:= LINKSRC = inb.9f
-repinsw.9f				:= LINKSRC = inb.9f
 
 kmem_free.9f				:= LINKSRC = kmem_alloc.9f
 kmem_zalloc.9f				:= LINKSRC = kmem_alloc.9f
@@ -1894,6 +1796,8 @@ list_tail.9f				:= LINKSRC = list_create.9f
 mac_free.9f				:= LINKSRC = mac_alloc.9f
 mac_hcksum_set.9f			:= LINKSRC = mac_hcksum_get.9f
 mac_fini_ops.9f				:= LINKSRC = mac_init_ops.9f
+
+mac_prop_info_set_default_fec.9f	:= LINKSRC = mac_prop_info.9f
 mac_prop_info_set_default_link_flowctrl.9f	:= LINKSRC = mac_prop_info.9f
 mac_prop_info_set_default_str.9f	:= LINKSRC = mac_prop_info.9f
 mac_prop_info_set_default_uint8.9f	:= LINKSRC = mac_prop_info.9f
@@ -2037,25 +1941,14 @@ nvpair_value_uint8_array.9f		:= LINKSRC = nvpair_value_byte.9f
 
 outl.9f					:= LINKSRC = outb.9f
 outw.9f					:= LINKSRC = outb.9f
-repoutsb.9f				:= LINKSRC = outb.9f
-repoutsd.9f				:= LINKSRC = outb.9f
-repoutsw.9f				:= LINKSRC = outb.9f
 
 pci_config_get16.9f			:= LINKSRC = pci_config_get8.9f
 pci_config_get32.9f			:= LINKSRC = pci_config_get8.9f
 pci_config_get64.9f			:= LINKSRC = pci_config_get8.9f
-pci_config_getb.9f			:= LINKSRC = pci_config_get8.9f
-pci_config_getl.9f			:= LINKSRC = pci_config_get8.9f
-pci_config_getll.9f			:= LINKSRC = pci_config_get8.9f
-pci_config_getw.9f			:= LINKSRC = pci_config_get8.9f
 pci_config_put16.9f			:= LINKSRC = pci_config_get8.9f
 pci_config_put32.9f			:= LINKSRC = pci_config_get8.9f
 pci_config_put64.9f			:= LINKSRC = pci_config_get8.9f
 pci_config_put8.9f			:= LINKSRC = pci_config_get8.9f
-pci_config_putb.9f			:= LINKSRC = pci_config_get8.9f
-pci_config_putl.9f			:= LINKSRC = pci_config_get8.9f
-pci_config_putll.9f			:= LINKSRC = pci_config_get8.9f
-pci_config_putw.9f			:= LINKSRC = pci_config_get8.9f
 
 pci_config_teardown.9f			:= LINKSRC = pci_config_setup.9f
 

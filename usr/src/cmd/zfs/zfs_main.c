@@ -30,6 +30,7 @@
  * Copyright 2016 Igor Kozhukhov <ikozhukhov@gmail.com>.
  * Copyright 2016 Nexenta Systems, Inc.
  * Copyright (c) 2018 Datto Inc.
+ * Copyright 2021 RackTop Systems, Inc.
  */
 
 #include <assert.h>
@@ -4247,7 +4248,7 @@ zfs_do_send(int argc, char **argv)
 			 * Incremental source name begins with # or @.
 			 * Default to same fs as target.
 			 */
-			(void) strncpy(frombuf, argv[0], sizeof (frombuf));
+			(void) strlcpy(frombuf, argv[0], sizeof (frombuf));
 			cp = strchr(frombuf, '@');
 			if (cp != NULL)
 				*cp = '\0';
@@ -6142,7 +6143,7 @@ zfs_do_holds(int argc, char **argv)
 		/*
 		 *  1. collect holds data, set format options
 		 */
-		ret = zfs_for_each(argc, argv, flags, types, NULL, NULL, limit,
+		ret = zfs_for_each(1, &argv[i], flags, types, NULL, NULL, limit,
 		    holds_callback, &cb);
 		if (ret != 0)
 			++errors;
@@ -6152,9 +6153,6 @@ zfs_do_holds(int argc, char **argv)
 	 *  2. print holds data
 	 */
 	print_holds(scripted, cb.cb_max_namelen, cb.cb_max_taglen, nvl);
-
-	if (nvlist_empty(nvl))
-		(void) printf(gettext("no datasets available\n"));
 
 	nvlist_free(nvl);
 
@@ -6310,7 +6308,7 @@ share_mount_one(zfs_handle_t *zhp, int op, int flags, char *protocol,
 
 		(void) fprintf(stderr, gettext("cannot share '%s': "
 		    "legacy share\n"), zfs_get_name(zhp));
-		(void) fprintf(stderr, gettext("use share(1M) to "
+		(void) fprintf(stderr, gettext("use share(8) to "
 		    "share this filesystem, or set "
 		    "sharenfs property on\n"));
 		return (1);
@@ -6327,7 +6325,7 @@ share_mount_one(zfs_handle_t *zhp, int op, int flags, char *protocol,
 
 		(void) fprintf(stderr, gettext("cannot %s '%s': "
 		    "legacy mountpoint\n"), cmdname, zfs_get_name(zhp));
-		(void) fprintf(stderr, gettext("use %s(1M) to "
+		(void) fprintf(stderr, gettext("use %s(8) to "
 		    "%s this filesystem\n"), cmdname, cmdname);
 		return (1);
 	}
@@ -6828,7 +6826,7 @@ unshare_unmount_path(int op, char *path, int flags, boolean_t is_manual)
 			(void) fprintf(stderr, gettext("cannot unshare "
 			    "'%s': legacy share\n"), path);
 			(void) fprintf(stderr, gettext("use "
-			    "unshare(1M) to unshare this filesystem\n"));
+			    "unshare(8) to unshare this filesystem\n"));
 		} else if (!zfs_is_shared(zhp)) {
 			(void) fprintf(stderr, gettext("cannot unshare '%s': "
 			    "not currently shared\n"), path);
@@ -6847,7 +6845,7 @@ unshare_unmount_path(int op, char *path, int flags, boolean_t is_manual)
 			(void) fprintf(stderr, gettext("cannot unmount "
 			    "'%s': legacy mountpoint\n"),
 			    zfs_get_name(zhp));
-			(void) fprintf(stderr, gettext("use umount(1M) "
+			(void) fprintf(stderr, gettext("use umount(8) "
 			    "to unmount this filesystem\n"));
 		} else {
 			ret = zfs_unmountall(zhp, flags);
@@ -7103,7 +7101,7 @@ unshare_unmount(int op, int argc, char **argv)
 				    "unshare '%s': legacy share\n"),
 				    zfs_get_name(zhp));
 				(void) fprintf(stderr, gettext("use "
-				    "unshare(1M) to unshare this "
+				    "unshare(8) to unshare this "
 				    "filesystem\n"));
 				ret = 1;
 			} else if (!zfs_is_shared(zhp)) {
@@ -7122,7 +7120,7 @@ unshare_unmount(int op, int argc, char **argv)
 				    "unmount '%s': legacy "
 				    "mountpoint\n"), zfs_get_name(zhp));
 				(void) fprintf(stderr, gettext("use "
-				    "umount(1M) to unmount this "
+				    "umount(8) to unmount this "
 				    "filesystem\n"));
 				ret = 1;
 			} else if (!zfs_is_mounted(zhp, NULL)) {
@@ -7251,7 +7249,7 @@ manual_mount(int argc, char **argv)
 		    "instead.\n"), path);
 		(void) fprintf(stderr, gettext("If you must use 'mount -F zfs' "
 		    "or /etc/vfstab, use 'zfs set mountpoint=legacy'.\n"));
-		(void) fprintf(stderr, gettext("See zfs(1M) for more "
+		(void) fprintf(stderr, gettext("See zfs(8) for more "
 		    "information.\n"));
 		ret = 1;
 	}
@@ -7480,7 +7478,7 @@ zfs_do_bookmark(int argc, char **argv)
 		*strchr(snapname, '#') = '\0';
 		(void) strlcat(snapname, argv[0], sizeof (snapname));
 	} else {
-		(void) strncpy(snapname, argv[0], sizeof (snapname));
+		(void) strlcpy(snapname, argv[0], sizeof (snapname));
 	}
 	zhp = zfs_open(g_zfs, snapname, ZFS_TYPE_SNAPSHOT);
 	if (zhp == NULL)
@@ -7494,7 +7492,7 @@ zfs_do_bookmark(int argc, char **argv)
 	fnvlist_free(nvl);
 
 	if (ret != 0) {
-		const char *err_msg;
+		const char *err_msg = NULL;
 		char errbuf[1024];
 
 		(void) snprintf(errbuf, sizeof (errbuf),
@@ -7518,11 +7516,13 @@ zfs_do_bookmark(int argc, char **argv)
 			err_msg = "out of space";
 			break;
 		default:
-			err_msg = "unknown error";
+			(void) zfs_standard_error(g_zfs, ret, errbuf);
 			break;
 		}
-		(void) fprintf(stderr, "%s: %s\n", errbuf,
-		    dgettext(TEXT_DOMAIN, err_msg));
+		if (err_msg != NULL) {
+			(void) fprintf(stderr, "%s: %s\n", errbuf,
+			    dgettext(TEXT_DOMAIN, err_msg));
+		}
 	}
 
 	return (ret != 0);
@@ -7539,7 +7539,7 @@ zfs_do_channel_program(int argc, char **argv)
 	char c;
 	char *progbuf, *filename, *poolname;
 	size_t progsize, progread;
-	nvlist_t *outnvl;
+	nvlist_t *outnvl = NULL;
 	uint64_t instrlimit = ZCP_DEFAULT_INSTRLIMIT;
 	uint64_t memlimit = ZCP_DEFAULT_MEMLIMIT;
 	boolean_t sync_flag = B_TRUE, json_output = B_FALSE;
@@ -7679,7 +7679,8 @@ zfs_do_channel_program(int argc, char **argv)
 		 * falling back on strerror() for an unexpected return code.
 		 */
 		char *errstring = NULL;
-		if (nvlist_exists(outnvl, ZCP_RET_ERROR)) {
+		const char *msg = gettext("Channel program execution failed");
+		if (outnvl != NULL && nvlist_exists(outnvl, ZCP_RET_ERROR)) {
 			(void) nvlist_lookup_string(outnvl,
 			    ZCP_RET_ERROR, &errstring);
 			if (errstring == NULL)
@@ -7704,12 +7705,11 @@ zfs_do_channel_program(int argc, char **argv)
 				    "programs must be run as root.";
 				break;
 			default:
-				errstring = strerror(ret);
+				(void) zfs_standard_error(g_zfs, ret, msg);
 			}
 		}
-		(void) fprintf(stderr,
-		    gettext("Channel program execution failed:\n%s\n"),
-		    errstring);
+		if (errstring != NULL)
+			(void) fprintf(stderr, "%s:\n%s\n", msg, errstring);
 	} else {
 		if (json_output) {
 			(void) nvlist_print_json(stdout, outnvl);

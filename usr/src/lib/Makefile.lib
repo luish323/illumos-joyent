@@ -119,6 +119,7 @@ $(ROOTDEMODIRS) :=	DIRMODE =	755
 
 ARFLAGS=	r
 SONAME=		$(DYNLIB)
+
 # For most libraries, we should be able to resolve all symbols at link time,
 # either within the library or as dependencies, all text should be pure, and
 # combining relocations into one relocation table reduces startup costs.
@@ -142,9 +143,9 @@ USDT_PICS=	$(USDT_PROVIDERS:%.d=pics/%.o)
 USDT_G_PICS=	$(PICS)
 
 
-HSONAME=	-h$(SONAME)
+HSONAME=	-Wl,-h$(SONAME)
 DYNFLAGS=	$(HSONAME) $(ZTEXT) $(ZDEFS) $(BDIRECT) \
-		$(MAPFILES:%=-M%) $(MAPFILE.PGA:%=-M%) $(MAPFILE.NED:%=-M%) \
+		$(MAPFILES:%=-Wl,-M%) $(MAPFILE.PGA:%=-Wl,-M%) $(MAPFILE.NED:%=-Wl,-M%) \
 		$(LDCHECKS)
 
 LDLIBS=		$(LDLIBS.lib)
@@ -166,9 +167,9 @@ BUILD.AR=	$(AR) $(ARFLAGS) $@ $(AROBJS)
 BUILD.SO=	$(CC) $(CFLAGS) -o $@ $(GSHARED) $(DYNFLAGS) \
 		$(PICS) $(EXTPICS) $(USDT_PICS) $(LDLIBS)
 BUILD64.SO=	$(CC64) $(CFLAGS64) -o $@ $(GSHARED) $(DYNFLAGS) \
-		$(PICS) $(EXTPICS) -L $(ROOTLIBDIR64) $(LDLIBS)
+		$(PICS) $(EXTPICS) $(USDT_PICS) $(LDLIBS)
 BUILDCCC.SO=	$(CCC) $(CCFLAGS) -o $@ $(GSHARED) $(DYNFLAGS) \
-		$(PICS) $(EXTPICS) $(LDLIBS)
+		$(PICS) $(EXTPICS) $(LDLIBS) $(CCNEEDED)
 BUILDCCC64.SO=	$(CCC64) $(CCFLAGS64) -o $@ $(GSHARED) $(DYNFLAGS) \
 		$(PICS) $(EXTPICS) $(LDLIBS) $(CCNEEDED64)
 
@@ -179,6 +180,13 @@ INS.liblinkccc=	-$(RM) $@; $(SYMLINK) $(LIBLINKPATH)$(LIBLINKSCCC)$(VERS) $@
 # default 64-bit dynamic library symlink
 INS.liblink64=	-$(RM) $@; $(SYMLINK) $(LIBLINKPATH)$(LIBLINKS)$(VERS) $@
 INS.liblinkccc64= -$(RM) $@; $(SYMLINK) $(LIBLINKPATH)$(LIBLINKSCCC)$(VERS) $@
+
+#
+# Default to adding stack protection to all libraries.
+#
+CFLAGS +=	$(CCSTACKPROTECT)
+CFLAGS64 +=	$(CCSTACKPROTECT)
+LDLIBS +=	$(LDSTACKPROTECT)
 
 #
 # If appropriate, augment POST_PROCESS_O and POST_PROCESS_SO to do CTF
@@ -219,12 +227,12 @@ $(DYNLIB):=	DIR = pics
 $(DYNLIBCCC):=	DIR = pics
 
 SONAMECCC=	$(DYNLIBCCC)
-HSONAMECCC=	-h $(SONAMECCC)
+HSONAMECCC=	-Wl,-h$(SONAMECCC)
 #
 # Keep in sync with the standard DYNFLAGS
 #
 $(DYNLIBCCC):=	DYNFLAGS = $(HSONAMECCC) $(ZTEXT) $(ZDEFS) \
-		$(MAPFILES:%=-M%) $(MAPFILE.PGA:%=-M%) $(MAPFILE.NED:%=-M%) \
+		$(MAPFILES:%=-Wl,-M%) $(MAPFILE.PGA:%=-Wl,-M%) $(MAPFILE.NED:%=-Wl,-M%) \
 		$(BDIRECT) $(NORUNPATH)
 
 
@@ -262,5 +270,16 @@ CLOBBERTARGFILES= $(LIBS) $(DYNLIB) $(CLOBBERFILES)
 TYPECHECK_LIB32 =		$(TYPECHECK_LIB:%=$(MACH)/%)
 TYPECHECK_LIB64 =		$(TYPECHECK_LIB:%=$(MACH64)/%)
 TYPECHECK_LIST=			$(TYPELIST:%=-T %)
-$(BUILD64)TYPECHECK.lib =	$(CTFDIFF) -t -I $(TYPECHECK_LIST) $(TYPECHECK_LIB32) $(TYPECHECK_LIB64)
+$(BUILD64)TYPECHECK.lib =	$(CTFDIFF) -t -I $(TYPECHECK_LIST) \
+	$(TYPECHECK_LIB32) $(TYPECHECK_LIB64)
 TYPECHECK =			$(TYPECHECK_LIB:%=%.typecheck)
+
+# Links we need to create for compatibility
+COMPATLINKS=
+COMPATLINKS64=
+ROOTCOMPATLINKS=	$(COMPATLINKS:%=$(ROOT)/%)
+ROOTCOMPATLINKS64=	$(COMPATLINKS64:%=$(ROOT)/%)
+
+# So if someone doesn't set the target-specific variable they get a clue what
+# went wrong.
+COMPATLINKTARGET=	/__you_didnt_use_COMPATLINKS_properly__

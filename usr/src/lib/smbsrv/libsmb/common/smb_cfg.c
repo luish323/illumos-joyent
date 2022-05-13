@@ -20,7 +20,8 @@
  */
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2018 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2020 Tintri by DDN, Inc. All rights reserved.
+ * Copyright 2021 RackTop Systems, Inc.
  */
 
 /*
@@ -150,6 +151,8 @@ static smb_cfg_param_t smb_cfg_table[] =
 	{SMB_CI_MIN_PROTOCOL, "min_protocol", SCF_TYPE_ASTRING, 0},
 	{SMB_CI_BYPASS_TRAVERSE_CHECKING,
 	    "bypass_traverse_checking", SCF_TYPE_BOOLEAN, 0},
+	{SMB_CI_ENCRYPT_CIPHER, "encrypt_cipher", SCF_TYPE_ASTRING, 0},
+	{SMB_CI_NETLOGON_FLAGS, "netlogon_flags", SCF_TYPE_INTEGER, 0},
 
 	/* SMB_CI_MAX */
 };
@@ -165,11 +168,23 @@ static smb_cfg_param_t smb_cfg_table[] =
  */
 static struct str_val
 smb_versions[] = {
+	{ "3.11",	SMB_VERS_3_11 },
 	{ "3.02",	SMB_VERS_3_02 },
 	{ "3.0",	SMB_VERS_3_0 },
 	{ "2.1",	SMB_VERS_2_1 },
 	{ "2.002",	SMB_VERS_2_002 },
 	{ "1",		SMB_VERS_1 },
+	{ NULL,		0 }
+};
+
+/*
+ * Supported encryption ciphers.
+ */
+static struct str_val
+smb31_enc_ciphers[] = {
+	{ "aes128-ccm",	SMB3_CIPHER_FLAG_AES128_CCM },	/* SMB 3.x */
+	{ "aes128-gcm",	SMB3_CIPHER_FLAG_AES128_GCM },	/* SMB 3.1.1 */
+	{ "all",	SMB3_ALL_CIPHERS },
 	{ NULL,		0 }
 };
 
@@ -1224,7 +1239,7 @@ smb_config_get_protocol(smb_cfg_id_t id, char *name, uint32_t default_val)
  * whole range that we implement). For that reason, this should usually be the
  * highest protocol version we implement.
  */
-uint32_t max_protocol_default = SMB_VERS_3_02;
+uint32_t max_protocol_default = SMB_VERS_3_11;
 
 uint32_t
 smb_config_get_max_protocol(void)
@@ -1260,6 +1275,52 @@ smb_config_check_protocol(char *value)
 		return (0);
 
 	return (-1);
+}
+
+/*
+ * Only SMB 3.x supports encryption.
+ * SMB 3.0.2 uses AES128-CCM only.
+ * SMB 3.1.1 - AES128-CCM or AES128-GCM.
+ * This function returns bitmask for enabled ciphers
+ */
+uint16_t
+smb31_config_get_encrypt_cipher(void)
+{
+	uint32_t max_proto = smb_config_get_max_protocol();
+	uint16_t cipher = 0;
+	char str[50];
+	int i;
+
+	/* SMB 3.0 supports only AES-128-CCM */
+	if (max_proto < SMB_VERS_3_11)
+		return (SMB3_CIPHER_FLAG_AES128_CCM);
+
+	/* SMB 3.1.1 */
+	if (smb_config_getstr(SMB_CI_ENCRYPT_CIPHER, str, sizeof (str))
+	    == SMBD_SMF_OK) {
+		char *s = str;
+		char *p = NULL;
+
+		do {
+			p = strchr(s, ',');
+			if (p != NULL)
+				*p++ = '\0';
+
+			/* # of ciphers too small - don't care about O(n2) */
+			for (i = 0; smb31_enc_ciphers[i].str != NULL; i++) {
+				if (strcmp(s, smb31_enc_ciphers[i].str) == 0)
+					cipher |= smb31_enc_ciphers[i].val;
+			}
+
+			if (p != NULL)
+				s = p;
+		} while (p != NULL && *s != '\0');
+	}
+
+	if (cipher == 0)
+		cipher = SMB3_ALL_CIPHERS;
+
+	return (cipher);
 }
 
 /*

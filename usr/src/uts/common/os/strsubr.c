@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*	Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T	*/
-/*	  All Rights Reserved  	*/
+/*	  All Rights Reserved	*/
 
 
 /*
@@ -28,6 +28,7 @@
  * Copyright (c) 2016 by Delphix. All rights reserved.
  * Copyright 2018 Joyent, Inc.
  * Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2018 Joyent, Inc.
  */
 
 #include <sys/types.h>
@@ -1901,36 +1902,9 @@ mlink_file(vnode_t *vp, int cmd, struct file *fpdown, cred_t *crp, int *rvalp,
 	 */
 	error = strdoioctl(stp, &strioc, FNATIVE,
 	    K_TO_K | STR_NOERROR | STR_NOSIG, crp, rvalp);
-	if (error != 0) {
-		lbfree(linkp);
+	if (error != 0)
+		goto cleanup;
 
-		if (!(passyncq->sq_flags & SQ_BLOCKED))
-			blocksq(passyncq, SQ_BLOCKED, 0);
-		/*
-		 * Restore the stream head queue and then remove
-		 * the passq. Turn off STPLEX before we turn on
-		 * the stream by removing the passq.
-		 */
-		rq->q_ptr = _WR(rq)->q_ptr = stpdown;
-		setq(rq, &strdata, &stwdata, NULL, QMTSAFE, SQ_CI|SQ_CO,
-		    B_TRUE);
-
-		mutex_enter(&stpdown->sd_lock);
-		stpdown->sd_flag &= ~STPLEX;
-		mutex_exit(&stpdown->sd_lock);
-
-		link_rempassthru(passq);
-
-		mutex_enter(&stpdown->sd_lock);
-		stpdown->sd_flag &= ~STRPLUMB;
-		/* Wakeup anyone waiting for STRPLUMB to clear. */
-		cv_broadcast(&stpdown->sd_monitor);
-		mutex_exit(&stpdown->sd_lock);
-
-		mutex_exit(&muxifier);
-		netstack_rele(ss->ss_netstack);
-		return (error);
-	}
 	mutex_enter(&fpdown->f_tlock);
 	fpdown->f_count++;
 	mutex_exit(&fpdown->f_tlock);
@@ -1942,9 +1916,16 @@ mlink_file(vnode_t *vp, int cmd, struct file *fpdown, cred_t *crp, int *rvalp,
 
 	ASSERT((cmd == I_LINK) || (cmd == I_PLINK));
 	if (cmd == I_LINK) {
-		ldi_mlink_fp(stp, fpdown, lhlink, LINKNORMAL);
+		error = ldi_mlink_fp(stp, fpdown, lhlink, LINKNORMAL);
 	} else {
-		ldi_mlink_fp(stp, fpdown, lhlink, LINKPERSIST);
+		error = ldi_mlink_fp(stp, fpdown, lhlink, LINKPERSIST);
+	}
+
+	if (error != 0) {
+		mutex_enter(&fpdown->f_tlock);
+		fpdown->f_count--;
+		mutex_exit(&fpdown->f_tlock);
+		goto cleanup;
 	}
 
 	link_rempassthru(passq);
@@ -1976,6 +1957,36 @@ mlink_file(vnode_t *vp, int cmd, struct file *fpdown, cred_t *crp, int *rvalp,
 	*rvalp = linkp->li_lblk.l_index;
 	netstack_rele(ss->ss_netstack);
 	return (0);
+
+cleanup:
+	lbfree(linkp);
+
+	if (!(passyncq->sq_flags & SQ_BLOCKED))
+		blocksq(passyncq, SQ_BLOCKED, 0);
+	/*
+	 * Restore the stream head queue and then remove
+	 * the passq. Turn off STPLEX before we turn on
+	 * the stream by removing the passq.
+	 */
+	rq->q_ptr = _WR(rq)->q_ptr = stpdown;
+	setq(rq, &strdata, &stwdata, NULL, QMTSAFE, SQ_CI|SQ_CO,
+	    B_TRUE);
+
+	mutex_enter(&stpdown->sd_lock);
+	stpdown->sd_flag &= ~STPLEX;
+	mutex_exit(&stpdown->sd_lock);
+
+	link_rempassthru(passq);
+
+	mutex_enter(&stpdown->sd_lock);
+	stpdown->sd_flag &= ~STRPLUMB;
+	/* Wakeup anyone waiting for STRPLUMB to clear. */
+	cv_broadcast(&stpdown->sd_monitor);
+	mutex_exit(&stpdown->sd_lock);
+
+	mutex_exit(&muxifier);
+	netstack_rele(ss->ss_netstack);
+	return (error);
 }
 
 int
@@ -2232,9 +2243,9 @@ munlink(stdata_t *stp, linkinfo_t *linkp, int flag, cred_t *crp, int *rvalp,
 
 	/* clean up the layered driver linkages */
 	if ((flag & LINKTYPEMASK) == LINKNORMAL) {
-		ldi_munlink_fp(stp, fpdown, LINKNORMAL);
+		VERIFY0(ldi_munlink_fp(stp, fpdown, LINKNORMAL));
 	} else {
-		ldi_munlink_fp(stp, fpdown, LINKPERSIST);
+		VERIFY0(ldi_munlink_fp(stp, fpdown, LINKPERSIST));
 	}
 
 	link_rempassthru(passq);
@@ -3006,7 +3017,7 @@ strwaitbuf(size_t size, int pri)
  *	GETWAIT		Check for read side errors, no M_READ
  *	WRITEWAIT	Check for write side errors.
  *	NOINTR		Do not return error if nonblocking or timeout.
- * 	STR_NOERROR	Ignore all errors except STPLEX.
+ *	STR_NOERROR	Ignore all errors except STPLEX.
  *	STR_NOSIG	Ignore/hold signals during the duration of the call.
  *	STR_PEEK	Pass through the strgeterr().
  */
@@ -6630,9 +6641,9 @@ drain_syncq(syncq_t *sq)
  *
  * qdrain_syncq can be called (currently) from only one of two places:
  *	drain_syncq
- * 	putnext  (or some variation of it).
+ *	putnext  (or some variation of it).
  * and eventually
- * 	qwait(_sig)
+ *	qwait(_sig)
  *
  * If called from drain_syncq, we found it in the list of queues needing
  * service, so there is work to be done (or it wouldn't be in the list).
@@ -6652,8 +6663,8 @@ drain_syncq(syncq_t *sq)
  *
  * ASSUMES:
  *	One claim
- * 	QLOCK held
- * 	SQLOCK not held
+ *	QLOCK held
+ *	SQLOCK not held
  *	Will release QLOCK before returning
  */
 void
@@ -7107,11 +7118,11 @@ static int
 propagate_syncq(queue_t *qp)
 {
 	mblk_t		*bp, *head, *tail, *prev, *next;
-	syncq_t 	*sq;
+	syncq_t		*sq;
 	queue_t		*nqp;
 	syncq_t		*nsq;
 	boolean_t	isdriver;
-	int 		moved = 0;
+	int		moved = 0;
 	uint16_t	flags;
 	pri_t		priority = curthread->t_pri;
 #ifdef DEBUG
@@ -7144,7 +7155,7 @@ propagate_syncq(queue_t *qp)
 			/* debug macro */
 			SQ_PUTLOCKS_HELD(nsq);
 #ifdef DEBUG
-			func = (void (*)())nqp->q_qinfo->qi_putp;
+			func = (void (*)())(uintptr_t)nqp->q_qinfo->qi_putp;
 #endif
 		}
 

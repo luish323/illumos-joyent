@@ -131,6 +131,7 @@ MANFILES=					\
 		proc_get_auxv.3proc		\
 		proc_get_cred.3proc		\
 		proc_get_fdinfo.3proc		\
+		proc_get_lwpsinfo.3proc		\
 		proc_get_priv.3proc		\
 		proc_get_psinfo.3proc		\
 		proc_get_status.3proc		\
@@ -161,6 +162,7 @@ MANFILES=					\
 		Psync.3proc			\
 		Psysentry.3proc			\
 		Puname.3proc			\
+		Pupanic.3proc			\
 		Pupdate_maps.3proc		\
 		Pupdate_syms.3proc		\
 		Pwrite.3proc			\
@@ -215,6 +217,7 @@ MANLINKS=					\
 		Pobjname_resolved.3proc		\
 		Ppriv_free.3proc		\
 		Pputareg.3proc			\
+		Psecflags_free.3proc		\
 		pr_fstat.3proc			\
 		pr_fstat64.3proc		\
 		pr_getrlimit64.3proc		\
@@ -264,6 +267,7 @@ MANLINKS=					\
 		Psymbol_iter_by_lmid.3proc	\
 		Psymbol_iter_by_name.3proc	\
 		Psysexit.3proc			\
+		Pupanic_free.3proc		\
 		Punsetflags.3proc		\
 		Pwait.3proc			\
 		Pxcreate.3proc			\
@@ -364,6 +368,8 @@ Ppriv_free.3proc		:= LINKSRC = Ppriv.3proc
 
 Pread_string.3proc		:= LINKSRC = Pread.3proc
 
+Psecflags_free.3proc		:= LINKSRC = Psecflags.3proc
+
 Punsetflags.3proc		:= LINKSRC = Psetflags.3proc
 
 Psetsysexit.3proc		:= LINKSRC = Psetsysentry.3proc
@@ -379,6 +385,8 @@ Lclearfault.3proc		:= LINKSRC = Pclearfault.3proc
 Lclearsig.3proc			:= LINKSRC = Pclearsig.3proc
 
 Lsetrun.3proc			:= LINKSRC = Psetrun.3proc
+
+Pupanic_free.3proc		:= LINKSRC = Pupanic.3proc
 
 Pzonepath.3proc			:= LINKSRC = Pzonename.3proc
 Pzoneroot.3proc			:= LINKSRC = Pzonename.3proc

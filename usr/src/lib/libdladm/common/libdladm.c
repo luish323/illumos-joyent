@@ -20,15 +20,12 @@
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2017, Joyent, Inc.
  */
 
 /*
- * Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
- */
-
-/*
+ * Copyright 2017 Joyent, Inc.
  * Copyright 2020 Peter Tribble.
+ * Copyright 2022 OmniOS Community Edition (OmniOSce) Association.
  */
 
 #include <unistd.h>
@@ -131,7 +128,7 @@ dladm_open(dladm_handle_t *handle)
 		return (dladm_errno2status(errno));
 
 	/*
-	 * Don't open DLMGMT_DOOR now.  dlmgmtd(1M) is not able to
+	 * Don't open DLMGMT_DOOR now.  dlmgmtd(8) is not able to
 	 * open the door when the dladm handle is opened because the
 	 * door hasn't been created yet at that time.  Thus, we must
 	 * open it on-demand in dladm_door_fd().  Move the open()
@@ -453,11 +450,14 @@ dladm_status2str(dladm_status_t status, char *buf)
 	case DLADM_STATUS_INVALID_MTU:
 		s = "MTU check failed, MTU outside of device's supported range";
 		break;
+	case DLADM_STATUS_PERSIST_ON_TEMP:
+		s = "can't create persistent object on top of temporary object";
+		break;
 	case DLADM_STATUS_BAD_ENCAP:
 		s = "invalid encapsulation protocol";
 		break;
-	case DLADM_STATUS_PERSIST_ON_TEMP:
-		s = "can't create persistent object on top of temporary object";
+	case DLADM_STATUS_ADDRNOTAVAIL:
+		s = "can't assign requested address";
 		break;
 	default:
 		s = "<unknown error>";
@@ -509,6 +509,8 @@ dladm_errno2status(int err)
 		return (DLADM_STATUS_FLOW_IDENTICAL);
 	case EADDRINUSE:
 		return (DLADM_STATUS_ADDRINUSE);
+	case EADDRNOTAVAIL:
+		return (DLADM_STATUS_ADDRNOTAVAIL);
 	default:
 		return (DLADM_STATUS_FAILED);
 	}
@@ -1367,6 +1369,12 @@ dladm_errlist_reset(dladm_errlist_t *erl)
 		free(erl->el_errs[i]);
 	free(erl->el_errs);
 	dladm_errlist_init(erl);
+}
+
+uint_t
+dladm_errlist_count(dladm_errlist_t *erl)
+{
+	return (erl->el_count);
 }
 
 dladm_status_t

@@ -3,6 +3,7 @@
  *
  * Copyright (c) 2013  Peter Grehan <grehan@freebsd.org>
  * All rights reserved.
+ * Copyright 2020 Joyent, Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -68,9 +69,10 @@ __FBSDID("$FreeBSD$");
 #include <machine/atomic.h>
 
 #include "bhyverun.h"
-#ifdef	__FreeBSD__
+#include "config.h"
+#include "debug.h"
 #include "mevent.h"
-#endif
+#include "pci_emul.h"
 #include "block_if.h"
 
 #define BLOCKIF_SIG	0xb109b109
@@ -136,9 +138,12 @@ struct blockif_ctxt {
 	pthread_t		bc_btid[BLOCKIF_NUMTHR];
 	pthread_mutex_t		bc_mtx;
 	pthread_cond_t		bc_cond;
+	blockif_resize_cb	*bc_resize_cb;
+	void			*bc_resize_cb_arg;
+	struct mevent		*bc_resize_event;
 
 	/* Request elements and free/pending/busy queues */
-	TAILQ_HEAD(, blockif_elem) bc_freeq;       
+	TAILQ_HEAD(, blockif_elem) bc_freeq;
 	TAILQ_HEAD(, blockif_elem) bc_pendq;
 	TAILQ_HEAD(, blockif_elem) bc_busyq;
 	struct blockif_elem	bc_reqs[BLOCKIF_MAXREQ];
@@ -363,9 +368,20 @@ blockif_proc(struct blockif_ctxt *bc, struct blockif_elem *be, uint8_t *buf)
 				err = errno;
 			else
 				br->br_resid = 0;
+		} else {
+			range.r_offset = br->br_offset;
+			range.r_len = br->br_resid;
+
+			while (range.r_len > 0) {
+				if (fspacectl(bc->bc_fd, SPACECTL_DEALLOC,
+				    &range, 0, &range) != 0) {
+					err = errno;
+					break;
+				}
+			}
+			if (err == 0)
+				br->br_resid = 0;
 		}
-		else
-			 err = EOPNOTSUPP;
 #else
 		else if (bc->bc_ischr) {
 			dkioc_free_list_t dfl = {
@@ -486,16 +502,34 @@ blockif_init(void)
 #endif
 }
 
+int
+blockif_legacy_config(nvlist_t *nvl, const char *opts)
+{
+	char *cp, *path;
+
+	if (opts == NULL)
+		return (0);
+
+	cp = strchr(opts, ',');
+	if (cp == NULL) {
+		set_config_value_node(nvl, "path", opts);
+		return (0);
+	}
+	path = strndup(opts, cp - opts);
+	set_config_value_node(nvl, "path", path);
+	free(path);
+	return (pci_parse_legacy_config(nvl, cp + 1));
+}
+
 struct blockif_ctxt *
-blockif_open(const char *optstr, const char *ident)
+blockif_open(nvlist_t *nvl, const char *ident)
 {
 	char tname[MAXCOMLEN + 1];
 #ifdef	__FreeBSD__
 	char name[MAXPATHLEN];
-	char *nopt, *xopts, *cp;
-#else
-	char *nopt, *xopts, *cp = NULL;
 #endif
+	const char *path, *pssval, *ssval;
+	char *cp;
 	struct blockif_ctxt *bc;
 	struct stat sbuf;
 #ifdef	__FreeBSD__
@@ -505,76 +539,82 @@ blockif_open(const char *optstr, const char *ident)
 #endif
 	off_t size, psectsz, psectoff;
 	int extra, fd, i, sectsz;
-	int nocache, sync, ro, candelete, geom, ssopt, pssopt;
+	int ro, candelete, geom, ssopt, pssopt;
 	int nodelete;
 
 #ifndef WITHOUT_CAPSICUM
 	cap_rights_t rights;
-	cap_ioctl_t cmds[] = { DIOCGFLUSH, DIOCGDELETE };
+	cap_ioctl_t cmds[] = { DIOCGFLUSH, DIOCGDELETE, DIOCGMEDIASIZE };
 #endif
 
 	pthread_once(&blockif_once, blockif_init);
 
 	fd = -1;
+	extra = 0;
 	ssopt = 0;
-	nocache = 0;
-	sync = 0;
+#ifndef __FreeBSD__
+	pssopt = 0;
+#endif
 	ro = 0;
 	nodelete = 0;
 
-	/*
-	 * The first element in the optstring is always a pathname.
-	 * Optional elements follow
-	 */
-	nopt = xopts = strdup(optstr);
-	while (xopts != NULL) {
-		cp = strsep(&xopts, ",");
-		if (cp == nopt)		/* file or device pathname */
-			continue;
-		else if (!strcmp(cp, "nocache"))
-			nocache = 1;
-		else if (!strcmp(cp, "nodelete"))
-			nodelete = 1;
-		else if (!strcmp(cp, "sync") || !strcmp(cp, "direct"))
-			sync = 1;
-		else if (!strcmp(cp, "ro"))
-			ro = 1;
-		else if (sscanf(cp, "sectorsize=%d/%d", &ssopt, &pssopt) == 2)
-			;
-		else if (sscanf(cp, "sectorsize=%d", &ssopt) == 1)
+	if (get_config_bool_node_default(nvl, "nocache", false))
+		extra |= O_DIRECT;
+	if (get_config_bool_node_default(nvl, "nodelete", false))
+		nodelete = 1;
+	if (get_config_bool_node_default(nvl, "sync", false) ||
+	    get_config_bool_node_default(nvl, "direct", false))
+		extra |= O_SYNC;
+	if (get_config_bool_node_default(nvl, "ro", false))
+		ro = 1;
+	ssval = get_config_value_node(nvl, "sectorsize");
+	if (ssval != NULL) {
+		ssopt = strtol(ssval, &cp, 10);
+		if (cp == ssval) {
+			EPRINTLN("Invalid sector size \"%s\"", ssval);
+			goto err;
+		}
+		if (*cp == '\0') {
 			pssopt = ssopt;
-		else {
-			fprintf(stderr, "Invalid device option \"%s\"\n", cp);
+		} else if (*cp == '/') {
+			pssval = cp + 1;
+			pssopt = strtol(pssval, &cp, 10);
+			if (cp == pssval || *cp != '\0') {
+				EPRINTLN("Invalid sector size \"%s\"", ssval);
+				goto err;
+			}
+		} else {
+			EPRINTLN("Invalid sector size \"%s\"", ssval);
 			goto err;
 		}
 	}
 
-	extra = 0;
-	if (nocache)
-		extra |= O_DIRECT;
-	if (sync)
-		extra |= O_SYNC;
+	path = get_config_value_node(nvl, "path");
+	if (path == NULL) {
+		EPRINTLN("Missing \"path\" for block device.");
+		goto err;
+	}
 
-	fd = open(nopt, (ro ? O_RDONLY : O_RDWR) | extra);
+	fd = open(path, (ro ? O_RDONLY : O_RDWR) | extra);
 	if (fd < 0 && !ro) {
 		/* Attempt a r/w fail with a r/o open */
-		fd = open(nopt, O_RDONLY | extra);
+		fd = open(path, O_RDONLY | extra);
 		ro = 1;
 	}
 
 	if (fd < 0) {
-		warn("Could not open backing file: %s", nopt);
+		warn("Could not open backing file: %s", path);
 		goto err;
 	}
 
         if (fstat(fd, &sbuf) < 0) {
-		warn("Could not stat backing file %s", nopt);
+		warn("Could not stat backing file %s", path);
 		goto err;
         }
 
 #ifndef WITHOUT_CAPSICUM
 	cap_rights_init(&rights, CAP_FSYNC, CAP_IOCTL, CAP_READ, CAP_SEEK,
-	    CAP_WRITE);
+	    CAP_WRITE, CAP_FSTAT, CAP_EVENT, CAP_FPATHCONF);
 	if (ro)
 		cap_rights_clear(&rights, CAP_FSYNC, CAP_WRITE);
 
@@ -608,6 +648,8 @@ blockif_open(const char *optstr, const char *ident)
 			geom = 1;
 	} else {
 		psectsz = sbuf.st_blksize;
+		/* Avoid fallback implementation */
+		candelete = fpathconf(fd, _PC_DEALLOC_PRESENT) == 1;
 	}
 #else
 	psectsz = sbuf.st_blksize;
@@ -615,9 +657,10 @@ blockif_open(const char *optstr, const char *ident)
 		struct dk_minfo_ext dkmext;
 		int wce_val;
 
-		/* Look for a more accurate physical blocksize */
+		/* Look for a more accurate physical block/media size */
 		if (ioctl(fd, DKIOCGMEDIAINFOEXT, &dkmext) == 0) {
 			psectsz = dkmext.dki_pbsize;
+			size = dkmext.dki_lbsize * dkmext.dki_capacity;
 		}
 		/* See if a configurable write cache is present and working */
 		if (ioctl(fd, DKIOCGETWCE, &wce_val) == 0) {
@@ -692,7 +735,7 @@ blockif_open(const char *optstr, const char *ident)
 	if (ssopt != 0) {
 		if (!powerof2(ssopt) || !powerof2(pssopt) || ssopt < 512 ||
 		    ssopt > pssopt) {
-			fprintf(stderr, "Invalid sector size %d/%d\n",
+			EPRINTLN("Invalid sector size %d/%d",
 			    ssopt, pssopt);
 			goto err;
 		}
@@ -706,8 +749,8 @@ blockif_open(const char *optstr, const char *ident)
 		 */
 		if (S_ISCHR(sbuf.st_mode)) {
 			if (ssopt < sectsz || (ssopt % sectsz) != 0) {
-				fprintf(stderr, "Sector size %d incompatible "
-				    "with underlying device sector size %d\n",
+				EPRINTLN("Sector size %d incompatible "
+				    "with underlying device sector size %d",
 				    ssopt, sectsz);
 				goto err;
 			}
@@ -757,8 +800,86 @@ blockif_open(const char *optstr, const char *ident)
 err:
 	if (fd >= 0)
 		close(fd);
-	free(nopt);
 	return (NULL);
+}
+
+static void
+blockif_resized(int fd, enum ev_type type, void *arg)
+{
+	struct blockif_ctxt *bc;
+	struct stat sb;
+	off_t mediasize;
+
+	if (fstat(fd, &sb) != 0)
+		return;
+
+#ifdef __FreeBSD__
+	if (S_ISCHR(sb.st_mode)) {
+		if (ioctl(fd, DIOCGMEDIASIZE, &mediasize) < 0) {
+			EPRINTLN("blockif_resized: get mediasize failed: %s",
+			    strerror(errno));
+			return;
+		}
+	} else
+		mediasize = sb.st_size;
+#else
+	mediasize = sb.st_size;
+	if (S_ISCHR(sb.st_mode)) {
+		struct dk_minfo dkm;
+
+		if (ioctl(fd, DKIOCGMEDIAINFO, &dkm) == 0)
+			mediasize = dkm.dki_lbsize * dkm.dki_capacity;
+	}
+#endif
+
+	bc = arg;
+	pthread_mutex_lock(&bc->bc_mtx);
+	if (mediasize != bc->bc_size) {
+		bc->bc_size = mediasize;
+		bc->bc_resize_cb(bc, bc->bc_resize_cb_arg, bc->bc_size);
+	}
+	pthread_mutex_unlock(&bc->bc_mtx);
+}
+
+int
+blockif_register_resize_callback(struct blockif_ctxt *bc, blockif_resize_cb *cb,
+    void *cb_arg)
+{
+	struct stat sb;
+	int err;
+#ifndef __FreeBSD__
+	err = 0;
+#endif
+
+	if (cb == NULL)
+		return (EINVAL);
+
+	pthread_mutex_lock(&bc->bc_mtx);
+	if (bc->bc_resize_cb != NULL) {
+		err = EBUSY;
+		goto out;
+	}
+
+	assert(bc->bc_closing == 0);
+
+	if (fstat(bc->bc_fd, &sb) != 0) {
+		err = errno;
+		goto out;
+	}
+
+	bc->bc_resize_event = mevent_add_flags(bc->bc_fd, EVF_VNODE,
+	    EVFF_ATTRIB, blockif_resized, bc);
+	if (bc->bc_resize_event == NULL) {
+		err = ENXIO;
+		goto out;
+	}
+
+	bc->bc_resize_cb = cb;
+	bc->bc_resize_cb_arg = cb_arg;
+out:
+	pthread_mutex_unlock(&bc->bc_mtx);
+
+	return (err);
 }
 
 static int
@@ -912,6 +1033,8 @@ blockif_close(struct blockif_ctxt *bc)
 	 */
 	pthread_mutex_lock(&bc->bc_mtx);
 	bc->bc_closing = 1;
+	if (bc->bc_resize_event != NULL)
+		mevent_disable(bc->bc_resize_event);
 	pthread_mutex_unlock(&bc->bc_mtx);
 	pthread_cond_broadcast(&bc->bc_cond);
 	for (i = 0; i < BLOCKIF_NUMTHR; i++)

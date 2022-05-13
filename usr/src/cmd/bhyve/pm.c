@@ -28,6 +28,7 @@
  */
 /*
  * Copyright 2018 Joyent, Inc.
+ * Copyright 2020 Oxide Computer Company
  */
 
 #include <sys/cdefs.h>
@@ -60,6 +61,10 @@ static sig_t old_power_handler;
 #else
 struct vmctx *pwr_ctx;
 #endif
+
+static unsigned gpe0_active;
+static unsigned gpe0_enabled;
+static const unsigned gpe0_valid = (1u << GPE_VMGENC);
 
 /*
  * Reset Control register at I/O port 0xcf9.  Bit 2 forces a system
@@ -156,6 +161,9 @@ sci_update(struct vmctx *ctx)
 		need_sci = 1;
 	if ((pm1_enable & PM1_RTC_EN) && (pm1_status & PM1_RTC_STS))
 		need_sci = 1;
+	if ((gpe0_enabled & gpe0_active) != 0)
+		need_sci = 1;
+
 	if (need_sci)
 		sci_assert(ctx);
 	else
@@ -203,7 +211,7 @@ pm1_enable_handler(struct vmctx *ctx, int vcpu, int in, int port, int bytes,
 		 * the global lock, but ACPI-CA whines profusely if it
 		 * can't set GBL_EN.
 		 */
-		pm1_enable = *eax & (PM1_PWRBTN_EN | PM1_GBL_EN);
+		pm1_enable = *eax & (PM1_RTC_EN | PM1_PWRBTN_EN | PM1_GBL_EN);
 		sci_update(ctx);
 	}
 	pthread_mutex_unlock(&pm_lock);
@@ -306,6 +314,64 @@ INOUT_PORT(pm1_control, PM1A_CNT_ADDR, IOPORT_F_INOUT, pm1_control_handler);
 SYSRES_IO(PM1A_EVT_ADDR, 8);
 #endif
 
+void
+acpi_raise_gpe(struct vmctx *ctx, unsigned bit)
+{
+	unsigned mask;
+
+	assert(bit < (IO_GPE0_LEN * (8 / 2)));
+	mask = (1u << bit);
+	assert((mask & ~gpe0_valid) == 0);
+
+	pthread_mutex_lock(&pm_lock);
+	gpe0_active |= mask;
+	sci_update(ctx);
+	pthread_mutex_unlock(&pm_lock);
+}
+
+static int
+gpe0_sts(struct vmctx *ctx, int vcpu, int in, int port, int bytes,
+    uint32_t *eax, void *arg)
+{
+	/*
+	 * ACPI 6.2 specifies the GPE register blocks are accessed
+	 * byte-at-a-time.
+	 */
+	if (bytes != 1)
+		return (-1);
+
+	pthread_mutex_lock(&pm_lock);
+	if (in)
+		*eax = gpe0_active;
+	else {
+		/* W1C */
+		gpe0_active &= ~(*eax & gpe0_valid);
+		sci_update(ctx);
+	}
+	pthread_mutex_unlock(&pm_lock);
+	return (0);
+}
+INOUT_PORT(gpe0_sts, IO_GPE0_STS, IOPORT_F_INOUT, gpe0_sts);
+
+static int
+gpe0_en(struct vmctx *ctx, int vcpu, int in, int port, int bytes,
+    uint32_t *eax, void *arg)
+{
+	if (bytes != 1)
+		return (-1);
+
+	pthread_mutex_lock(&pm_lock);
+	if (in)
+		*eax = gpe0_enabled;
+	else {
+		gpe0_enabled = (*eax & gpe0_valid);
+		sci_update(ctx);
+	}
+	pthread_mutex_unlock(&pm_lock);
+	return (0);
+}
+INOUT_PORT(gpe0_en, IO_GPE0_EN, IOPORT_F_INOUT, gpe0_en);
+
 /*
  * ACPI SMI Command Register
  *
@@ -376,3 +442,14 @@ sci_init(struct vmctx *ctx)
 	}
 #endif
 }
+
+#ifndef	__FreeBSD__
+void pmtmr_init(struct vmctx *ctx)
+{
+	int err;
+
+	/* Attach in-kernel PM timer emulation to correct IO port */
+	err = vm_pmtmr_set_location(ctx, IO_PMTMR);
+	assert(err == 0);
+}
+#endif

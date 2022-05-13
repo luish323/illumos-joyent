@@ -40,7 +40,6 @@ UTSBASE	= ../..
 #
 MODULE		= dev
 OBJECTS		= $(DEV_OBJS:%=$(OBJS_DIR)/%)
-LINTS		= $(DEV_OBJS:%.o=$(LINTS_DIR)/%.ln)
 ROOTMODULE	= $(ROOT_FS_DIR)/$(MODULE)
 
 #
@@ -52,7 +51,6 @@ include $(UTSBASE)/sparc/Makefile.sparc
 #	Define targets
 #
 ALL_TARGET	= $(BINARY)
-LINT_TARGET	= $(MODULE).lint
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 
 #
@@ -62,12 +60,10 @@ MODSTUBS_DIR	 = $(OBJS_DIR)
 # $(MODSTUBS_O)	:= AS_CPPFLAGS += -DDEVFS_MODULE
 # CLEANFILES	+= $(MODSTUBS_O)
 CFLAGS		+= $(CCVERBOSE)
-LDFLAGS		+= -dy -Nfs/devfs -Nmisc/dls
+LDFLAGS		+= -Nfs/devfs -Nmisc/dls
 INC_PATH	+= -I$(UTSBASE)/common/fs/zfs
 INC_PATH	+= -I$(UTSBASE)/common/io/bpf
 
-LINTTAGS	+= -erroff=E_BAD_PTR_CAST_ALIGN
-LINTTAGS	+= -erroff=E_STATIC_UNUSED
 
 CERRWARN	+= -_gcc=-Wno-parentheses
 CERRWARN	+= -_gcc=-Wno-unused-label
@@ -85,12 +81,6 @@ all:		$(ALL_DEPS)
 clean:		$(CLEAN_DEPS)
 
 clobber:	$(CLOBBER_DEPS)
-
-lint:		$(LINT_DEPS)
-
-modlintlib:	$(MODLINTLIB_DEPS)
-
-clean.lint:	$(CLEAN_LINT_DEPS)
 
 install:	$(INSTALL_DEPS)
 

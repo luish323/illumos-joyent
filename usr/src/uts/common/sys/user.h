@@ -111,7 +111,7 @@ typedef struct uf_entry {
 	short		uf_busy;	/* file is allocated [grow, fork] */
 	kcondvar_t	uf_wanted_cv;	/* waiting for setf() [never copied] */
 	kcondvar_t	uf_closing_cv;	/* waiting for close() [never copied] */
-	struct portfd	*uf_portfd;	/* associated with port [grow] */
+	struct portfd 	*uf_portfd;	/* associated with port [grow] */
 	uf_entry_gen_t	uf_gen;		/* assigned fd generation [grow,fork] */
 	/* Avoid false sharing - pad to coherency granularity (64 bytes) */
 	char		uf_pad[64 - sizeof (kmutex_t) - 2 * sizeof (void*) -
@@ -197,7 +197,7 @@ typedef struct {		/* kernel syscall set type */
  * for the portions of the kernel that care about aux vectors.
  *
  * Applications that need to know how many aux vectors the kernel
- * supplies should use the proc(4) interface to read /proc/PID/auxv.
+ * supplies should use the proc(5) interface to read /proc/PID/auxv.
  *
  * This value should not be changed in a patch.
  */

@@ -24,7 +24,7 @@
  * Portions Copyright 2010 Robert Milkowski
  *
  * Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
- * Copyright (c) 2012, 2017 by Delphix. All rights reserved.
+ * Copyright (c) 2012, 2020 by Delphix. All rights reserved.
  * Copyright (c) 2014 Integros [integros.com]
  * Copyright 2019 Joyent, Inc.
  */
@@ -1158,13 +1158,13 @@ zvol_dumpio(zvol_state_t *zv, void *addr, uint64_t offset, uint64_t size,
 	    P2BOUNDARY(offset, size, zv->zv_volblocksize)) {
 		return (SET_ERROR(EINVAL));
 	}
-	ASSERT(size <= zv->zv_volblocksize);
+	VERIFY3U(size, <=, zv->zv_volblocksize);
 
 	/* Locate the extent this belongs to */
-	ze = list_head(&zv->zv_extents);
-	while (offset >= ze->ze_nblks * zv->zv_volblocksize) {
+	for (ze = list_head(&zv->zv_extents);
+	    ze != NULL && offset >= ze->ze_nblks * zv->zv_volblocksize;
+	    ze = list_next(&zv->zv_extents, ze)) {
 		offset -= ze->ze_nblks * zv->zv_volblocksize;
-		ze = list_next(&zv->zv_extents, ze);
 	}
 
 	if (ze == NULL)
@@ -1232,7 +1232,7 @@ zvol_strategy(buf_t *bp)
 	addr = bp->b_un.b_addr;
 	resid = bp->b_bcount;
 
-	if (resid > 0 && (off < 0 || off >= volsize)) {
+	if (resid > 0 && off >= volsize) {
 		bioerror(bp, EIO);
 		biodone(bp);
 		return (0);
@@ -1499,7 +1499,7 @@ zvol_write(dev_t dev, uio_t *uio, cred_t *cr)
 			bytes = volsize - off;
 
 		tot_bytes += bytes;
-		dmu_tx_hold_write(tx, ZVOL_OBJ, off, bytes);
+		dmu_tx_hold_write_by_dnode(tx, zv->zv_dn, off, bytes);
 		error = dmu_tx_assign(tx, TXG_WAIT);
 		if (error) {
 			dmu_tx_abort(tx);
@@ -1709,7 +1709,7 @@ zvol_log_truncate(zvol_state_t *zv, dmu_tx_t *tx, uint64_t off, uint64_t len,
 }
 
 /*
- * Dirtbag ioctls to support mkfs(1M) for UFS filesystems.  See dkio(7I).
+ * Dirtbag ioctls to support mkfs(8) for UFS filesystems.  See dkio(4I).
  * Also a dirtbag dkio ioctl for unmap/free-block functionality.
  */
 /*ARGSUSED*/
@@ -1767,6 +1767,7 @@ zvol_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 	case DKIOCGMEDIAINFOEXT:
 	{
 		struct dk_minfo_ext dkmext;
+		size_t len;
 
 		bzero(&dkmext, sizeof (dkmext));
 		dkmext.dki_lbsize = 1U << zv->zv_min_bs;
@@ -1774,7 +1775,17 @@ zvol_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 		dkmext.dki_capacity = zv->zv_volsize >> zv->zv_min_bs;
 		dkmext.dki_media_type = DK_UNKNOWN;
 		mutex_exit(&zfsdev_state_lock);
-		if (ddi_copyout(&dkmext, (void *)arg, sizeof (dkmext), flag))
+
+		switch (ddi_model_convert_from(flag & FMODELS)) {
+		case DDI_MODEL_ILP32:
+			len = sizeof (struct dk_minfo_ext32);
+			break;
+		default:
+			len = sizeof (struct dk_minfo_ext);
+			break;
+		}
+
+		if (ddi_copyout(&dkmext, (void *)arg, len, flag))
 			error = SET_ERROR(EFAULT);
 		return (error);
 	}

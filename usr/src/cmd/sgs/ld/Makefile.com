@@ -39,10 +39,10 @@ OBJS =		$(BLTOBJ) $(COMOBJS)
 SRCDIR =	$(SGSHOME)/ld
 
 MAPFILES =	$(SRCDIR)/common/mapfile-intf $(MAPFILE.NGB)
-MAPOPTS =	$(MAPFILES:%=-M%)
+MAPOPTS =	$(MAPFILES:%=-Wl,-M%)
 
 LDFLAGS +=	$(VERSREF) $(MAPOPTS) $(VAR_LD_LLDFLAGS)
-LDLIBS +=	$(LDLIBDIR) -lld $(ELFLIBDIR) -lelf \
+LDLIBS +=	-lumem $(LDLIBDIR) -lld $(ELFLIBDIR) -lelf \
 		    $(LDDBGLIBDIR) -llddbg $(CONVLIBDIR) -lconv
 
 CERRWARN +=	-_gcc=-Wno-switch

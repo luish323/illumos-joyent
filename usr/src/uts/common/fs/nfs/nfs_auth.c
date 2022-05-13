@@ -219,7 +219,7 @@ nfsauth_zone_init(nfs_globals_t *ng)
 	nag = kmem_zalloc(sizeof (*nag), KM_SLEEP);
 
 	/*
-	 * mountd can be restarted by smf(5).  We need to make sure
+	 * mountd can be restarted by smf(7).  We need to make sure
 	 * the updated door handle will safely make it to mountd_dh.
 	 */
 	mutex_init(&nag->mountd_lock, NULL, MUTEX_DEFAULT, NULL);
@@ -462,7 +462,7 @@ retry:
 	if (dh == NULL) {
 		/*
 		 * The rendezvous point has not been established yet!
-		 * This could mean that either mountd(1m) has not yet
+		 * This could mean that either mountd(8) has not yet
 		 * been started or that _this_ routine nuked the door
 		 * handle after receiving an EINTR for a REVOKED door.
 		 *
@@ -523,8 +523,8 @@ retry:
 				/*
 				 * The server barfed and revoked
 				 * the (existing) door on us; we
-				 * want to wait to give smf(5) a
-				 * chance to restart mountd(1m)
+				 * want to wait to give smf(7) a
+				 * chance to restart mountd(8)
 				 * and establish a new door handle.
 				 */
 				mutex_enter(&nag->mountd_lock);
@@ -910,9 +910,6 @@ nfsauth_cache_get(struct exportinfo *exi, struct svc_req *req, int flavor,
 	ASSERT(taddrmask != NULL);
 	addrmask(&addr, taddrmask);
 
-	ac.auth_flavor = flavor;
-	ac.auth_clnt_cred = crdup(cr);
-
 	acc.authc_addr = addr;
 
 	tree = exi->exi_cache[hash(&addr)];
@@ -925,7 +922,7 @@ nfsauth_cache_get(struct exportinfo *exi, struct svc_req *req, int flavor,
 
 		rw_exit(&exi->exi_cache_lock);
 
-		nc = kmem_alloc(sizeof (*nc), KM_NOSLEEP | KM_NORMALPRI);
+		nc = kmem_alloc(sizeof (*nc), KM_NOSLEEP_LAZY);
 		if (nc == NULL)
 			goto retrieve;
 
@@ -933,8 +930,7 @@ nfsauth_cache_get(struct exportinfo *exi, struct svc_req *req, int flavor,
 		 * Initialize the new auth_cache_clnt
 		 */
 		nc->authc_addr = addr;
-		nc->authc_addr.buf = kmem_alloc(addr.maxlen,
-		    KM_NOSLEEP | KM_NORMALPRI);
+		nc->authc_addr.buf = kmem_alloc(addr.maxlen, KM_NOSLEEP_LAZY);
 		if (addr.maxlen != 0 && nc->authc_addr.buf == NULL) {
 			kmem_free(nc, sizeof (*nc));
 			goto retrieve;
@@ -964,6 +960,10 @@ nfsauth_cache_get(struct exportinfo *exi, struct svc_req *req, int flavor,
 	ASSERT(c != NULL);
 
 	rw_enter(&c->authc_lock, RW_READER);
+
+	ac.auth_flavor = flavor;
+	ac.auth_clnt_cred = cr;
+
 	p = (struct auth_cache *)avl_find(&c->authc_tree, &ac, NULL);
 
 	if (p == NULL) {
@@ -971,8 +971,7 @@ nfsauth_cache_get(struct exportinfo *exi, struct svc_req *req, int flavor,
 
 		rw_exit(&c->authc_lock);
 
-		np = kmem_cache_alloc(exi_cache_handle,
-		    KM_NOSLEEP | KM_NORMALPRI);
+		np = kmem_cache_alloc(exi_cache_handle, KM_NOSLEEP_LAZY);
 		if (np == NULL) {
 			rw_exit(&exi->exi_cache_lock);
 			goto retrieve;
@@ -983,7 +982,7 @@ nfsauth_cache_get(struct exportinfo *exi, struct svc_req *req, int flavor,
 		 */
 		np->auth_clnt = c;
 		np->auth_flavor = flavor;
-		np->auth_clnt_cred = ac.auth_clnt_cred;
+		np->auth_clnt_cred = crdup(cr);
 		np->auth_srv_ngids = 0;
 		np->auth_srv_gids = NULL;
 		np->auth_time = np->auth_freshness = gethrestime_sec();
@@ -1004,12 +1003,11 @@ nfsauth_cache_get(struct exportinfo *exi, struct svc_req *req, int flavor,
 
 			cv_destroy(&np->auth_cv);
 			mutex_destroy(&np->auth_lock);
-			crfree(ac.auth_clnt_cred);
+			crfree(np->auth_clnt_cred);
 			kmem_cache_free(exi_cache_handle, np);
 		}
 	} else {
 		rw_exit(&exi->exi_cache_lock);
-		crfree(ac.auth_clnt_cred);
 	}
 
 	mutex_enter(&p->auth_lock);
@@ -1071,7 +1069,7 @@ nfsauth_cache_get(struct exportinfo *exi, struct svc_req *req, int flavor,
 				 * auth_cache entry
 				 */
 				tmpgids = kmem_alloc(tmpngids * sizeof (gid_t),
-				    KM_NOSLEEP | KM_NORMALPRI);
+				    KM_NOSLEEP_LAZY);
 				if (tmpgids != NULL)
 					bcopy(*gids, tmpgids,
 					    tmpngids * sizeof (gid_t));
@@ -1212,7 +1210,6 @@ nfsauth_cache_get(struct exportinfo *exi, struct svc_req *req, int flavor,
 	return (access);
 
 retrieve:
-	crfree(ac.auth_clnt_cred);
 
 	/*
 	 * Retrieve the required data without caching.

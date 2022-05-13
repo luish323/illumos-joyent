@@ -22,6 +22,7 @@
 /*
  * Copyright 2013 Garrett D'Amore <garrett@damore.org>
  * Copyright 2016 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Company
  *
  * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
@@ -58,7 +59,7 @@ extern "C" {
  * compress common standards specified feature test macros for easier reading.
  * These macros should not be used by the application developer as
  * unexpected results may occur. Instead, the user should reference
- * standards(5) for correct usage of the standards feature test macros.
+ * standards(7) for correct usage of the standards feature test macros.
  *
  * __XOPEN_OR_POSIX     Used in cases where a symbol is defined by both
  *                      X/Open or POSIX or in the negative, when neither
@@ -168,6 +169,24 @@ extern "C" {
 #endif
 
 /*
+ * This is a variant of _STRICT_SYMBOLS that is meant to cover headers that are
+ * governed by POSIX, but have not been governed by ISO C. One can go two ways
+ * on what should happen if an application actively includes (not transitively)
+ * a header that isn't part of the ISO C spec, we opt to say that if someone has
+ * gone out of there way then they're doing it for a reason and that is an act
+ * of non-compliance and therefore it's not up to us to hide away every symbol.
+ *
+ * In general, prefer using _STRICT_SYMBOLS, but this is here in particular for
+ * cases where in the past we have only used a POSIX related check and we don't
+ * wish to make something stricter. Often applications are relying on the
+ * ability to, or more realistically unwittingly, have _STRICT_STDC declared and
+ * still use these interfaces.
+ */
+#if (defined(__XOPEN_OR_POSIX) && !defined(__EXTENSIONS__))
+#define	_STRICT_POSIX
+#endif
+
+/*
  * Large file interfaces:
  *
  *	_LARGEFILE_SOURCE
@@ -259,7 +278,7 @@ extern "C" {
  *
  * When writing a conforming X/Open application, as per the specification
  * requirements, the appropriate feature test macros must be defined at
- * compile time. These are as follows. For more info, see standards(5).
+ * compile time. These are as follows. For more info, see standards(7).
  *
  * Feature Test Macro				     Specification
  * ------------------------------------------------  -------------

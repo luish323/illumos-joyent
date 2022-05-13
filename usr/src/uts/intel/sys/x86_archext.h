@@ -32,6 +32,7 @@
  * Copyright 2012 Hans Rosenfeld <rosenfeld@grumpf.hope-2000.org>
  * Copyright 2014 Josef 'Jeff' Sipek <jeffpc@josefsipek.net>
  * Copyright 2018 Nexenta Systems, Inc.
+ * Copyright 2021 Oxide Computer Company
  */
 
 #ifndef _SYS_X86_ARCHEXT_H
@@ -209,6 +210,7 @@ extern "C" {
 #define	CPUID_AMD_EBX_IBRS_ALL		0x000010000 /* AMD: Enhanced IBRS */
 #define	CPUID_AMD_EBX_STIBP_ALL		0x000020000 /* AMD: STIBP ALL */
 #define	CPUID_AMD_EBX_PREFER_IBRS	0x000040000 /* AMD: Don't retpoline */
+#define	CPUID_AMD_EBX_PPIN		0x000800000 /* AMD: PPIN Support */
 #define	CPUID_AMD_EBX_SSBD		0x001000000 /* AMD: SSBD */
 #define	CPUID_AMD_EBX_VIRT_SSBD		0x002000000 /* AMD: VIRT SSBD */
 #define	CPUID_AMD_EBX_SSB_NO		0x004000000 /* AMD: SSB Fixed */
@@ -455,14 +457,23 @@ extern "C" {
 #define	MSR_PRP4_LBSTK_TO_15	0x6cf
 
 /*
- * General Xeon based MSRs
+ * PPIN definitions for Intel and AMD. Unfortunately, Intel and AMD use
+ * different MSRS for this and different MSRS to control whether or not it
+ * should be readable.
  */
-#define	MSR_PPIN_CTL		0x04e
-#define	MSR_PPIN		0x04f
+#define	MSR_PPIN_CTL_INTC	0x04e
+#define	MSR_PPIN_INTC		0x04f
 #define	MSR_PLATFORM_INFO	0x0ce
-
 #define	MSR_PLATFORM_INFO_PPIN	(1 << 23)
+
+#define	MSR_PPIN_CTL_AMD	0xC00102F0
+#define	MSR_PPIN_AMD		0xC00102F1
+
+/*
+ * These values are currently the same between Intel and AMD.
+ */
 #define	MSR_PPIN_CTL_MASK	0x03
+#define	MSR_PPIN_CTL_DISABLED	0x00
 #define	MSR_PPIN_CTL_LOCKED	0x01
 #define	MSR_PPIN_CTL_ENABLED	0x02
 
@@ -515,9 +526,21 @@ extern "C" {
 #define	IA32_VMX_PROCBASED2_VPID	(1UL << 5)
 
 #define	MSR_IA32_VMX_EPT_VPID_CAP	0x48c
-#define	IA32_VMX_EPT_VPID_INVEPT	(1UL << 20)
-#define	IA32_VMX_EPT_VPID_INVEPT_SINGLE	(1UL << 25)
-#define	IA32_VMX_EPT_VPID_INVEPT_ALL	(1UL << 26)
+#define	IA32_VMX_EPT_VPID_EXEC_ONLY		(1UL << 0)
+#define	IA32_VMX_EPT_VPID_PWL4			(1UL << 6)
+#define	IA32_VMX_EPT_VPID_TYPE_UC		(1UL << 8)
+#define	IA32_VMX_EPT_VPID_TYPE_WB		(1UL << 14)
+#define	IA32_VMX_EPT_VPID_MAP_2M		(1UL << 16)
+#define	IA32_VMX_EPT_VPID_MAP_1G		(1UL << 17)
+#define	IA32_VMX_EPT_VPID_HW_AD			(1UL << 21)
+#define	IA32_VMX_EPT_VPID_INVEPT		(1UL << 20)
+#define	IA32_VMX_EPT_VPID_INVEPT_SINGLE		(1UL << 25)
+#define	IA32_VMX_EPT_VPID_INVEPT_ALL		(1UL << 26)
+#define	IA32_VMX_EPT_VPID_INVVPID		(1UL << 32)
+#define	IA32_VMX_EPT_VPID_INVVPID_ADDR		(1UL << 40)
+#define	IA32_VMX_EPT_VPID_INVVPID_SINGLE	(1UL << 41)
+#define	IA32_VMX_EPT_VPID_INVVPID_ALL		(1UL << 42)
+#define	IA32_VMX_EPT_VPID_INVVPID_RETAIN	(1UL << 43)
 
 /*
  * Intel TSX Control MSRs
@@ -594,13 +617,6 @@ extern "C" {
 #define	IA32_PKG_THERM_INTERRUPT_TR2_IE		0x00800000
 #define	IA32_PKG_THERM_INTERRUPT_PL_NE		0x01000000
 
-/*
- * This MSR exists on families, 10h, 12h+ for AMD. This controls instruction
- * decoding. Most notably, for the AMD variant of retpolines, we must improve
- * the serializability of lfence for the lfence based method to work.
- */
-#define	MSR_AMD_DECODE_CONFIG			0xc0011029
-#define	AMD_DECODE_CONFIG_LFENCE_DISPATCH	0x02
 
 #define	MCI_CTL_VALUE		0xffffffff
 
@@ -732,6 +748,10 @@ extern "C" {
 #define	X86FSET_PKG_THERMAL	96
 #define	X86FSET_TSX_CTRL	97
 #define	X86FSET_TAA_NO		98
+#define	X86FSET_PPIN		99
+#define	X86FSET_VAES		100
+#define	X86FSET_VPCLMULQDQ	101
+#define	X86FSET_LFENCE_SER	102
 
 /*
  * Intel Deep C-State invariant TSC in leaf 0x80000007.
@@ -798,6 +818,9 @@ extern "C" {
 
 #define	X86_VENDOR_NSC		10
 #define	X86_VENDORSTR_NSC	"Geode by NSC"
+
+#define	X86_VENDOR_HYGON	11
+#define	X86_VENDORSTR_HYGON	"HygonGenuine"
 
 /*
  * Vendor string max len + \0
@@ -944,6 +967,41 @@ extern "C" {
 #define	X86_CHIPREV_AMD_17_PiR_B2 \
 	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x17, 0x0003)
 
+#define	X86_CHIPREV_AMD_17_RV_B0 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x17, 0x0004)
+
+#define	X86_CHIPREV_AMD_17_RV_B1 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x17, 0x0005)
+
+#define	X86_CHIPREV_AMD_17_PCO_B1 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x17, 0x0006)
+
+#define	X86_CHIPREV_AMD_17_SSP_A0 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x17, 0x0007)
+
+#define	X86_CHIPREV_AMD_17_SSP_B0 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x17, 0x0008)
+
+#define	X86_CHIPREV_AMD_17_MTS_B0 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x17, 0x0009)
+
+/*
+ * Definitions for Hygon Family 0x18
+ */
+#define	X86_CHIPREV_HYGON_18_DN_A1 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_HYGON, 0x18, 0x0001)
+
+#define	X86_CHIPREV_AMD_19_GN_A0 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x19, 0x0000)
+#define	X86_CHIPREV_AMD_19_GN_B0 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x19, 0x0001)
+#define	X86_CHIPREV_AMD_19_GN_B1 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x19, 0x0002)
+#define	X86_CHIPREV_AMD_19_VMR_B0 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x19, 0x0003)
+#define	X86_CHIPREV_AMD_19_VMR_B1 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x19, 0x0004)
+
 /*
  * Various socket/package types, extended as the need to distinguish
  * a new type arises.  The top 8 byte identfies the vendor and the
@@ -998,8 +1056,20 @@ extern "C" {
 #define	X86_SOCKET_FT3B		_X86_SOCKET_MKVAL(X86_VENDOR_AMD, 0x1e)
 #define	X86_SOCKET_SP3		_X86_SOCKET_MKVAL(X86_VENDOR_AMD, 0x1f)
 #define	X86_SOCKET_SP3R2	_X86_SOCKET_MKVAL(X86_VENDOR_AMD, 0x20)
-#define	X86_NUM_SOCKETS_AMD	0x21
+#define	X86_SOCKET_FP5		_X86_SOCKET_MKVAL(X86_VENDOR_AMD, 0x21)
+#define	X86_SOCKET_FP6		_X86_SOCKET_MKVAL(X86_VENDOR_AMD, 0x22)
+#define	X86_SOCKET_STRX4	_X86_SOCKET_MKVAL(X86_VENDOR_AMD, 0x23)
+#define	X86_NUM_SOCKETS_AMD	0x24
 
+/*
+ * Hygon socket types
+ */
+#define	X86_SOCKET_SL1		_X86_SOCKET_MKVAL(X86_VENDOR_HYGON, 0x01)
+#define	X86_SOCKET_SL1R2	_X86_SOCKET_MKVAL(X86_VENDOR_HYGON, 0x02)
+#define	X86_SOCKET_DM1		_X86_SOCKET_MKVAL(X86_VENDOR_HYGON, 0x03)
+#define	X86_NUM_SOCKETS_HYGON	0x04
+
+#define	X86_NUM_SOCKETS		(X86_NUM_SOCKETS_AMD + X86_NUM_SOCKETS_HYGON)
 
 /*
  * Definitions for Intel processor models. These are all for Family 6
@@ -1036,11 +1106,26 @@ extern "C" {
 #define	INTC_MODEL_BROADWELL_XEON_D	0x56
 
 #define	INTC_MODEL_SKYLAKE_MOBILE	0x4e
+/*
+ * Note, this model is shared with Cascade Lake and Cooper Lake.
+ */
 #define	INTC_MODEL_SKYLAKE_XEON		0x55
 #define	INTC_MODEL_SKYLAKE_DESKTOP	0x5e
 
+/*
+ * Note, both Kaby Lake models are shared with Coffee Lake, Whiskey Lake, Amber
+ * Lake, and some Comet Lake parts.
+ */
 #define	INTC_MODEL_KABYLAKE_MOBILE	0x8e
 #define	INTC_MODEL_KABYLAKE_DESKTOP	0x9e
+
+#define	INTC_MODEL_ICELAKE_XEON		0x6a
+#define	INTC_MODEL_ICELAKE_MOBILE	0x7e
+#define	INTC_MODEL_TIGERLAKE_MOBILE	0x8c
+
+#define	INTC_MODEL_COMETLAKE		0xa5
+#define	INTC_MODEL_COMETLAKE_MOBILE	0xa6
+#define	INTC_MODEL_ROCKETLAKE		0xa7
 
 /*
  * Atom Processors
@@ -1093,7 +1178,7 @@ extern "C" {
 
 #if defined(_KERNEL) || defined(_KMEMUSER)
 
-#define	NUM_X86_FEATURES	99
+#define	NUM_X86_FEATURES	103
 extern uchar_t x86_featureset[];
 
 extern void free_x86_featureset(void *featureset);
@@ -1198,8 +1283,6 @@ extern uint32_t cpuid_getchiprev(struct cpu *);
 extern const char *cpuid_getchiprevstr(struct cpu *);
 extern uint32_t cpuid_getsockettype(struct cpu *);
 extern const char *cpuid_getsocketstr(struct cpu *);
-
-extern int cpuid_have_cr8access(struct cpu *);
 
 extern int cpuid_opteron_erratum(struct cpu *, uint_t);
 

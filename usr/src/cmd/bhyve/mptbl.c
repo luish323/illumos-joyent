@@ -39,6 +39,7 @@ __FBSDID("$FreeBSD$");
 #include <string.h>
 
 #include "acpi.h"
+#include "debug.h"
 #include "bhyverun.h"
 #include "mptbl.h"
 #include "pci_emul.h"
@@ -179,7 +180,7 @@ mpt_build_bus_entries(bus_entry_ptr mpeb)
 
 	memset(mpeb, 0, sizeof(*mpeb));
 	mpeb->type = MPCT_ENTRY_BUS;
-	mpeb->bus_id = 1;	
+	mpeb->bus_id = 1;
 	memcpy(mpeb->bus_type, MPE_BUSNAME_ISA, MPE_BUSNAME_LEN);
 }
 
@@ -242,7 +243,7 @@ mpt_build_ioint_entries(int_entry_ptr mpie, int id)
 
 	/*
 	 * The following config is taken from kernel mptable.c
-	 * mptable_parse_default_config_ints(...), for now 
+	 * mptable_parse_default_config_ints(...), for now
 	 * just use the default config, tweek later if needed.
 	 */
 
@@ -286,7 +287,7 @@ mpt_build_ioint_entries(int_entry_ptr mpie, int id)
 
 	/* Next, generate entries for any PCI INTx interrupts. */
 	for (bus = 0; bus <= PCI_BUSMAX; bus++)
-		pci_walk_lintr(bus, mpt_generate_pci_int, &mpie); 
+		pci_walk_lintr(bus, mpt_generate_pci_int, &mpie);
 }
 
 void
@@ -312,7 +313,7 @@ mptable_build(struct vmctx *ctx, int ncpu)
 
 	startaddr = paddr_guest2host(ctx, MPTABLE_BASE, MPTABLE_MAX_LENGTH);
 	if (startaddr == NULL) {
-		fprintf(stderr, "mptable requires mapped mem\n");
+		EPRINTLN("mptable requires mapped mem");
 		return (ENOMEM);
 	}
 
@@ -323,10 +324,10 @@ mptable_build(struct vmctx *ctx, int ncpu)
 	 */
 	for (bus = 1; bus <= PCI_BUSMAX; bus++) {
 		if (pci_bus_configured(bus)) {
-			fprintf(stderr, "MPtable is incompatible with "
-			    "multiple PCI hierarchies.\r\n");
-			fprintf(stderr, "MPtable generation can be disabled "
-			    "by passing the -Y option to bhyve(8).\r\n");
+			EPRINTLN("MPtable is incompatible with "
+			    "multiple PCI hierarchies.");
+			EPRINTLN("MPtable generation can be disabled "
+			    "by passing the -Y option to bhyve(8).");
 			return (EINVAL);
 		}
 	}

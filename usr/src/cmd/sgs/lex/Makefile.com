@@ -44,13 +44,19 @@ FORMS=		nceucform ncform nrform
 
 include		../../../../lib/Makefile.lib
 
+COMPATLINKS=	usr/ccs/lib/libl.so
+COMPATLINKS64=	usr/ccs/lib/$(MACH64)/libl.so
+
+$(ROOT)/usr/ccs/lib/libl.so := COMPATLINKTARGET=../../lib/libl.so.1
+$(ROOT)/usr/ccs/lib/$(MACH64)/libl.so:= \
+	COMPATLINKTARGET=../../../lib/$(MACH64)/libl.so.1
+
 SRCDIR =	../common
 
 CSTD=	$(CSTD_GNU99)
 
+# unused labels in yaccpar
 CERRWARN +=	-_gcc=-Wno-unused-label
-CERRWARN +=	$(CNOWARN_UNINIT)
-CERRWARN +=	-_gcc=-Wno-parentheses
 
 # Override default source file derivation rule (in Makefile.lib)
 # from objects

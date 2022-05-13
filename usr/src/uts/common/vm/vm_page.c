@@ -23,10 +23,11 @@
  * Copyright (c) 2015, Josef 'Jeff' Sipek <jeffpc@josefsipek.net>
  * Copyright (c) 2015, 2016 by Delphix. All rights reserved.
  * Copyright 2018 Joyent, Inc.
+ * Copyright 2021 Oxide Computer Company
  */
 
-/*	Copyright (c) 1983, 1984, 1985, 1986, 1987, 1988, 1989  AT&T	*/
-/*	  All Rights Reserved  	*/
+/* Copyright (c) 1983, 1984, 1985, 1986, 1987, 1988, 1989  AT&T */
+/* All Rights Reserved */
 
 /*
  * University Copyright- Copyright (c) 1982, 1986, 1988
@@ -84,6 +85,7 @@
 
 static pgcnt_t max_page_get;	/* max page_get request size in pages */
 pgcnt_t total_pages = 0;	/* total number of pages (used by /proc) */
+uint64_t n_throttle = 0;	/* num times page create throttled */
 
 /*
  * freemem_lock protects all freemem variables:
@@ -173,8 +175,8 @@ struct pcf {
 	kmutex_t	pcf_lock;	/* protects the structure */
 	uint_t		pcf_count;	/* page count */
 	uint_t		pcf_wait;	/* number of waiters */
-	uint_t		pcf_block; 	/* pcgs flag to page_free() */
-	uint_t		pcf_reserve; 	/* pages freed after pcf_block set */
+	uint_t		pcf_block;	/* pcgs flag to page_free() */
+	uint_t		pcf_reserve;	/* pages freed after pcf_block set */
 	uint_t		pcf_fill[10];	/* to line up on the caches */
 };
 
@@ -1353,7 +1355,7 @@ wakeup_pcgs(void)
  * clock() on each TICK.
  */
 void
-set_freemem()
+set_freemem(void)
 {
 	struct pcf	*p;
 	ulong_t		t;
@@ -1858,7 +1860,7 @@ page_create_get_something(vnode_t *vp, u_offset_t off, struct seg *seg,
 
 	flags &= ~PG_MATCH_COLOR;
 	locked = 0;
-#if defined(__i386) || defined(__amd64)
+#if defined(__x86)
 	flags = page_create_update_flags_x86(flags);
 #endif
 
@@ -2036,7 +2038,7 @@ page_alloc_pages(struct vnode *vp, struct seg *seg, caddr_t addr,
 	ASSERT(basepp != NULL || ppa != NULL);
 	ASSERT(basepp == NULL || ppa == NULL);
 
-#if defined(__i386) || defined(__amd64)
+#if defined(__x86)
 	while (page_chk_freelist(szc) == 0) {
 		VM_STAT_ADD(alloc_pages[8]);
 		if (anypgsz == 0 || --szc == 0)
@@ -3655,7 +3657,7 @@ page_add_common(page_t **ppp, page_t *pp)
 void
 page_sub(page_t **ppp, page_t *pp)
 {
-	ASSERT((PP_ISFREE(pp)) ? 1 :
+	ASSERT(pp != NULL && (PP_ISFREE(pp)) ? 1 :
 	    (PAGE_EXCL(pp)) || (PAGE_SHARED(pp) && page_iolock_assert(pp)));
 
 	if (*ppp == NULL || pp == NULL) {
@@ -3921,29 +3923,68 @@ page_pp_unlock(
 }
 
 /*
+ * This routine reserves availrmem for npages.
+ * It returns 1 on success or 0 on failure.
+ *
+ * flags: KM_NOSLEEP or KM_SLEEP
+ * cb_wait: called to induce delay when KM_SLEEP reservation requires kmem
+ *     reaping to potentially succeed.  If the callback returns 0, the
+ *     reservation attempts will cease to repeat and page_xresv() may
+ *     report a failure.  If cb_wait is NULL, the traditional delay(hz/2)
+ *     behavior will be used while waiting for a reap.
+ */
+int
+page_xresv(pgcnt_t npages, uint_t flags, int (*cb_wait)(void))
+{
+	mutex_enter(&freemem_lock);
+	if (availrmem >= tune.t_minarmem + npages) {
+		availrmem -= npages;
+		mutex_exit(&freemem_lock);
+		return (1);
+	} else if ((flags & KM_NOSLEEP) != 0) {
+		mutex_exit(&freemem_lock);
+		return (0);
+	}
+	mutex_exit(&freemem_lock);
+
+	/*
+	 * We signal memory pressure to the system by elevating 'needfree'.
+	 * Processes such as kmem reaping, pageout, and ZFS ARC shrinking can
+	 * then respond to said pressure by freeing pages.
+	 */
+	page_needfree(npages);
+	int nobail = 1;
+	do {
+		kmem_reap();
+		if (cb_wait == NULL) {
+			delay(hz >> 2);
+		} else {
+			nobail = cb_wait();
+		}
+
+		mutex_enter(&freemem_lock);
+		if (availrmem >= tune.t_minarmem + npages) {
+			availrmem -= npages;
+			mutex_exit(&freemem_lock);
+			page_needfree(-(spgcnt_t)npages);
+			return (1);
+		}
+		mutex_exit(&freemem_lock);
+	} while (nobail != 0);
+	page_needfree(-(spgcnt_t)npages);
+
+	return (0);
+}
+
+/*
  * This routine reserves availrmem for npages;
- * 	flags: KM_NOSLEEP or KM_SLEEP
- * 	returns 1 on success or 0 on failure
+ *	flags: KM_NOSLEEP or KM_SLEEP
+ *	returns 1 on success or 0 on failure
  */
 int
 page_resv(pgcnt_t npages, uint_t flags)
 {
-	mutex_enter(&freemem_lock);
-	while (availrmem < tune.t_minarmem + npages) {
-		if (flags & KM_NOSLEEP) {
-			mutex_exit(&freemem_lock);
-			return (0);
-		}
-		mutex_exit(&freemem_lock);
-		page_needfree(npages);
-		kmem_reap();
-		delay(hz >> 2);
-		page_needfree(-(spgcnt_t)npages);
-		mutex_enter(&freemem_lock);
-	}
-	availrmem -= npages;
-	mutex_exit(&freemem_lock);
-	return (1);
+	return (page_xresv(npages, flags, NULL));
 }
 
 /*
@@ -3980,7 +4021,7 @@ void
 page_pp_useclaim(
 	page_t *opp,		/* original page frame losing lock */
 	page_t *npp,		/* new page frame gaining lock */
-	uint_t	write_perm) 	/* set if vpage has PROT_WRITE */
+	uint_t write_perm)	/* set if vpage has PROT_WRITE */
 {
 	int payback = 0;
 	int nidx, oidx;
@@ -4734,7 +4775,7 @@ group_page_unlock(page_t *pp)
 
 /*
  * returns
- * 0 		: on success and *nrelocp is number of relocated PAGESIZE pages
+ * 0		: on success and *nrelocp is number of relocated PAGESIZE pages
  * ERANGE	: this is not a base page
  * EBUSY	: failure to get locks on the page/pages
  * ENOMEM	: failure to obtain replacement pages

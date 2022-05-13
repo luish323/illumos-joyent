@@ -13,6 +13,7 @@
 # Copyright (c) 2012 by Delphix. All rights reserved.
 # Copyright 2015 Nexenta Systems, Inc.  All rights reserved.
 # Copyright 2019 Joyent, Inc.
+# Copyright 2020 Oxide Computer Company
 #
 
 include $(SRC)/cmd/Makefile.cmd
@@ -42,6 +43,7 @@ $(PROGS_32) := OBJS += $(BASEPROG:%=%.32.o) $(COMMON_OBJS_32)
 $(PROGS_64) := OBJS += $(BASEPROG:%=%.64.o) $(COMMON_OBJS_64)
 $(PROGS_32) := OBJS += $(COMMONDIR)/testfuncs.32.o
 $(PROGS_64) := OBJS += $(COMMONDIR)/testfuncs.64.o
+$(PROGS_64) := LDLIBS.cmd = $(LDLIBS64)
 $(CRYPTO_pkcs)$(BASEPROG)_32_pkcs := OBJS += $(COMMONDIR)/cryptotest_pkcs.32.o
 $(CRYPTO_pkcs)$(BASEPROG)_64_pkcs := OBJS += $(COMMONDIR)/cryptotest_pkcs.64.o
 $(CRYPTO_kcf)$(BASEPROG)_32_kcf	:= OBJS += $(COMMONDIR)/cryptotest_kcf.32.o
@@ -92,7 +94,7 @@ clobber: clean
 	-$(RM) $(PROGS)
 
 clean:
-	-$(RM) *.o $(COMMON_OBJS_32) $(COMMON_OBJS_64)
+	-$(RM) *.o $(COMMON_OBJS_32) $(COMMON_OBJS_64) $(PROGS)
 
 $(CMDS): $(TESTDIR_pkcs) $(TESTDIR_kcf) $(PROGS)
 

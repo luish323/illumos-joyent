@@ -36,7 +36,6 @@ ARCHDIR:sh = cd ..; basename `pwd`
 #
 MODULE		= fcoet
 OBJECTS		= $(FCOET_OBJS:%=$(OBJS_DIR)/%)
-LINTS		= $(FCOET_OBJS:%.o=$(LINTS_DIR)/%.ln)
 ROOTMODULE	= $(ROOT_DRV_DIR)/$(MODULE)
 
 #
@@ -48,14 +47,13 @@ include ../Makefile.$(ARCHDIR)
 #	Define targets
 #
 ALL_TARGET	= $(BINARY)
-LINT_TARGET	= $(MODULE).lint
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 
 #
 #	Overrides and depends_on
 #
 MODSTUBS_DIR	 = $(OBJS_DIR)
-LDFLAGS		+= -dy -Ndrv/stmf -Ndrv/fct -Ndrv/fcoe
+LDFLAGS		+= -Ndrv/stmf -Ndrv/fct -Ndrv/fcoe
 
 #	Default build targets.
 #
@@ -68,12 +66,6 @@ all:		$(ALL_DEPS)
 clean:		$(CLEAN_DEPS)
 
 clobber:	$(CLOBBER_DEPS)
-
-lint:		$(LINT_DEPS)
-
-modlintlib:	$(MODLINTLIB_DEPS)
-
-clean.lint:	$(CLEAN_LINT_DEPS)
 
 install:	$(INSTALL_DEPS)
 

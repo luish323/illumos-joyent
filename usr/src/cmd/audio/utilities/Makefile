@@ -33,7 +33,6 @@ INCLUDES += -I../include
 
 CPPFLAGS += $(INCLUDES)
 
-CCFLAGS += -_gcc4=-std=gnu++0x
 CFLAGS += $(CCVERBOSE)
 CERRWARN += $(CNOWARN_UNINIT)
 CERRWARN += -_gcc=-Wno-unused-variable
@@ -49,9 +48,7 @@ SMATCH=off
 
 LINTFLAGS += -m -v -u
 
-AR=     /usr/ccs/bin/ar
 RANLIB= /usr/ccs/bin/ranlib
-RM=     /usr/bin/rm -f
 
 LIBCSRCS        = device_ctl.c \
 		  filehdr.c \
@@ -98,7 +95,7 @@ libaudio=	libaudio.a
 install all: $(libaudio)
 
 $(libaudio): $(COBJS) $(CCOBJS)
-	$(RM) -f $@
+	$(RM) $@
 	$(AR) cq $@ $(COBJS) $(CCOBJS)
 	test ! -f $(RANLIB) || $(RANLIB) $@
 

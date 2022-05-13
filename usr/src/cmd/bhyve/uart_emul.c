@@ -71,11 +71,16 @@ __FBSDID("$FreeBSD$");
 
 #include "mevent.h"
 #include "uart_emul.h"
+#include "debug.h"
 
 #define	COM1_BASE	0x3F8
 #define	COM1_IRQ	4
 #define	COM2_BASE	0x2F8
 #define	COM2_IRQ	3
+#define	COM3_BASE	0x3E8
+#define	COM3_IRQ	4
+#define	COM4_BASE	0x2E8
+#define	COM4_IRQ	3
 
 #define	DEFAULT_RCLK	1843200
 #define	DEFAULT_BAUD	9600
@@ -103,6 +108,8 @@ static struct {
 } uart_lres[] = {
 	{ COM1_BASE, COM1_IRQ, false},
 	{ COM2_BASE, COM2_IRQ, false},
+	{ COM3_BASE, COM3_IRQ, false},
+	{ COM4_BASE, COM4_IRQ, false},
 };
 
 #define	UART_NLDEVS	(sizeof(uart_lres) / sizeof(uart_lres[0]))
@@ -178,6 +185,7 @@ ttyopen(struct ttyfd *tf)
 		tio_stdio_orig = orig;
 		atexit(ttyclose);
 	}
+	raw_stdio = 1;
 }
 
 static int
@@ -213,7 +221,7 @@ rxfifo_reset(struct uart_softc *sc, int size)
 	struct fifo *fifo;
 	ssize_t nread;
 	int error;
- 
+
 	fifo = &sc->rxfifo;
 	bzero(fifo, sizeof(struct fifo));
 	fifo->size = size;
@@ -838,7 +846,7 @@ uart_init(uart_intr_func_t intr_assert, uart_intr_func_t intr_deassert,
 static int
 uart_sock_backend(struct uart_softc *sc, const char *inopts)
 {
-	char *opts;
+	char *opts, *tofree;
 	char *opt;
 	char *nextopt;
 	char *path = NULL;
@@ -850,7 +858,7 @@ uart_sock_backend(struct uart_softc *sc, const char *inopts)
 		return (-1);
 	}
 
-	nextopt = opts;
+	tofree = nextopt = opts;
 	for (opt = strsep(&nextopt, ","); opt != NULL;
 	    opt = strsep(&nextopt, ",")) {
 		if (path == NULL && *opt == '/') {
@@ -861,13 +869,13 @@ uart_sock_backend(struct uart_softc *sc, const char *inopts)
 		 * XXX check for server and client options here.  For now,
 		 * everything is a server
 		 */
-		free(opts);
+		free(tofree);
 		return (-1);
 	}
 
 	sc->usc_sock.clifd = -1;
 	if ((sc->usc_sock.servfd = init_sock(path)) == -1) {
-		free(opts);
+		free(tofree);
 		return (-1);
 	}
 	sc->sock = true;
@@ -876,6 +884,7 @@ uart_sock_backend(struct uart_softc *sc, const char *inopts)
 	    uart_sock_accept, sc);
 	assert(sc->usc_sock.servmev != NULL);
 
+	free(tofree);
 	return (0);
 }
 #endif /* not __FreeBSD__ */
@@ -914,7 +923,7 @@ uart_stdio_backend(struct uart_softc *sc)
 }
 
 static int
-uart_tty_backend(struct uart_softc *sc, const char *opts)
+uart_tty_backend(struct uart_softc *sc, const char *path)
 {
 #ifndef WITHOUT_CAPSICUM
 	cap_rights_t rights;
@@ -922,7 +931,7 @@ uart_tty_backend(struct uart_softc *sc, const char *opts)
 #endif
 	int fd;
 
-	fd = open(opts, O_RDWR | O_NONBLOCK);
+	fd = open(path, O_RDWR | O_NONBLOCK);
 	if (fd < 0)
 		return (-1);
 
@@ -946,21 +955,21 @@ uart_tty_backend(struct uart_softc *sc, const char *opts)
 }
 
 int
-uart_set_backend(struct uart_softc *sc, const char *opts)
+uart_set_backend(struct uart_softc *sc, const char *device)
 {
 	int retval;
 
-	if (opts == NULL)
+	if (device == NULL)
 		return (0);
 
 #ifndef __FreeBSD__
-	if (strncmp("socket,", opts, 7) == 0)
-		return (uart_sock_backend(sc, opts));
+	if (strncmp("socket,", device, 7) == 0)
+		return (uart_sock_backend(sc, device));
 #endif
-	if (strcmp("stdio", opts) == 0)
+	if (strcmp("stdio", device) == 0)
 		retval = uart_stdio_backend(sc);
 	else
-		retval = uart_tty_backend(sc, opts);
+		retval = uart_tty_backend(sc, device);
 	if (retval == 0)
 		uart_opentty(sc);
 
