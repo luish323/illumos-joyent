@@ -25,6 +25,7 @@
  * Copyright (c) 2017 OmniTI Computer Consulting, Inc. All rights reserved.
  * Copyright (c) 2016 by Delphix. All rights reserved.
  * Copyright (c) 2019 Joyent, Inc. All rights reserved.
+ * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
  */
 
 #include <sys/types.h>
@@ -95,6 +96,7 @@
 #include <netinet/igmp.h>
 #include <netinet/ip_mroute.h>
 #include <inet/ipp_common.h>
+#include <inet/cc.h>
 
 #include <net/pfkeyv2.h>
 #include <inet/sadb.h>
@@ -2403,6 +2405,7 @@ ipoptp_next(ipoptp_t *optp)
 	 * its there, and make sure it points to either something
 	 * inside this option, or the end of the option.
 	 */
+	pointer = IPOPT_EOL;
 	switch (opt) {
 	case IPOPT_RR:
 	case IPOPT_TS:
@@ -4123,8 +4126,6 @@ ip_modclose(ill_t *ill)
 	rw_destroy(&ill->ill_mcast_lock);
 	mutex_destroy(&ill->ill_mcast_serializer);
 	list_destroy(&ill->ill_nce);
-	cv_destroy(&ill->ill_dlpi_capab_cv);
-	mutex_destroy(&ill->ill_dlpi_capab_lock);
 
 	/*
 	 * Now we are done with the module close pieces that
@@ -6339,6 +6340,9 @@ ip_opt_set_multicast_group(conn_t *connp, t_scalar_t name,
 		optfn = ip_opt_delete_group;
 		break;
 	default:
+		/* Should not be reached. */
+		fmode = MODE_IS_INCLUDE;
+		optfn = NULL;
 		ASSERT(0);
 	}
 
@@ -6468,6 +6472,9 @@ ip_opt_set_multicast_sources(conn_t *connp, t_scalar_t name,
 		optfn = ip_opt_delete_group;
 		break;
 	default:
+		/* Should not be reached. */
+		optfn = NULL;
+		fmode = 0;
 		ASSERT(0);
 	}
 
@@ -8936,6 +8943,8 @@ ip_forward_options(mblk_t *mp, ipha_t *ipha, ill_t *dst_ill,
 
 	ip2dbg(("ip_forward_options\n"));
 	dst = ipha->ipha_dst;
+	opt = NULL;
+
 	for (optval = ipoptp_first(&opts, ipha);
 	    optval != IPOPT_EOL;
 	    optval = ipoptp_next(&opts)) {
@@ -9022,6 +9031,7 @@ ip_forward_options(mblk_t *mp, ipha_t *ipha, ill_t *dst_ill,
 			opt[IPOPT_OFFSET] += IP_ADDR_LEN;
 			break;
 		case IPOPT_TS:
+			off = 0;
 			/* Insert timestamp if there is room */
 			switch (opt[IPOPT_POS_OV_FLG] & 0x0F) {
 			case IPOPT_TS_TSONLY:
@@ -9047,7 +9057,6 @@ ip_forward_options(mblk_t *mp, ipha_t *ipha, ill_t *dst_ill,
 				 */
 				cmn_err(CE_PANIC, "ip_forward_options: "
 				    "unknown IT - bug in ip_input_options?\n");
-				return (B_TRUE);	/* Keep "lint" happy */
 			}
 			if (opt[IPOPT_OFFSET] - 1 + off > optlen) {
 				/* Increase overflow counter */
@@ -9187,6 +9196,7 @@ ip_input_local_options(mblk_t *mp, ipha_t *ipha, ip_recv_attr_t *ira)
 	ip_stack_t	*ipst = ill->ill_ipst;
 
 	ip2dbg(("ip_input_local_options\n"));
+	opt = NULL;
 
 	for (optval = ipoptp_first(&opts, ipha);
 	    optval != IPOPT_EOL;
@@ -9249,6 +9259,7 @@ ip_input_local_options(mblk_t *mp, ipha_t *ipha, ip_recv_attr_t *ira)
 			opt[IPOPT_OFFSET] += IP_ADDR_LEN;
 			break;
 		case IPOPT_TS:
+			off = 0;
 			/* Insert timestamp if there is romm */
 			switch (opt[IPOPT_POS_OV_FLG] & 0x0F) {
 			case IPOPT_TS_TSONLY:
@@ -9274,7 +9285,6 @@ ip_input_local_options(mblk_t *mp, ipha_t *ipha, ip_recv_attr_t *ira)
 				 */
 				cmn_err(CE_PANIC, "ip_input_local_options: "
 				    "unknown IT - bug in ip_input_options?\n");
-				return (B_TRUE);	/* Keep "lint" happy */
 			}
 			if (opt[IPOPT_OFFSET] - 1 + off > optlen) {
 				/* Increase overflow counter */
@@ -9343,6 +9353,7 @@ ip_input_options(ipha_t *ipha, ipaddr_t dst, mblk_t *mp,
 	ire_t		*ire;
 
 	ip2dbg(("ip_input_options\n"));
+	opt = NULL;
 	*errorp = 0;
 	for (optval = ipoptp_first(&opts, ipha);
 	    optval != IPOPT_EOL;
@@ -11891,6 +11902,7 @@ ip_output_local_options(ipha_t *ipha, ip_stack_t *ipst)
 	ipaddr_t	dst;
 	uint32_t	ts;
 	timestruc_t	now;
+	uint32_t	off = 0;
 
 	for (optval = ipoptp_first(&opts, ipha);
 	    optval != IPOPT_EOL;
@@ -11899,7 +11911,6 @@ ip_output_local_options(ipha_t *ipha, ip_stack_t *ipst)
 		optlen = opts.ipoptp_len;
 		ASSERT((opts.ipoptp_flags & IPOPTP_ERROR) == 0);
 		switch (optval) {
-			uint32_t off;
 		case IPOPT_SSRR:
 		case IPOPT_LSRR:
 			off = opt[IPOPT_OFFSET];
@@ -11969,7 +11980,6 @@ ip_output_local_options(ipha_t *ipha, ip_stack_t *ipst)
 				 */
 				cmn_err(CE_PANIC, "ip_output_local_options: "
 				    "unknown IT - bug in ip_output_options?\n");
-				return;	/* Keep "lint" happy */
 			}
 			if (opt[IPOPT_OFFSET] - 1 + off > optlen) {
 				/* Increase overflow counter */
@@ -12548,6 +12558,7 @@ ip_process_ioctl(ipsq_t *ipsq, queue_t *q, mblk_t *mp, void *arg)
 	}
 
 	ci.ci_ipif = NULL;
+	extract_funcp = NULL;
 	switch (ipip->ipi_cmd_type) {
 	case MISC_CMD:
 	case MSFILT_CMD:
@@ -12729,6 +12740,7 @@ ip_wput_nondata(queue_t *q, mblk_t *mp)
 	else
 		connp = NULL;
 
+	iocp = NULL;
 	switch (DB_TYPE(mp)) {
 	case M_IOCTL:
 		/*
@@ -12939,6 +12951,7 @@ ip_output_options(mblk_t *mp, ipha_t *ipha, ip_xmit_attr_t *ixa, ill_t *ill)
 
 	ip2dbg(("ip_output_options\n"));
 
+	opt = NULL;
 	dst = ipha->ipha_dst;
 	for (optval = ipoptp_first(&opts, ipha);
 	    optval != IPOPT_EOL;
@@ -13911,6 +13924,7 @@ ip_kstat2_init(netstackid_t stackid, ip_stat_t *ip_statisticsp)
 		{ "conn_in_recvslla",		KSTAT_DATA_UINT64 },
 		{ "conn_in_recvucred",		KSTAT_DATA_UINT64 },
 		{ "conn_in_recvttl",		KSTAT_DATA_UINT64 },
+		{ "conn_in_recvtos",		KSTAT_DATA_UINT64 },
 		{ "conn_in_recvhopopts",	KSTAT_DATA_UINT64 },
 		{ "conn_in_recvhoplimit",	KSTAT_DATA_UINT64 },
 		{ "conn_in_recvdstopts",	KSTAT_DATA_UINT64 },

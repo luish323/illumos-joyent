@@ -8,11 +8,14 @@
  * source.  A copy of the CDDL is also available via the Internet at
  * http://www.illumos.org/license/CDDL.
  */
+/* This file is dual-licensed; see usr/src/contrib/bhyve/LICENSE */
 
 /*
  * Copyright 2017 Joyent, Inc.
+ * Copyright 2020 Oxide Computer Company
  */
 #include <sys/types.h>
+#include <sys/cpuvar.h>
 
 #include "amd/svm.h"
 
@@ -31,6 +34,20 @@ svm_regctx
 	sctx_r13	SCTX_R13
 	sctx_r14	SCTX_R14
 	sctx_r15	SCTX_R15
+
+/* Need access to GDT to restore TSS */
+cpu
+	cpu_m.mcpu_gdt		CPU_GDT
+
+user_desc	USER_DESC_SZ
+
+system_desc
+	ssd_type	SSD_TYPE
+
+\#define	GDT_KTSS_OFF	_MUL(USER_DESC_SZ, GDT_KTSS)
+
+/* Necessary for TSS-related data */
+\#include <sys/segments.h>
 
 /* Pull in definition for MSR_GSBASE */
 \#include <machine/specialreg.h>

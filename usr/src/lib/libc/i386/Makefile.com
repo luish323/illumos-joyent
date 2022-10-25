@@ -104,6 +104,8 @@ COMOBJS=			\
 	bcopy.o			\
 	bsearch.o		\
 	bzero.o			\
+	explicit_bzero.o	\
+	memmem.o		\
 	qsort.o			\
 	strtol.o		\
 	strtoul.o		\
@@ -304,6 +306,7 @@ COMSYSOBJS=			\
 	ulimit.o		\
 	umask.o			\
 	umount2.o		\
+	upanic.o		\
 	utssys.o		\
 	uucopy.o		\
 	vhangup.o		\
@@ -425,7 +428,6 @@ PORTGEN=			\
 	euclen.o		\
 	event_port.o		\
 	execvp.o		\
-	explicit_bzero.o	\
 	fattach.o		\
 	fdetach.o		\
 	fdopendir.o		\
@@ -504,7 +506,6 @@ PORTGEN=			\
 	madvise.o		\
 	malloc.o		\
 	memalign.o		\
-	memmem.o		\
 	memset_s.o		\
 	mkdev.o			\
 	mkdtemp.o		\
@@ -553,6 +554,7 @@ PORTGEN=			\
 	readdir.o		\
 	readdir_r.o		\
 	reallocarray.o		\
+	reallocf.o		\
 	recallocarray.o		\
 	realpath.o		\
 	reboot.o		\
@@ -573,6 +575,7 @@ PORTGEN=			\
 	sigsend.o		\
 	sigsetops.o		\
 	ssignal.o		\
+	ssp.o			\
 	stack.o			\
 	stpcpy.o		\
 	stpncpy.o		\
@@ -685,6 +688,7 @@ PORTSTDIO=			\
 	_filbuf.o		\
 	_findbuf.o		\
 	_flsbuf.o		\
+	_stdio_flags.o		\
 	_wrtchk.o		\
 	clearerr.o		\
 	ctermid.o		\
@@ -700,6 +704,7 @@ PORTSTDIO=			\
 	fileno.o		\
 	flockf.o		\
 	flush.o			\
+	fmemopen.o		\
 	fopen.o			\
 	fpos.o			\
 	fputc.o			\
@@ -717,6 +722,8 @@ PORTSTDIO=			\
 	gets.o			\
 	getw.o			\
 	mse.o			\
+	open_memstream.o	\
+	open_wmemstream.o	\
 	popen.o			\
 	putc.o			\
 	putchar.o		\
@@ -789,6 +796,8 @@ PORTI18N_COND=			\
 PORTLOCALE=			\
 	big5.o			\
 	btowc.o			\
+	c16rtomb.o		\
+	c32rtomb.o		\
 	collate.o		\
 	collcmp.o		\
 	euc.o			\
@@ -814,6 +823,8 @@ PORTLOCALE=			\
 	mbftowc.o		\
 	mblen.o			\
 	mbrlen.o		\
+	mbrtoc16.o		\
+	mbrtoc32.o		\
 	mbrtowc.o		\
 	mbsinit.o		\
 	mbsnrtowcs.o		\
@@ -1076,7 +1087,7 @@ CFLAGS += $(XINLINE)
 
 CERRWARN += -_gcc=-Wno-parentheses
 CERRWARN += -_gcc=-Wno-switch
-CERRWARN += -_gcc=-Wno-uninitialized
+CERRWARN += $(CNOWARN_UNINIT)
 CERRWARN += -_gcc=-Wno-unused-value
 CERRWARN += -_gcc=-Wno-unused-label
 CERRWARN += -_gcc=-Wno-unused-variable
@@ -1102,7 +1113,7 @@ CFLAGS += $(XSTRCONST)
 
 ALTPICS= $(TRACEOBJS:%=pics/%)
 
-$(DYNLIB) := BUILD.SO = $(LD) -o $@ -G $(DYNFLAGS) $(PICS) $(ALTPICS) \
+$(DYNLIB) := BUILD.SO = $(LD) -o $@ $(GSHARED) $(DYNFLAGS) $(PICS) $(ALTPICS) \
 		$(EXTPICS) $(LDLIBS)
 
 MAPFILES =	$(LIBCDIR)/port/mapfile-vers
@@ -1257,6 +1268,12 @@ pics/arc4random.o :=	CPPFLAGS += -I$(SRC)/common/crypto/chacha
 pics/__clock_gettime.o := CPPFLAGS += $(COMMPAGE_CPPFLAGS)
 pics/gettimeofday.o := CPPFLAGS += $(COMMPAGE_CPPFLAGS)
 
+#
+# Disable the stack protector due to issues with bootstrapping rtld. See
+# cmd/sgs/rtld/Makefile.com for more information.
+#
+STACKPROTECT = none
+
 .KEEP_STATE:
 
 all: $(LIBS) $(LIB_PIC)
@@ -1278,8 +1295,8 @@ $(LIB_PIC): pics $$(PICS)
 	$(POST_PROCESS_A)
 
 $(LIBCBASE)/crt/_rtbootld.s: $(LIBCBASE)/crt/_rtboot.s $(LIBCBASE)/crt/_rtld.c
-	$(CC) $(CPPFLAGS) -_smatch=off $(CTF_FLAGS) -O -S $(C_PICFLAGS) \
-	    $(LIBCBASE)/crt/_rtld.c -o $(LIBCBASE)/crt/_rtld.s
+	$(CC) $($(MACH)_XARCH) $(CPPFLAGS) -_smatch=off $(CTF_FLAGS) -O -S \
+	    $(C_PICFLAGS) $(LIBCBASE)/crt/_rtld.c -o $(LIBCBASE)/crt/_rtld.s
 	$(CAT) $(LIBCBASE)/crt/_rtboot.s $(LIBCBASE)/crt/_rtld.s > $@
 	$(RM) $(LIBCBASE)/crt/_rtld.s
 

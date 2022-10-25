@@ -22,8 +22,8 @@
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2011 Pawel Jakub Dawidek. All rights reserved.
- * Copyright (c) 2011, 2017 by Delphix. All rights reserved.
- * Copyright 2019 Joyent, Inc.
+ * Copyright (c) 2011, 2018 by Delphix. All rights reserved.
+ * Copyright 2020 Joyent, Inc.
  * Copyright (c) 2013 Steven Hartland. All rights reserved.
  * Copyright (c) 2014 Integros [integros.com]
  * Copyright 2016 Nexenta Systems, Inc.
@@ -132,6 +132,7 @@ typedef enum zfs_error {
 	EZFS_POOLREADONLY,	/* pool is in read-only mode */
 	EZFS_SCRUB_PAUSED,	/* scrub currently paused */
 	EZFS_ACTIVE_POOL,	/* pool is imported on a different system */
+	EZFS_CRYPTOFAILED,	/* failed to setup encryption */
 	EZFS_NO_PENDING,	/* cannot cancel, no operation is pending */
 	EZFS_CHECKPOINT_EXISTS,	/* checkpoint exists */
 	EZFS_DISCARDING_CHECKPOINT,	/* currently discarding a checkpoint */
@@ -142,8 +143,11 @@ typedef enum zfs_error {
 	EZFS_INITIALIZING,	/* currently initializing */
 	EZFS_NO_INITIALIZE,	/* no active initialize */
 	EZFS_WRONG_PARENT,	/* invalid parent dataset (e.g ZVOL) */
+	EZFS_TRIMMING,		/* currently trimming */
+	EZFS_NO_TRIM,		/* no active trim */
+	EZFS_TRIM_NOTSUP,	/* device does not support trim */
 	EZFS_NO_RESILVER_DEFER,	/* pool doesn't support resilver_defer */
-	EZFS_CRYPTOFAILED,	/* failed to setup encryption */
+	EZFS_IOC_NOTSUPPORTED,	/* operation not supported by zfs module */
 	EZFS_UNKNOWN
 } zfs_error_t;
 
@@ -266,12 +270,26 @@ typedef struct splitflags {
 	int name_flags;
 } splitflags_t;
 
+typedef struct trimflags {
+	/* requested vdevs are for the entire pool */
+	boolean_t fullpool;
+
+	/* request a secure trim, requires support from device */
+	boolean_t secure;
+
+	/* trim at the requested rate in bytes/second */
+	uint64_t rate;
+} trimflags_t;
+
 /*
  * Functions to manipulate pool and vdev state
  */
 extern int zpool_scan(zpool_handle_t *, pool_scan_func_t, pool_scrub_cmd_t);
 extern int zpool_initialize(zpool_handle_t *, pool_initialize_func_t,
     nvlist_t *);
+extern int zpool_trim(zpool_handle_t *, pool_trim_func_t, nvlist_t *,
+    trimflags_t *);
+
 extern int zpool_clear(zpool_handle_t *, const char *, nvlist_t *);
 extern int zpool_reguid(zpool_handle_t *);
 extern int zpool_reopen(zpool_handle_t *);
@@ -380,7 +398,6 @@ extern zpool_status_t zpool_get_status(zpool_handle_t *, char **,
     zpool_errata_t *);
 extern zpool_status_t zpool_import_status(nvlist_t *, char **,
     zpool_errata_t *);
-extern void zpool_dump_ddt(const ddt_stat_t *dds, const ddt_histogram_t *ddh);
 
 /*
  * Statistics and configuration functions.
@@ -403,31 +420,6 @@ extern int zpool_import_props(libzfs_handle_t *, nvlist_t *, const char *,
 extern void zpool_print_unsup_feat(nvlist_t *config);
 
 /*
- * Search for pools to import
- */
-
-typedef struct importargs {
-	char **path;		/* a list of paths to search		*/
-	int paths;		/* number of paths to search		*/
-	char *poolname;		/* name of a pool to find		*/
-	uint64_t guid;		/* guid of a pool to find		*/
-	char *cachefile;	/* cachefile to use for import		*/
-	int can_be_active : 1;	/* can the pool be active?		*/
-	int unique : 1;		/* does 'poolname' already exist?	*/
-	int exists : 1;		/* set on return if pool already exists	*/
-	nvlist_t *policy;	/* load policy (max txg, rewind, etc.)	*/
-} importargs_t;
-
-extern nvlist_t *zpool_search_import(libzfs_handle_t *, importargs_t *);
-extern int zpool_tryimport(libzfs_handle_t *hdl, char *target,
-    nvlist_t **configp, importargs_t *args);
-
-/* legacy pool search routines */
-extern nvlist_t *zpool_find_import(libzfs_handle_t *, int, char **);
-extern nvlist_t *zpool_find_import_cached(libzfs_handle_t *, const char *,
-    char *, uint64_t);
-
-/*
  * Miscellaneous pool functions
  */
 struct zfs_cmd;
@@ -444,9 +436,8 @@ typedef enum {
 extern char *zpool_vdev_name(libzfs_handle_t *, zpool_handle_t *, nvlist_t *,
     int name_flags);
 extern int zpool_upgrade(zpool_handle_t *, uint64_t);
-extern int zpool_get_history(zpool_handle_t *, nvlist_t **);
-extern int zpool_history_unpack(char *, uint64_t, uint64_t *,
-    nvlist_t ***, uint_t *);
+extern int zpool_get_history(zpool_handle_t *, nvlist_t **, uint64_t *,
+    boolean_t *);
 extern void zpool_obj_to_path(zpool_handle_t *, uint64_t, uint64_t, char *,
     size_t len);
 extern int zfs_ioctl(libzfs_handle_t *, int, struct zfs_cmd *);
@@ -777,7 +768,6 @@ extern boolean_t zfs_dataset_exists(libzfs_handle_t *, const char *,
     zfs_type_t);
 extern int zfs_spa_version(zfs_handle_t *, int *);
 extern boolean_t zfs_bookmark_exists(const char *path);
-extern ulong_t get_system_hostid(void);
 
 /*
  * Mount support functions.
@@ -821,10 +811,6 @@ extern int zfs_deleg_share_nfs(libzfs_handle_t *, char *, char *, char *,
 #define	verify(EX)	assert(EX)
 #endif
 
-/*
- * Utility function to convert a number to a human-readable form.
- */
-extern void zfs_nicenum(uint64_t, char *, size_t);
 extern int zfs_nicestrtonum(libzfs_handle_t *, const char *, uint64_t *);
 
 /*
@@ -836,8 +822,9 @@ extern int zpool_in_use(libzfs_handle_t *, int, pool_state_t *, char **,
 /*
  * Label manipulation.
  */
-extern int zpool_read_label(int, nvlist_t **);
 extern int zpool_clear_label(int);
+extern int zpool_set_bootenv(zpool_handle_t *, const nvlist_t *);
+extern int zpool_get_bootenv(zpool_handle_t *, nvlist_t **);
 
 /* is this zvol valid for use as a dump device? */
 extern int zvol_check_dump_config(char *);

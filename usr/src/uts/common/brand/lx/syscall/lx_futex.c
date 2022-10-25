@@ -24,7 +24,7 @@
  */
 
 /*
- * Copyright 2019 Joyent, Inc.
+ * Copyright 2020 Joyent, Inc.
  */
 
 #include <sys/types.h>
@@ -405,6 +405,17 @@ futex_wait(memid_t *memid, caddr_t addr,
 	}
 	if (curval != val) {
 		err = set_errno(EWOULDBLOCK);
+		goto out;
+	}
+
+	/*
+	 * We can't have hrtime and a timeout of 0. See below about
+	 * CLOCK_REALTIME.
+	 * On Linux this is is an invalid state anyway, so we'll short cut
+	 * this early to avoid a panic from passing a null pointer to ts2hrt().
+	 */
+	if (hrtime && timeout == NULL) {
+		err = set_errno(EINVAL);
 		goto out;
 	}
 
@@ -1265,7 +1276,7 @@ lx_futex(uintptr_t addr, int op, int val, uintptr_t lx_timeout,
 	memid_t memid, memid2;
 	timestruc_t timeout;
 	timestruc_t *tptr = NULL;
-	int val2 = NULL;
+	int val2 = 0;
 	int rval = 0;
 	int cmd = op & FUTEX_CMD_MASK;
 	int private = op & FUTEX_PRIVATE_FLAG;
@@ -1314,7 +1325,7 @@ lx_futex(uintptr_t addr, int op, int val, uintptr_t lx_timeout,
 
 	/* Copy in the timeout structure from userspace. */
 	if ((cmd == FUTEX_WAIT || cmd == FUTEX_WAIT_BITSET ||
-	    cmd == FUTEX_LOCK_PI) && lx_timeout != NULL) {
+	    cmd == FUTEX_LOCK_PI) && lx_timeout != (uintptr_t)NULL) {
 		rval = get_timeout((timespec_t *)lx_timeout, &timeout, cmd);
 
 		if (rval != 0)
@@ -1390,9 +1401,20 @@ lx_futex(uintptr_t addr, int op, int val, uintptr_t lx_timeout,
 		break;
 
 	case FUTEX_CMP_REQUEUE:
-	case FUTEX_REQUEUE:
 		rval = futex_requeue(&memid, &memid2, val,
 		    val2, (void *)addr2, &val3);
+
+		break;
+
+	case FUTEX_REQUEUE:
+		/*
+		 * Per Linux futex(2), FUTEX_REQUEUE is the same as
+		 * FUTEX_CMP_REQUEUE, except val3 is ignored. futex_requeue()
+		 * will elide the val3 check if cmpval (the last argument) is
+		 * NULL.
+		 */
+		rval = futex_requeue(&memid, &memid2, val,
+		    val2, (void *)addr2, NULL);
 
 		break;
 
@@ -1562,7 +1584,7 @@ lx_futex_robust_exit(uintptr_t addr, uint32_t tid)
 	/*
 	 * Finally, drop the pending lock if there is one.
 	 */
-	if (list.frl_pending != NULL && list.frl_pending +
+	if (list.frl_pending != (uint32_t)(uintptr_t)NULL && list.frl_pending +
 	    list.frl_offset + sizeof (uint32_t) < KERNELBASE)
 		lx_futex_robust_drop(list.frl_pending + list.frl_offset, tid);
 

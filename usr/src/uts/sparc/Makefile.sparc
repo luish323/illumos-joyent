@@ -22,9 +22,11 @@
 #
 # Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013 Andrew Stormont.  All rights reserved.
+# Copyright (c) 2015, 2017 by Delphix. All rights reserved.
 # Copyright 2019 Joyent, Inc.
 # Copyright 2016 Gary Mills
 # Copyright 2016 Nexenta Systems, Inc.
+# Copyright 2019 Peter Tribble.
 # Copyright 2019 RackTop Systems
 #
 
@@ -202,6 +204,13 @@ $(IF_DEBUG_OBJ)clock.o		:=	DEBUG_DEFS	+= -DKSLICE=1
 #	files.
 #
 ALL_DEFS	 = $(MACHINE_DEFS) $(DEBUG_DEFS) $(OPTION_DEFS)
+
+#
+#	TCP congestion control modules (/kernel/cc)
+#
+MISC_KMODS	+= cc
+CC_KMODS	+= cc_newreno cc_cubic cc_sunreno
+
 #
 #
 #	The kernels modules which are "implementation architecture"
@@ -221,7 +230,7 @@ DRV_KMODS	+= log logindmux kssl mm nca physmem pm poll pool
 DRV_KMODS	+= pseudo ptc ptm pts ptsl ramdisk random rsm rts sad
 DRV_KMODS	+= simnet softmac sppp sppptun sy sysevent sysmsg
 DRV_KMODS	+= spdsock
-DRV_KMODS	+= tcp tcp6 timerfd tl tnf ttymux udp udp6 wc winlock zcons zfd
+DRV_KMODS	+= tcp tcp6 timerfd tl tnf udp udp6 wc winlock zcons
 DRV_KMODS	+= ippctl
 DRV_KMODS	+= dld
 DRV_KMODS	+= ipd
@@ -281,13 +290,32 @@ DRV_KMODS	+= bge dmfe eri fas hme qfe
 DRV_KMODS	+= openeepr options sd ses st
 DRV_KMODS	+= ssd
 DRV_KMODS	+= ecpp
-DRV_KMODS	+= hid hubd ehci ohci uhci usb_mid usb_ia scsa2usb usbprn ugen
-DRV_KMODS	+= usbser usbsacm usbsksp usbsprl
-DRV_KMODS	+= usb_as usb_ac
+
+#
+#	USB specific modules
+#
+DRV_KMODS	+= ccid
+DRV_KMODS	+= hid
+DRV_KMODS	+= hubd
+DRV_KMODS	+= ehci
+DRV_KMODS	+= ohci
+DRV_KMODS	+= uhci
+DRV_KMODS	+= usb_mid
+DRV_KMODS	+= usb_ia
+DRV_KMODS	+= scsa2usb
+DRV_KMODS	+= usbprn
+DRV_KMODS	+= ugen
+DRV_KMODS	+= usbser
+DRV_KMODS	+= usbsacm
+DRV_KMODS	+= usbsksp
+DRV_KMODS	+= usbsprl
+DRV_KMODS	+= usb_as
+DRV_KMODS	+= usb_ac
 DRV_KMODS	+= usbskel
 DRV_KMODS	+= usbvc
 DRV_KMODS	+= usbftdi
 DRV_KMODS	+= usbecm
+
 DRV_KMODS	+= hci1394 av1394 scsa1394 dcam1394
 DRV_KMODS	+= sbp2
 DRV_KMODS	+= ib ibp eibnx eoib rdsib sdp iser daplt hermon tavor sol_ucma sol_uverbs
@@ -505,3 +533,8 @@ KICONV_KMODS	+= kiconv_emea kiconv_ja kiconv_ko kiconv_sc kiconv_tc
 #
 $(LINTFLAGSUPPRESS)LINTFLAGS	+= -D_MACHDEP -I$(UTSBASE)/sun4 \
 				   -I$(UTSBASE)/sun4u -I$(UTSBASE)/sfmmu
+
+#
+#	Sensor related drivers
+#
+DRV_KMODS	+= ksensor ksensor_test

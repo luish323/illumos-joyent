@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2011, 2017 by Delphix. All rights reserved.
+ * Copyright (c) 2011, 2019 by Delphix. All rights reserved.
  * Copyright (c) 2013 Steven Hartland. All rights reserved.
  * Copyright (c) 2014 Spectra Logic Corporation, All rights reserved.
  * Copyright (c) 2014 Integros [integros.com]
@@ -222,6 +222,9 @@ dsl_pool_open_impl(spa_t *spa, uint64_t txg)
 
 	dp->dp_vnrele_taskq = taskq_create("zfs_vn_rele_taskq", 1, minclsyspri,
 	    1, 4, 0);
+	dp->dp_unlinked_drain_taskq = taskq_create("z_unlinked_drain",
+	    max_ncpus, minclsyspri, max_ncpus, INT_MAX,
+	    TASKQ_PREPOPULATE | TASKQ_DYNAMIC);
 
 	return (dp);
 }
@@ -403,6 +406,7 @@ dsl_pool_close(dsl_pool_t *dp)
 
 	rrw_destroy(&dp->dp_config_rwlock);
 	mutex_destroy(&dp->dp_lock);
+	taskq_destroy(dp->dp_unlinked_drain_taskq);
 	taskq_destroy(dp->dp_vnrele_taskq);
 	if (dp->dp_blkstats != NULL)
 		kmem_free(dp->dp_blkstats, sizeof (zfs_all_blkstats_t));
@@ -660,7 +664,7 @@ dsl_pool_sync(dsl_pool_t *dp, uint64_t txg)
 
 	/*
 	 * After the data blocks have been written (ensured by the zio_wait()
-	 * above), update the user/group space accounting.  This happens
+	 * above), update the user/group/project space accounting.  This happens
 	 * in tasks dispatched to dp_sync_taskq, so wait for them before
 	 * continuing.
 	 */
@@ -737,7 +741,7 @@ dsl_pool_sync(dsl_pool_t *dp, uint64_t txg)
 		dp->dp_mos_uncompressed_delta = 0;
 	}
 
-	if (!multilist_is_empty(mos->os_dirty_dnodes[txg & TXG_MASK])) {
+	if (dmu_objset_is_dirty(mos, txg)) {
 		dsl_pool_sync_mos(dp, tx);
 	}
 
@@ -1076,6 +1080,12 @@ taskq_t *
 dsl_pool_vnrele_taskq(dsl_pool_t *dp)
 {
 	return (dp->dp_vnrele_taskq);
+}
+
+taskq_t *
+dsl_pool_unlinked_drain_taskq(dsl_pool_t *dp)
+{
+	return (dp->dp_unlinked_drain_taskq);
 }
 
 /*

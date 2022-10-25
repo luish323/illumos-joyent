@@ -53,7 +53,7 @@ CRTI=		pics/crti.o
 CRTN=		pics/crtn.o
 CRTS=		$(CRTI)		$(CRTN)
 
-CHKSRCS=	$(SRCBASE)/uts/common/krtld/reloc.h
+CHKSRCS=	$(SRC)/uts/common/krtld/reloc.h
 
 BASEPLAT =	sparc
 
@@ -81,7 +81,7 @@ SGSMSGTARG +=	$(SGSMSGSPARC) $(SGSMSGSPARC32) $(SGSMSG32)
 
 all:		$(RTLD)
 
-install:	all $(ROOTDYNLIB)
+install:	all $(ROOTDYNLIB) $(ROOTCOMPATLINKS)
 
 adbmacros:	adb .WAIT $(ADBSCRIPTS)
 

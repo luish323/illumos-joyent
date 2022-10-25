@@ -145,6 +145,13 @@ int pcie_max_mps = PCIE_DEVCTL_MAX_PAYLOAD_4096 >> 5;
 int pcie_disable_ari = 0;
 
 /*
+ * On some platforms, such as the AMD B450 chipset, we've seen an odd
+ * relationship between enabling link bandwidth notifications and AERs about
+ * ECRC errors. This provides a mechanism to disable it.
+ */
+int pcie_disable_lbw = 0;
+
+/*
  * Amount of time to wait for an in-progress retraining. The default is to try
  * 500 times in 10ms chunks, thus a total of 5s.
  */
@@ -559,6 +566,56 @@ pcie_determine_serial(dev_info_t *dip)
 	    serial, sizeof (serial));
 }
 
+static void
+pcie_determine_aspm(dev_info_t *dip)
+{
+	pcie_bus_t	*bus_p = PCIE_DIP2BUS(dip);
+	uint32_t	linkcap;
+	uint16_t	linkctl;
+
+	if (!PCIE_IS_PCIE(bus_p))
+		return;
+
+	linkcap = PCIE_CAP_GET(32, bus_p, PCIE_LINKCAP);
+	linkctl = PCIE_CAP_GET(16, bus_p, PCIE_LINKCTL);
+
+	switch (linkcap & PCIE_LINKCAP_ASPM_SUP_MASK) {
+	case PCIE_LINKCAP_ASPM_SUP_L0S:
+		(void) ndi_prop_update_string(DDI_DEV_T_NONE, dip,
+		    "pcie-aspm-support", "l0s");
+		break;
+	case PCIE_LINKCAP_ASPM_SUP_L1:
+		(void) ndi_prop_update_string(DDI_DEV_T_NONE, dip,
+		    "pcie-aspm-support", "l1");
+		break;
+	case PCIE_LINKCAP_ASPM_SUP_L0S_L1:
+		(void) ndi_prop_update_string(DDI_DEV_T_NONE, dip,
+		    "pcie-aspm-support", "l0s,l1");
+		break;
+	default:
+		return;
+	}
+
+	switch (linkctl & PCIE_LINKCTL_ASPM_CTL_MASK) {
+	case PCIE_LINKCTL_ASPM_CTL_DIS:
+		(void) ndi_prop_update_string(DDI_DEV_T_NONE, dip,
+		    "pcie-aspm-state", "disabled");
+		break;
+	case PCIE_LINKCTL_ASPM_CTL_L0S:
+		(void) ndi_prop_update_string(DDI_DEV_T_NONE, dip,
+		    "pcie-aspm-state", "l0s");
+		break;
+	case PCIE_LINKCTL_ASPM_CTL_L1:
+		(void) ndi_prop_update_string(DDI_DEV_T_NONE, dip,
+		    "pcie-aspm-state", "l1");
+		break;
+	case PCIE_LINKCTL_ASPM_CTL_L0S_L1:
+		(void) ndi_prop_update_string(DDI_DEV_T_NONE, dip,
+		    "pcie-aspm-state", "l0s,l1");
+		break;
+	}
+}
+
 /*
  * PCI-Express child device initialization.
  * This function enables generic pci-express interrupts and error
@@ -704,6 +761,8 @@ pcie_initchild(dev_info_t *cdip)
 
 		pcie_determine_serial(cdip);
 
+		pcie_determine_aspm(cdip);
+
 		pcie_capture_speeds(cdip);
 	}
 
@@ -786,6 +845,13 @@ pcie_init_pfd(dev_info_t *dip)
 				    PCIE_ZALLOC(pf_pcix_ecc_regs_t);
 			}
 		}
+
+		PCIE_SLOT_REG(pfd_p) = PCIE_ZALLOC(pf_pcie_slot_regs_t);
+		PCIE_SLOT_REG(pfd_p)->pcie_slot_regs_valid = B_FALSE;
+		PCIE_SLOT_REG(pfd_p)->pcie_slot_cap = 0;
+		PCIE_SLOT_REG(pfd_p)->pcie_slot_control = 0;
+		PCIE_SLOT_REG(pfd_p)->pcie_slot_status = 0;
+
 	} else if (PCIE_IS_PCIX(bus_p)) {
 		if (PCIE_IS_BDG(bus_p)) {
 			PCIX_BDG_ERR_REG(pfd_p) =
@@ -2852,6 +2918,10 @@ pcie_link_bw_enable(dev_info_t *dip)
 	uint16_t linkctl;
 	pcie_bus_t *bus_p = PCIE_DIP2BUS(dip);
 
+	if (pcie_disable_lbw != 0) {
+		return (DDI_FAILURE);
+	}
+
 	if (!pcie_link_bw_supported(dip)) {
 		return (DDI_FAILURE);
 	}
@@ -3029,11 +3099,6 @@ pcie_link_bw_intr(dev_info_t *dip)
 	pcie_bus_t *bus_p = PCIE_DIP2BUS(dip);
 	uint16_t linksts;
 	uint16_t flags = PCIE_LINKSTS_LINK_BW_MGMT | PCIE_LINKSTS_AUTO_BW;
-	dev_info_t *cdip;
-	sysevent_t *se = NULL;
-	sysevent_value_t se_val;
-	sysevent_id_t eid;
-	sysevent_attr_list_t *ev_attr_list = NULL;
 
 	if ((bus_p->bus_lbw_state & PCIE_LBW_S_ENABLED) == 0) {
 		return (DDI_INTR_UNCLAIMED);

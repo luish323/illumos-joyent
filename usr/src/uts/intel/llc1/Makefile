@@ -27,8 +27,8 @@
 # Copyright (c) 2018, Joyent, Inc.
 
 #
-#	This makefile drives the production of the Sound-Blaster driver 
-#	kernel module.
+#	This makefile drives the production of the
+#	Logical Link Control Class 1 driver kernel module.
 #
 #	intel architecture dependent
 #
@@ -67,7 +67,7 @@ INSTALL_TARGET	= $(BINARY) $(ROOTMODULE) $(ROOT_CONFFILE)
 LINTTAGS	+= -erroff=E_BAD_PTR_CAST_ALIGN
 LINTTAGS	+= -erroff=E_PTRDIFF_OVERFLOW
 
-CERRWARN	+= -_gcc=-Wno-uninitialized
+CERRWARN	+= $(CNOWARN_UNINIT)
 
 # needs work
 $(OBJS_DIR)/llc1.o := SMOFF += no_if_block,deref_check

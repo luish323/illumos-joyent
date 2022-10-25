@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2019 Nexenta Systems, Inc.  All rights reserved.
  */
 /*
  * SMB Node State Machine
@@ -88,7 +88,7 @@
  *    course the state of the node should be tested/updated under the
  *    protection of the mutex).
  */
-#include <smbsrv/smb_kproto.h>
+#include <smbsrv/smb2_kproto.h>
 #include <smbsrv/smb_fsops.h>
 #include <smbsrv/smb_kstat.h>
 #include <sys/ddi.h>
@@ -599,7 +599,7 @@ smb_node_root_init(smb_server_t *sv, smb_node_t **svrootp)
 	 * so need to use kcred, not zone_kcred().
 	 */
 	error = smb_pathname(NULL, zone->zone_rootpath, 0,
-	    smb_root_node, smb_root_node, NULL, svrootp, kcred);
+	    smb_root_node, smb_root_node, NULL, svrootp, kcred, NULL);
 
 	return (error);
 }
@@ -683,6 +683,11 @@ smb_node_set_delete_on_close(smb_node_t *node, cred_t *cr, uint32_t flags)
 		if (status != 0) {
 			return (status);
 		}
+	}
+
+	/* Dataset roots can't be deleted, so don't set DOC */
+	if ((node->flags & NODE_FLAGS_VFSROOT) != 0) {
+		return (NT_STATUS_CANNOT_DELETE);
 	}
 
 	mutex_enter(&node->n_mutex);
@@ -1574,10 +1579,20 @@ smb_node_setattr(smb_request_t *sr, smb_node_t *node,
 			    attr->sa_crtime;
 
 		mutex_exit(&of->f_mutex);
+
 		/*
 		 * The f_pending_attr times are reapplied in
 		 * smb_ofile_close().
 		 */
+
+		/*
+		 * If this change is coming directly from a client
+		 * (sr != NULL) and it's a persistent handle, save
+		 * the "sticky times" in the handle.
+		 */
+		if (sr != NULL && of->dh_persist) {
+			smb2_dh_update_times(sr, of, attr);
+		}
 	}
 
 	if ((attr->sa_mask & SMB_AT_ALLOCSZ) != 0) {

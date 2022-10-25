@@ -34,16 +34,15 @@ include ../../Makefile.lib
 # install this library in the root filesystem
 include ../../Makefile.rootfs
 
-LIBS =		$(DYNLIB) $(LINTLIB)
+LIBS =		$(DYNLIB)
 LDLIBS +=	-lc -linetutil -lsocket -ldlpi -lnvpair -ldhcpagent \
 		-ldladm -lsecdb -ldhcputil
 
 SRCDIR =	../common
-$(LINTLIB) :=	SRCS = $(SRCDIR)/$(LINTSRC)
 
 CFLAGS +=	$(CCVERBOSE)
 CERRWARN +=	-_gcc=-Wno-switch
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 CPPFLAGS +=	-I$(SRCDIR) -D_REENTRANT
 
 # not linted
@@ -53,6 +52,5 @@ SMATCH=off
 
 all:		$(LIBS)
 
-lint:		lintcheck
 
 include $(SRC)/lib/Makefile.targ

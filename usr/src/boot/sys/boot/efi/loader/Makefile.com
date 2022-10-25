@@ -32,11 +32,11 @@ SRCS=	\
 	font.c \
 	$(FONT).c \
 	framebuffer.c \
-	list.c \
 	main.c \
 	memmap.c \
-	multiboot.S \
+	mb_header.S \
 	multiboot2.c \
+	nvstore.c \
 	self_reloc.c \
 	smbios.c \
 	tem.c \
@@ -52,17 +52,19 @@ OBJS=	\
 	font.o \
 	$(FONT).o \
 	framebuffer.o \
-	list.o \
 	main.o \
 	memmap.o \
-	multiboot.o \
+	mb_header.o \
 	multiboot2.o \
+	nvstore.o \
 	self_reloc.o \
 	smbios.o \
 	tem.o \
 	vers.o
 
+module.o := CPPFLAGS += -I$(BOOTSRC)/libcrypto
 tem.o := CPPFLAGS += $(DEFAULT_CONSOLE_COLOR)
+main.o := CPPFLAGS += -I$(SRC)/uts/common/fs/zfs
 
 CPPFLAGS += -I../../../../../include -I../../..../
 CPPFLAGS += -I../../../../../lib/libstand
@@ -186,12 +188,6 @@ clean clobber:
 
 %.o:	../../../common/linenoise/%.c
 	$(COMPILE.c) $<
-
-%.o: ../../../i386/libi386/%.c
-	$(COMPILE.c) $<
-
-%.o: $(SRC)/common/list/%.c
-	$(COMPILE.c) -DNDEBUG $<
 
 %.o: $(SRC)/common/font/%.c
 	$(COMPILE.c) $<

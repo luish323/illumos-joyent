@@ -151,6 +151,9 @@ static void handle_non_struct_assignments(struct expression *left, struct expres
 	struct symbol *type;
 	struct expression *assign;
 
+	while (right && right->type == EXPR_ASSIGNMENT)
+		right = strip_parens(right->left);
+
 	type = get_type(left);
 	if (!type)
 		return;
@@ -167,7 +170,8 @@ static void handle_non_struct_assignments(struct expression *left, struct expres
 	if (type->type != SYM_BASETYPE)
 		return;
 	right = strip_expr(right);
-	if (!right)
+	type = get_type(right);
+	if (!right || !type || type->type == SYM_ARRAY)
 		right = unknown_value_expression(left);
 	assign = assign_expression(left, '=', right);
 	split_fake_expr(assign);
@@ -233,13 +237,15 @@ static void __struct_members_copy(int mode, struct expression *faked,
 	struct expression *assign;
 	int op = '.';
 
-
 	if (__in_fake_assign)
 		return;
 	faked_expression = faked;
 
 	left = strip_expr(left);
 	right = strip_expr(right);
+
+	if (left->type == EXPR_PREOP && left->op == '*' && is_pointer(left))
+		left = preop_expression(left, '(');
 
 	struct_type = get_struct_type(left);
 	if (!struct_type) {
@@ -404,7 +410,7 @@ void __fake_struct_member_assignments(struct expression *expr)
 	if (expr->op != '=')
 		return;
 
-	if (is_zero(expr->right))
+	if (expr_is_zero(expr->right))
 		return;
 
 	left_type = get_type(expr->left);
@@ -443,6 +449,23 @@ static void match_memcpy(const char *fn, struct expression *expr, void *_arg)
 	src = get_argument_from_call_expr(expr->args, 1);
 
 	__struct_members_copy(COPY_MEMCPY, expr, remove_addr(dest), remove_addr(src));
+}
+
+static void match_memdup(const char *fn, struct expression *call_expr,
+			struct expression *expr, void *_unused)
+{
+	struct expression *left, *right, *arg;
+
+	if (!expr || expr->type != EXPR_ASSIGNMENT)
+		return;
+
+	left = strip_expr(expr->left);
+	right = strip_expr(expr->right);
+
+	if (right->type != EXPR_CALL)
+		return;
+	arg = get_argument_from_call_expr(right->args, 0);
+	__struct_members_copy(COPY_MEMCPY, expr, left, arg);
 }
 
 static void match_memcpy_unknown(const char *fn, struct expression *expr, void *_arg)
@@ -547,6 +570,9 @@ void register_struct_assignment(int id)
 	add_function_hook("memmove", &match_memcpy, INT_PTR(0));
 	add_function_hook("__memcpy", &match_memcpy, INT_PTR(0));
 	add_function_hook("__memmove", &match_memcpy, INT_PTR(0));
+
+	if (option_project == PROJ_KERNEL)
+		return_implies_state_sval("kmemdup", valid_ptr_min_sval, valid_ptr_max_sval, &match_memdup, NULL);
 
 	add_function_hook("sscanf", &match_sscanf, NULL);
 

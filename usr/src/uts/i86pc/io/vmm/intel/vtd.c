@@ -53,6 +53,8 @@ __FBSDID("$FreeBSD$");
  * Architecture Spec, September 2008.
  */
 
+#define	VTD_DRHD_INCLUDE_PCI_ALL(Flags)  (((Flags) >> 0) & 0x1)
+
 /* Section 10.4 "Register Descriptions" */
 struct vtdmap {
 	volatile uint32_t	version;
@@ -103,14 +105,14 @@ struct vtdmap {
 #define	VTD_PTE_SUPERPAGE	(1UL << 7)
 #define	VTD_PTE_ADDR_M		(0x000FFFFFFFFFF000UL)
 
-#define VTD_RID2IDX(rid)	(((rid) & 0xff) * 2)
+#define	VTD_RID2IDX(rid)	(((rid) & 0xff) * 2)
 
 struct domain {
 	uint64_t	*ptp;		/* first level page table page */
 	int		pt_levels;	/* number of page table levels */
 	int		addrwidth;	/* 'AW' field in context entry */
 	int		spsmask;	/* supported super page sizes */
-	u_int		id;		/* domain id */
+	uint_t		id;		/* domain id */
 	vm_paddr_t	maxaddr;	/* highest address to be mapped */
 	SLIST_ENTRY(domain) next;
 };
@@ -118,16 +120,17 @@ struct domain {
 static SLIST_HEAD(, domain) domhead;
 
 #define	DRHD_MAX_UNITS	8
-static int		drhd_num;
-static struct vtdmap	*vtdmaps[DRHD_MAX_UNITS];
-static int		max_domains;
-typedef int		(*drhd_ident_func_t)(void);
+static ACPI_DMAR_HARDWARE_UNIT	*drhds[DRHD_MAX_UNITS];
+static int			drhd_num;
+static struct vtdmap		*vtdmaps[DRHD_MAX_UNITS];
+static int			max_domains;
+typedef int			(*drhd_ident_func_t)(void);
 #ifndef __FreeBSD__
 static dev_info_t	*vtddips[DRHD_MAX_UNITS];
 #endif
 
-static uint64_t root_table[PAGE_SIZE / sizeof(uint64_t)] __aligned(4096);
-static uint64_t ctx_tables[256][PAGE_SIZE / sizeof(uint64_t)] __aligned(4096);
+static uint64_t root_table[PAGE_SIZE / sizeof (uint64_t)] __aligned(4096);
+static uint64_t ctx_tables[256][PAGE_SIZE / sizeof (uint64_t)] __aligned(4096);
 
 static MALLOC_DEFINE(M_VTD, "vtd", "vtd");
 
@@ -158,10 +161,10 @@ vtd_max_domains(struct vtdmap *vtdmap)
 	}
 }
 
-static u_int
+static uint_t
 domain_id(void)
 {
-	u_int id;
+	uint_t id;
 	struct domain *dom;
 
 	/* Skip domain id 0 - it is reserved when Caching Mode field is set */
@@ -173,11 +176,78 @@ domain_id(void)
 		if (dom == NULL)
 			break;		/* found it */
 	}
-	
+
 	if (id >= max_domains)
 		panic("domain ids exhausted");
 
 	return (id);
+}
+
+static struct vtdmap *
+vtd_device_scope(uint16_t rid)
+{
+	int i, remaining, pathrem;
+	char *end, *pathend;
+	struct vtdmap *vtdmap;
+	ACPI_DMAR_HARDWARE_UNIT *drhd;
+	ACPI_DMAR_DEVICE_SCOPE *device_scope;
+	ACPI_DMAR_PCI_PATH *path;
+
+	for (i = 0; i < drhd_num; i++) {
+		drhd = drhds[i];
+
+		if (VTD_DRHD_INCLUDE_PCI_ALL(drhd->Flags)) {
+			/*
+			 * From Intel VT-d arch spec, version 3.0:
+			 * If a DRHD structure with INCLUDE_PCI_ALL flag Set is
+			 * reported for a Segment, it must be enumerated by BIOS
+			 * after all other DRHD structures for the same Segment.
+			 */
+			vtdmap = vtdmaps[i];
+			return (vtdmap);
+		}
+
+		end = (char *)drhd + drhd->Header.Length;
+		remaining = drhd->Header.Length -
+		    sizeof (ACPI_DMAR_HARDWARE_UNIT);
+		while (remaining > sizeof (ACPI_DMAR_DEVICE_SCOPE)) {
+			device_scope =
+			    (ACPI_DMAR_DEVICE_SCOPE *)(end - remaining);
+			remaining -= device_scope->Length;
+
+			switch (device_scope->EntryType) {
+				/* 0x01 and 0x02 are PCI device entries */
+				case 0x01:
+				case 0x02:
+					break;
+				default:
+					continue;
+			}
+
+			if (PCI_RID2BUS(rid) != device_scope->Bus)
+				continue;
+
+			pathend = (char *)device_scope + device_scope->Length;
+			pathrem = device_scope->Length -
+			    sizeof (ACPI_DMAR_DEVICE_SCOPE);
+			while (pathrem >= sizeof (ACPI_DMAR_PCI_PATH)) {
+				path = (ACPI_DMAR_PCI_PATH *)
+				    (pathend - pathrem);
+				pathrem -= sizeof (ACPI_DMAR_PCI_PATH);
+
+				if (PCI_RID2SLOT(rid) != path->Device)
+					continue;
+				if (PCI_RID2FUNC(rid) != path->Function)
+					continue;
+
+				vtdmap = vtdmaps[i];
+				return (vtdmap);
+			}
+		}
+	}
+
+	/* No matching scope */
+	return (NULL);
 }
 
 static void
@@ -213,9 +283,9 @@ vtd_iotlb_global_invalidate(struct vtdmap *vtdmap)
 
 	offset = VTD_ECAP_IRO(vtdmap->ext_cap) * 16;
 	iotlb_reg = (volatile uint64_t *)((caddr_t)vtdmap + offset + 8);
-	
+
 	*iotlb_reg =  VTD_IIR_IVT | VTD_IIR_IIRG_GLOBAL |
-		      VTD_IIR_DRAIN_READS | VTD_IIR_DRAIN_WRITES;
+	    VTD_IIR_DRAIN_READS | VTD_IIR_DRAIN_WRITES;
 
 	while (1) {
 		val = *iotlb_reg;
@@ -285,7 +355,7 @@ extern dev_info_t *vtd_get_dip(ACPI_DMAR_HARDWARE_UNIT *, int);
 static int
 vtd_init(void)
 {
-	int i, units, remaining;
+	int i, units, remaining, tmp;
 	struct vtdmap *vtdmap;
 	vm_paddr_t ctx_paddr;
 	char *end;
@@ -309,7 +379,8 @@ vtd_init(void)
 	 * set vtd.regmap.1.addr=0xfeda0000
 	 */
 	for (units = 0; units < DRHD_MAX_UNITS; units++) {
-		snprintf(envname, sizeof(envname), "vtd.regmap.%d.addr", units);
+		snprintf(envname, sizeof (envname), "vtd.regmap.%d.addr",
+		    units);
 		if (getenv_ulong(envname, &mapaddr) == 0)
 			break;
 		vtdmaps[units] = (struct vtdmap *)PHYS_TO_DMAP(mapaddr);
@@ -326,8 +397,8 @@ vtd_init(void)
 		return (ENXIO);
 
 	end = (char *)dmar + dmar->Header.Length;
-	remaining = dmar->Header.Length - sizeof(ACPI_TABLE_DMAR);
-	while (remaining > sizeof(ACPI_DMAR_HEADER)) {
+	remaining = dmar->Header.Length - sizeof (ACPI_TABLE_DMAR);
+	while (remaining > sizeof (ACPI_DMAR_HEADER)) {
 		hdr = (ACPI_DMAR_HEADER *)(end - remaining);
 		if (hdr->Length > remaining)
 			break;
@@ -342,16 +413,16 @@ vtd_init(void)
 			break;
 
 		drhd = (ACPI_DMAR_HARDWARE_UNIT *)hdr;
+		drhds[units] = drhd;
 #ifdef __FreeBSD__
-		vtdmaps[units++] = (struct vtdmap *)PHYS_TO_DMAP(drhd->Address);
+		vtdmaps[units] = (struct vtdmap *)PHYS_TO_DMAP(drhd->Address);
 #else
 		vtddips[units] = vtd_get_dip(drhd, units);
 		vtdmaps[units] = (struct vtdmap *)vtd_map(vtddips[units]);
 		if (vtdmaps[units] == NULL)
 			goto fail;
-		units++;
 #endif
-		if (units >= DRHD_MAX_UNITS)
+		if (++units >= DRHD_MAX_UNITS)
 			break;
 		remaining -= hdr->Length;
 	}
@@ -363,12 +434,18 @@ vtd_init(void)
 skip_dmar:
 #endif
 	drhd_num = units;
-	vtdmap = vtdmaps[0];
 
-	if (VTD_CAP_CM(vtdmap->cap) != 0)
-		panic("vtd_init: invalid caching mode");
+	max_domains = 64 * 1024; /* maximum valid value */
+	for (i = 0; i < drhd_num; i++) {
+		vtdmap = vtdmaps[i];
 
-	max_domains = vtd_max_domains(vtdmap);
+		if (VTD_CAP_CM(vtdmap->cap) != 0)
+			panic("vtd_init: invalid caching mode");
+
+		/* take most compatible (minimum) value */
+		if ((tmp = vtd_max_domains(vtdmap)) < max_domains)
+			max_domains = tmp;
+	}
 
 	/*
 	 * Set up the root-table to point to the context-entry tables
@@ -459,7 +536,6 @@ vtd_add_device(void *arg, uint16_t rid)
 	struct vtdmap *vtdmap;
 	uint8_t bus;
 
-	vtdmap = vtdmaps[0];
 	bus = PCI_RID2BUS(rid);
 	ctxp = ctx_tables[bus];
 	pt_paddr = vtophys(dom->ptp);
@@ -467,9 +543,12 @@ vtd_add_device(void *arg, uint16_t rid)
 
 	if (ctxp[idx] & VTD_CTX_PRESENT) {
 		panic("vtd_add_device: device %x is already owned by "
-		      "domain %d", rid,
-		      (uint16_t)(ctxp[idx + 1] >> 8));
+		    "domain %d", rid, (uint16_t)(ctxp[idx + 1] >> 8));
 	}
+
+	if ((vtdmap = vtd_device_scope(rid)) == NULL)
+		panic("vtd_add_device: device %x is not in scope for "
+		    "any DMA remapping unit", rid);
 
 	/*
 	 * Order is important. The 'present' bit is set only after all fields
@@ -526,7 +605,7 @@ vtd_remove_device(void *arg, uint16_t rid)
 
 static uint64_t
 vtd_update_mapping(void *arg, vm_paddr_t gpa, vm_paddr_t hpa, uint64_t len,
-		   int remove)
+    int remove)
 {
 	struct domain *dom;
 	int i, spshift, ptpshift, ptpindex, nlevels;
@@ -536,10 +615,10 @@ vtd_update_mapping(void *arg, vm_paddr_t gpa, vm_paddr_t hpa, uint64_t len,
 	ptpindex = 0;
 	ptpshift = 0;
 
-	KASSERT(gpa + len > gpa, ("%s: invalid gpa range %#lx/%#lx", __func__,
+	KASSERT(gpa + len > gpa, ("%s: invalid gpa range %lx/%lx", __func__,
 	    gpa, len));
-	KASSERT(gpa + len <= dom->maxaddr, ("%s: gpa range %#lx/%#lx beyond "
-	    "domain maxaddr %#lx", __func__, gpa, len, dom->maxaddr));
+	KASSERT(gpa + len <= dom->maxaddr, ("%s: gpa range %lx/%lx beyond "
+	    "domain maxaddr %lx", __func__, gpa, len, dom->maxaddr));
 
 	if (gpa & PAGE_MASK)
 		panic("vtd_create_mapping: unaligned gpa 0x%0lx", gpa);
@@ -654,8 +733,6 @@ vtd_create_domain(vm_paddr_t maxaddr)
 	if (drhd_num <= 0)
 		panic("vtd_create_domain: no dma remapping hardware available");
 
-	vtdmap = vtdmaps[0];
-
 	/*
 	 * Calculate AGAW.
 	 * Section 3.4.2 "Adjusted Guest Address Width", Architecture Spec.
@@ -680,7 +757,14 @@ vtd_create_domain(vm_paddr_t maxaddr)
 	pt_levels = 2;
 	sagaw = 30;
 	addrwidth = 0;
-	tmp = VTD_CAP_SAGAW(vtdmap->cap);
+
+	tmp = ~0;
+	for (i = 0; i < drhd_num; i++) {
+		vtdmap = vtdmaps[i];
+		/* take most compatible value */
+		tmp &= VTD_CAP_SAGAW(vtdmap->cap);
+	}
+
 	for (i = 0; i < 5; i++) {
 		if ((tmp & (1 << i)) != 0 && sagaw >= agaw)
 			break;
@@ -692,11 +776,11 @@ vtd_create_domain(vm_paddr_t maxaddr)
 	}
 
 	if (i >= 5) {
-		panic("vtd_create_domain: SAGAW 0x%lx does not support AGAW %d",
-		      VTD_CAP_SAGAW(vtdmap->cap), agaw);
+		panic("vtd_create_domain: SAGAW 0x%x does not support AGAW %d",
+		    tmp, agaw);
 	}
 
-	dom = malloc(sizeof(struct domain), M_VTD, M_ZERO | M_WAITOK);
+	dom = malloc(sizeof (struct domain), M_VTD, M_ZERO | M_WAITOK);
 	dom->pt_levels = pt_levels;
 	dom->addrwidth = addrwidth;
 	dom->id = domain_id();
@@ -721,7 +805,12 @@ vtd_create_domain(vm_paddr_t maxaddr)
 	 * There is not any code to deal with the demotion at the moment
 	 * so we disable superpage mappings altogether.
 	 */
-	dom->spsmask = VTD_CAP_SPS(vtdmap->cap);
+	dom->spsmask = ~0;
+	for (i = 0; i < drhd_num; i++) {
+		vtdmap = vtdmaps[i];
+		/* take most compatible value */
+		dom->spsmask &= VTD_CAP_SPS(vtdmap->cap);
+	}
 #endif
 #else
 	/*
@@ -766,7 +855,7 @@ static void
 vtd_destroy_domain(void *arg)
 {
 	struct domain *dom;
-	
+
 	dom = arg;
 
 	SLIST_REMOVE(&domhead, dom, domain, next);

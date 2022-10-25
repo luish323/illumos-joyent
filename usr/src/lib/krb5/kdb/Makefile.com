@@ -85,7 +85,7 @@ CFLAGS +=	$(CCVERBOSE) -I..
 CERRWARN +=	-_gcc=-Wno-unused-variable
 CERRWARN +=	-_gcc=-Wno-unused-function
 CERRWARN +=	-_gcc=-Wno-type-limits
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 CERRWARN +=	-_gcc=-Wno-parentheses
 
 SMOFF += indenting,all_func_returns,deref_check,signed
@@ -110,11 +110,6 @@ CLEANFILES +=	$(ISRCHDR) $(ISRCXDR)
 
 # Explicitly state the dependancy on iprop.h
 $(LIBS): $(ISRCHDR)
-
-# We turn off ptr-cast warnings, since we're doing mmapping in kdb_log
-LINTFLAGS +=	-erroff=E_BAD_PTR_CAST_ALIGN
-
-lint:	lintcheck
 
 # include library targets
 include ../../Makefile.targ

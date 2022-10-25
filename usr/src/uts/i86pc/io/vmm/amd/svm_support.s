@@ -28,6 +28,7 @@
 
 /*
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2020 Oxide Computer Company
  */
 
 #include <sys/asm_linkage.h>
@@ -35,18 +36,6 @@
 #include "svm_assym.h"
 
 /* Porting note: This is named 'svm_support.S' upstream. */
-
-#if defined(lint)
-
-struct svm_regctx;
-struct cpu;
-
-/*ARGSUSED*/
-void
-svm_launch(uint64_t pa, struct svm_regctx *gctx, struct cpu *cpu)
-{}
-
-#else /* lint */
 
 #define	VMLOAD	.byte 0x0f, 0x01, 0xda
 #define	VMRUN	.byte 0x0f, 0x01, 0xd8
@@ -154,11 +143,21 @@ ENTRY_NP(svm_launch)
 	movl	$MSR_GSBASE, %ecx
 	wrmsr
 
+	/*
+	 * While SVM will save/restore the GDTR and IDTR, the TR does not enjoy
+	 * such treatment.  Reload the KTSS immediately, since it is used by
+	 * dtrace and other fault/trap handlers.
+	 */
+	movq	SVMSTK_RDX(%rsp), %rdi		/* %rdi = CPU */
+	movq	CPU_GDT(%rdi), %rdi		/* %rdi = cpu->cpu_gdt */
+	leaq	GDT_KTSS_OFF(%rdi), %rdi	/* %rdi = &cpu_gdt[GDT_KTSS] */
+	andb	$0xfd, SSD_TYPE(%rdi)		/* ssd_type.busy = 0 */
+	movw	$KTSS_SEL, %ax			/* reload kernel TSS */
+	ltr	%ax
+
 	SVM_GUEST_FLUSH_SCRATCH
 
 	addq	$SVMSTKSIZE, %rsp
 	popq	%rbp
 	ret
 SET_SIZE(svm_launch)
-
-#endif /* lint */

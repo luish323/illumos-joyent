@@ -49,6 +49,7 @@
 
 #include <libzfs.h>
 #include <libzfs_core.h>
+#include <libzutil.h>
 
 #include "zfs_namecheck.h"
 #include "zfs_prop.h"
@@ -493,7 +494,11 @@ fsavl_compare(const void *arg1, const void *arg2)
 	const fsavl_node_t *fn1 = (const fsavl_node_t *)arg1;
 	const fsavl_node_t *fn2 = (const fsavl_node_t *)arg2;
 
-	return (AVL_CMP(fn1->fn_guid, fn2->fn_guid));
+	if (fn1->fn_guid > fn2->fn_guid)
+		return (+1);
+	if (fn1->fn_guid < fn2->fn_guid)
+		return (-1);
+	return (0);
 }
 
 /*
@@ -3481,11 +3486,21 @@ zfs_setup_cmdline_props(libzfs_handle_t *hdl, zfs_type_t type,
 
 		/* raw streams can't override encryption properties */
 		if ((zfs_prop_encryption_key_param(prop) ||
-		    prop == ZFS_PROP_ENCRYPTION) && (raw || !newfs)) {
+		    prop == ZFS_PROP_ENCRYPTION) && raw) {
 			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 			    "encryption property '%s' cannot "
-			    "be set or excluded for raw or incremental "
-			    "streams."), name);
+			    "be set or excluded for raw streams."), name);
+			ret = zfs_error(hdl, EZFS_BADPROP, errbuf);
+			goto error;
+		}
+
+		/* incremental streams can only exclude encryption properties */
+		if ((zfs_prop_encryption_key_param(prop) ||
+		    prop == ZFS_PROP_ENCRYPTION) && !newfs &&
+		    nvpair_type(nvp) != DATA_TYPE_BOOLEAN) {
+			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+			    "encryption property '%s' cannot "
+			    "be set for incremental streams."), name);
 			ret = zfs_error(hdl, EZFS_BADPROP, errbuf);
 			goto error;
 		}
@@ -3503,10 +3518,12 @@ zfs_setup_cmdline_props(libzfs_handle_t *hdl, zfs_type_t type,
 			 */
 			if (nvlist_exists(origprops, name)) {
 				nvlist_t *attrs;
+				char  *source = NULL;
 
 				attrs = fnvlist_lookup_nvlist(origprops, name);
-				if (strcmp(fnvlist_lookup_string(attrs,
-				    ZPROP_SOURCE), ZPROP_SOURCE_VAL_RECVD) != 0)
+				if (nvlist_lookup_string(attrs,
+				    ZPROP_SOURCE, &source) == 0 &&
+				    strcmp(source, ZPROP_SOURCE_VAL_RECVD) != 0)
 					continue;
 			}
 			/*

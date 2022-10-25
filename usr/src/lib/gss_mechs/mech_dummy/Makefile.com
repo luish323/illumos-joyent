@@ -39,10 +39,10 @@ include $(SRC)/lib/Makefile.lib
 MAPFILES =
 
 CPPFLAGS +=	-I../../libgss -I$(SRC)/uts/common/gssapi/include \
-	    	-I$(ROOT)/usr/include/gssapi
+		-I$(ROOT)/usr/include/gssapi
 
 CERRWARN +=	-_gcc=-Wno-parentheses
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 
 # needs work
 SMATCH=off
@@ -54,7 +54,5 @@ LDLIBS +=	-lgss -lc
 .KEEP_STATE:
 
 all: $(LIBS)
-
-lint: lintcheck
 
 include $(SRC)/lib/Makefile.targ

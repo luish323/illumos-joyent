@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2012, 2017 by Delphix. All rights reserved.
+ * Copyright (c) 2012, 2019 by Delphix. All rights reserved.
  * Copyright (c) 2014 Spectra Logic Corporation, All rights reserved.
  * Copyright (c) 2014 Integros [integros.com]
  * Copyright 2017 RackTop Systems.
@@ -39,6 +39,7 @@
 #include <sys/zio.h>
 #include <sys/dmu_zfetch.h>
 #include <sys/range_tree.h>
+#include <sys/zfs_project.h>
 
 dnode_stats_t dnode_stats = {
 	{ "dnode_hold_dbuf_hold",		KSTAT_DATA_UINT64 },
@@ -55,7 +56,6 @@ dnode_stats_t dnode_stats = {
 	{ "dnode_hold_free_lock_retry",		KSTAT_DATA_UINT64 },
 	{ "dnode_hold_free_overflow",		KSTAT_DATA_UINT64 },
 	{ "dnode_hold_free_refcount",		KSTAT_DATA_UINT64 },
-	{ "dnode_hold_free_txg",		KSTAT_DATA_UINT64 },
 	{ "dnode_free_interior_lock_retry",	KSTAT_DATA_UINT64 },
 	{ "dnode_allocate",			KSTAT_DATA_UINT64 },
 	{ "dnode_reallocate",			KSTAT_DATA_UINT64 },
@@ -90,11 +90,11 @@ dbuf_compare(const void *x1, const void *x2)
 	const dmu_buf_impl_t *d1 = x1;
 	const dmu_buf_impl_t *d2 = x2;
 
-	int cmp = AVL_CMP(d1->db_level, d2->db_level);
+	int cmp = TREE_CMP(d1->db_level, d2->db_level);
 	if (likely(cmp))
 		return (cmp);
 
-	cmp = AVL_CMP(d1->db_blkid, d2->db_blkid);
+	cmp = TREE_CMP(d1->db_blkid, d2->db_blkid);
 	if (likely(cmp))
 		return (cmp);
 
@@ -106,7 +106,7 @@ dbuf_compare(const void *x1, const void *x2)
 		return (1);
 	}
 
-	return (AVL_PCMP(d1, d2));
+	return (TREE_PCMP(d1, d2));
 }
 
 /* ARGSUSED */
@@ -120,6 +120,7 @@ dnode_cons(void *arg, void *unused, int kmflag)
 	mutex_init(&dn->dn_mtx, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&dn->dn_dbufs_mtx, NULL, MUTEX_DEFAULT, NULL);
 	cv_init(&dn->dn_notxholds, NULL, CV_DEFAULT, NULL);
+	cv_init(&dn->dn_nodnholds, NULL, CV_DEFAULT, NULL);
 
 	/*
 	 * Every dbuf has a reference, and dropping a tracked reference is
@@ -159,8 +160,10 @@ dnode_cons(void *arg, void *unused, int kmflag)
 	dn->dn_oldflags = 0;
 	dn->dn_olduid = 0;
 	dn->dn_oldgid = 0;
+	dn->dn_oldprojid = ZFS_DEFAULT_PROJID;
 	dn->dn_newuid = 0;
 	dn->dn_newgid = 0;
+	dn->dn_newprojid = ZFS_DEFAULT_PROJID;
 	dn->dn_id_flags = 0;
 
 	dn->dn_dbufs_count = 0;
@@ -182,6 +185,7 @@ dnode_dest(void *arg, void *unused)
 	mutex_destroy(&dn->dn_mtx);
 	mutex_destroy(&dn->dn_dbufs_mtx);
 	cv_destroy(&dn->dn_notxholds);
+	cv_destroy(&dn->dn_nodnholds);
 	zfs_refcount_destroy(&dn->dn_holds);
 	zfs_refcount_destroy(&dn->dn_tx_holds);
 	ASSERT(!list_link_active(&dn->dn_link));
@@ -213,8 +217,10 @@ dnode_dest(void *arg, void *unused)
 	ASSERT0(dn->dn_oldflags);
 	ASSERT0(dn->dn_olduid);
 	ASSERT0(dn->dn_oldgid);
+	ASSERT0(dn->dn_oldprojid);
 	ASSERT0(dn->dn_newuid);
 	ASSERT0(dn->dn_newgid);
+	ASSERT0(dn->dn_newprojid);
 	ASSERT0(dn->dn_id_flags);
 
 	ASSERT0(dn->dn_dbufs_count);
@@ -554,8 +560,10 @@ dnode_destroy(dnode_t *dn)
 	dn->dn_oldflags = 0;
 	dn->dn_olduid = 0;
 	dn->dn_oldgid = 0;
+	dn->dn_oldprojid = ZFS_DEFAULT_PROJID;
 	dn->dn_newuid = 0;
 	dn->dn_newgid = 0;
+	dn->dn_newprojid = ZFS_DEFAULT_PROJID;
 	dn->dn_id_flags = 0;
 
 	dmu_zfetch_fini(&dn->dn_zfetch);
@@ -815,8 +823,10 @@ dnode_move_impl(dnode_t *odn, dnode_t *ndn)
 	ndn->dn_oldflags = odn->dn_oldflags;
 	ndn->dn_olduid = odn->dn_olduid;
 	ndn->dn_oldgid = odn->dn_oldgid;
+	ndn->dn_oldprojid = odn->dn_oldprojid;
 	ndn->dn_newuid = odn->dn_newuid;
 	ndn->dn_newgid = odn->dn_newgid;
+	ndn->dn_newprojid = odn->dn_newprojid;
 	ndn->dn_id_flags = odn->dn_id_flags;
 	dmu_zfetch_init(&ndn->dn_zfetch, NULL);
 	list_move_tail(&ndn->dn_zfetch.zf_stream, &odn->dn_zfetch.zf_stream);
@@ -876,8 +886,10 @@ dnode_move_impl(dnode_t *odn, dnode_t *ndn)
 	odn->dn_oldflags = 0;
 	odn->dn_olduid = 0;
 	odn->dn_oldgid = 0;
+	odn->dn_oldprojid = ZFS_DEFAULT_PROJID;
 	odn->dn_newuid = 0;
 	odn->dn_newgid = 0;
+	odn->dn_newprojid = ZFS_DEFAULT_PROJID;
 	odn->dn_id_flags = 0;
 
 	/*
@@ -1165,13 +1177,15 @@ dnode_special_close(dnode_handle_t *dnh)
 	dnode_t *dn = dnh->dnh_dnode;
 
 	/*
-	 * Wait for final references to the dnode to clear.  This can
-	 * only happen if the arc is asynchronously evicting state that
-	 * has a hold on this dnode while we are trying to evict this
-	 * dnode.
+	 * Ensure dnode_rele_and_unlock() has released dn_mtx, after final
+	 * zfs_refcount_remove()
 	 */
-	while (zfs_refcount_count(&dn->dn_holds) > 0)
-		delay(1);
+	mutex_enter(&dn->dn_mtx);
+	if (zfs_refcount_count(&dn->dn_holds) > 0)
+		cv_wait(&dn->dn_nodnholds, &dn->dn_mtx);
+	mutex_exit(&dn->dn_mtx);
+	ASSERT3U(zfs_refcount_count(&dn->dn_holds), ==, 0);
+
 	ASSERT(dn->dn_dbuf == NULL ||
 	    dmu_buf_get_user(&dn->dn_dbuf->db) == NULL);
 	zrl_add(&dnh->dnh_zrlock);
@@ -1187,7 +1201,7 @@ dnode_special_open(objset_t *os, dnode_phys_t *dnp, uint64_t object,
 	dnode_t *dn;
 
 	zrl_init(&dnh->dnh_zrlock);
-	zrl_tryenter(&dnh->dnh_zrlock);
+	VERIFY3U(1, ==, zrl_tryenter(&dnh->dnh_zrlock));
 
 	dn = dnode_create(os, dnp, NULL, object, dnh);
 	DNODE_VERIFY(dn);
@@ -1249,6 +1263,10 @@ dnode_buf_evict_async(void *dbu)
  * as an extra dnode slot by an large dnode, in which case it returns
  * ENOENT.
  *
+ * If the DNODE_DRY_RUN flag is set, we don't actually hold the dnode, just
+ * return whether the hold would succeed or not. tag and dnp should set to
+ * NULL in this case.
+ *
  * errors:
  * EINVAL - invalid object number or flags.
  * ENOSPC - hole too small to fulfill "slots" request (DNODE_MUST_BE_FREE)
@@ -1276,6 +1294,7 @@ dnode_hold_impl(objset_t *os, uint64_t object, int flag, int slots,
 
 	ASSERT(!(flag & DNODE_MUST_BE_ALLOCATED) || (slots == 0));
 	ASSERT(!(flag & DNODE_MUST_BE_FREE) || (slots > 0));
+	IMPLY(flag & DNODE_DRY_RUN, (tag == NULL) && (dnp == NULL));
 
 	/*
 	 * If you are holding the spa config lock as writer, you shouldn't
@@ -1289,9 +1308,14 @@ dnode_hold_impl(objset_t *os, uint64_t object, int flag, int slots,
 
 	ASSERT((flag & DNODE_MUST_BE_ALLOCATED) || (flag & DNODE_MUST_BE_FREE));
 
-	if (object == DMU_USERUSED_OBJECT || object == DMU_GROUPUSED_OBJECT) {
-		dn = (object == DMU_USERUSED_OBJECT) ?
-		    DMU_USERUSED_DNODE(os) : DMU_GROUPUSED_DNODE(os);
+	if (object == DMU_USERUSED_OBJECT || object == DMU_GROUPUSED_OBJECT ||
+	    object == DMU_PROJECTUSED_OBJECT) {
+		if (object == DMU_USERUSED_OBJECT)
+			dn = DMU_USERUSED_DNODE(os);
+		else if (object == DMU_GROUPUSED_OBJECT)
+			dn = DMU_GROUPUSED_DNODE(os);
+		else
+			dn = DMU_PROJECTUSED_DNODE(os);
 		if (dn == NULL)
 			return (SET_ERROR(ENOENT));
 		type = dn->dn_type;
@@ -1300,8 +1324,11 @@ dnode_hold_impl(objset_t *os, uint64_t object, int flag, int slots,
 		if ((flag & DNODE_MUST_BE_FREE) && type != DMU_OT_NONE)
 			return (SET_ERROR(EEXIST));
 		DNODE_VERIFY(dn);
-		(void) zfs_refcount_add(&dn->dn_holds, tag);
-		*dnp = dn;
+		/* Don't actually hold if dry run, just return 0 */
+		if (!(flag & DNODE_DRY_RUN)) {
+			(void) zfs_refcount_add(&dn->dn_holds, tag);
+			*dnp = dn;
+		}
 		return (0);
 	}
 
@@ -1446,6 +1473,14 @@ dnode_hold_impl(objset_t *os, uint64_t object, int flag, int slots,
 			return (SET_ERROR(ENOENT));
 		}
 
+		/* Don't actually hold if dry run, just return 0 */
+		if (flag & DNODE_DRY_RUN) {
+			mutex_exit(&dn->dn_mtx);
+			dnode_slots_rele(dnc, idx, slots);
+			dbuf_rele(db, FTAG);
+			return (0);
+		}
+
 		DNODE_STAT_BUMP(dnode_hold_alloc_hits);
 	} else if (flag & DNODE_MUST_BE_FREE) {
 
@@ -1505,6 +1540,14 @@ dnode_hold_impl(objset_t *os, uint64_t object, int flag, int slots,
 			return (SET_ERROR(EEXIST));
 		}
 
+		/* Don't actually hold if dry run, just return 0 */
+		if (flag & DNODE_DRY_RUN) {
+			mutex_exit(&dn->dn_mtx);
+			dnode_slots_rele(dnc, idx, slots);
+			dbuf_rele(db, FTAG);
+			return (0);
+		}
+
 		dnode_set_slots(dnc, idx + 1, slots - 1, DN_SLOT_INTERIOR);
 		DNODE_STAT_BUMP(dnode_hold_free_hits);
 	} else {
@@ -1512,15 +1555,7 @@ dnode_hold_impl(objset_t *os, uint64_t object, int flag, int slots,
 		return (SET_ERROR(EINVAL));
 	}
 
-	if (dn->dn_free_txg) {
-		DNODE_STAT_BUMP(dnode_hold_free_txg);
-		type = dn->dn_type;
-		mutex_exit(&dn->dn_mtx);
-		dnode_slots_rele(dnc, idx, slots);
-		dbuf_rele(db, FTAG);
-		return (SET_ERROR((flag & DNODE_MUST_BE_ALLOCATED) ?
-		    ENOENT : EEXIST));
-	}
+	ASSERT0(dn->dn_free_txg);
 
 	if (zfs_refcount_add(&dn->dn_holds, tag) == 1)
 		dbuf_add_ref(db, dnh);
@@ -1583,7 +1618,10 @@ dnode_rele_and_unlock(dnode_t *dn, void *tag, boolean_t evicting)
 	dnode_handle_t *dnh = dn->dn_handle;
 
 	refs = zfs_refcount_remove(&dn->dn_holds, tag);
+	if (refs == 0)
+		cv_broadcast(&dn->dn_nodnholds);
 	mutex_exit(&dn->dn_mtx);
+	/* dnode could get destroyed at this point, so don't use it anymore */
 
 	/*
 	 * It's unsafe to release the last hold on a dnode by dnode_rele() or
@@ -1609,6 +1647,16 @@ dnode_rele_and_unlock(dnode_t *dn, void *tag, boolean_t evicting)
 		mutex_enter(&db->db_mtx);
 		dbuf_rele_and_unlock(db, dnh, evicting);
 	}
+}
+
+/*
+ * Test whether we can create a dnode at the specified location.
+ */
+int
+dnode_try_claim(objset_t *os, uint64_t object, int slots)
+{
+	return (dnode_hold_impl(os, object, DNODE_MUST_BE_FREE | DNODE_DRY_RUN,
+	    slots, NULL, NULL));
 }
 
 void
@@ -2156,7 +2204,8 @@ done:
 	mutex_enter(&dn->dn_mtx);
 	int txgoff = tx->tx_txg & TXG_MASK;
 	if (dn->dn_free_ranges[txgoff] == NULL) {
-		dn->dn_free_ranges[txgoff] = range_tree_create(NULL, NULL);
+		dn->dn_free_ranges[txgoff] = range_tree_create(NULL,
+		    RANGE_SEG64, NULL, 0, 0);
 	}
 	range_tree_clear(dn->dn_free_ranges[txgoff], blkid, nblks);
 	range_tree_add(dn->dn_free_ranges[txgoff], blkid, nblks);

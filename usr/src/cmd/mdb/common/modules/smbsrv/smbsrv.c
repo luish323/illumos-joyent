@@ -21,7 +21,7 @@
 
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2017 Nexenta Systems, Inc. All rights reserved.
+ * Copyright 2019 Nexenta by DDN, Inc. All rights reserved.
  */
 
 #include <mdb/mdb_modapi.h>
@@ -1382,6 +1382,21 @@ user_flag_bits[] = {
 
 static const mdb_bitmask_t
 user_priv_bits[] = {
+	/*
+	 * Old definitions of these bits, for when we're
+	 * looking at an older core file.  These happen to
+	 * have no overlap with the current definitions.
+	 */
+	{ "TAKE_OWNER",	1, 1 },
+	{ "BACKUP",	2, 2 },
+	{ "RESTORE",	4, 4 },
+	{ "SECURITY",	8, 8 },
+	/*
+	 * Current definitions
+	 */
+	{ "SECURITY",
+	    SMB_USER_PRIV_SECURITY,
+	    SMB_USER_PRIV_SECURITY },
 	{ "TAKE_OWNER",
 	    SMB_USER_PRIV_TAKE_OWNERSHIP,
 	    SMB_USER_PRIV_TAKE_OWNERSHIP },
@@ -1391,9 +1406,15 @@ user_priv_bits[] = {
 	{ "RESTORE",
 	    SMB_USER_PRIV_RESTORE,
 	    SMB_USER_PRIV_RESTORE },
-	{ "SECURITY",
-	    SMB_USER_PRIV_SECURITY,
-	    SMB_USER_PRIV_SECURITY },
+	{ "CHANGE_NOTIFY",
+	    SMB_USER_PRIV_CHANGE_NOTIFY,
+	    SMB_USER_PRIV_CHANGE_NOTIFY },
+	{ "READ_FILE",
+	    SMB_USER_PRIV_READ_FILE,
+	    SMB_USER_PRIV_READ_FILE },
+	{ "WRITE_FILE",
+	    SMB_USER_PRIV_WRITE_FILE,
+	    SMB_USER_PRIV_WRITE_FILE },
 	{ NULL, 0, 0 }
 };
 
@@ -1608,6 +1629,9 @@ tree_flag_bits[] = {
 	{ "FORCE_L2_OPLOCK",
 	    SMB_TREE_FORCE_L2_OPLOCK,
 	    SMB_TREE_FORCE_L2_OPLOCK },
+	{ "CA",
+	    SMB_TREE_CA,
+	    SMB_TREE_CA },
 	{ NULL, 0, 0 }
 };
 
@@ -1940,7 +1964,7 @@ smb_hash_walk_init(mdb_walk_state_t *wsp)
 	int ll_off, sll_off, i;
 	uintptr_t addr = wsp->walk_addr;
 
-	if (addr == NULL) {
+	if (addr == 0) {
 		mdb_printf("require address of an smb_hash_t\n");
 		return (WALK_ERR);
 	}
@@ -2029,7 +2053,7 @@ smb_hashstat_walk_init(mdb_walk_state_t *wsp)
 	uint32_t arr_sz;
 	smb_hash_wd_t *wd;
 
-	if (addr == NULL) {
+	if (addr == 0) {
 		mdb_printf("require address of an smb_hash_t\n");
 		return (WALK_ERR);
 	}
@@ -2319,17 +2343,26 @@ smb_kshare_walk_step(mdb_walk_state_t *wsp)
  * *****************************************************************************
  */
 
+typedef struct mdb_smb_vfs {
+	list_node_t		sv_lnd;
+	uint32_t		sv_magic;
+	uint32_t		sv_refcnt;
+	vfs_t			*sv_vfsp;
+	vnode_t			*sv_rootvp;
+} mdb_smb_vfs_t;
+
 struct smb_vfs_cb_args {
 	uint_t		opts;
 	vnode_t		vn;
 	char		path[MAXPATHLEN];
 };
 
+/*ARGSUSED*/
 static int
 smb_vfs_cb(uintptr_t addr, const void *data, void *varg)
 {
 	struct smb_vfs_cb_args *args = varg;
-	const smb_vfs_t *sf = data;
+	mdb_smb_vfs_t sf;
 
 	if (args->opts & SMB_OPT_VERBOSE) {
 		mdb_arg_t	argv;
@@ -2348,16 +2381,21 @@ smb_vfs_cb(uintptr_t addr, const void *data, void *varg)
 	 *
 	 * Get the vnode v_path string if we can.
 	 */
+	if (mdb_ctf_vread(&sf, SMBSRV_SCOPE "smb_vfs_t",
+	    "mdb_smb_vfs_t", addr, 0) < 0) {
+		mdb_warn("failed to read struct smb_vfs at %p", addr);
+		return (DCMD_ERR);
+	}
 	strcpy(args->path, "?");
 	if (mdb_vread(&args->vn, sizeof (args->vn),
-	    (uintptr_t)sf->sv_rootvp) == sizeof (args->vn))
+	    (uintptr_t)sf.sv_rootvp) == sizeof (args->vn))
 		(void) mdb_readstr(args->path, sizeof (args->path),
 		    (uintptr_t)args->vn.v_path);
 
 	mdb_printf("%-?p ", addr);
-	mdb_printf("%-10d ", sf->sv_refcnt);
-	mdb_printf("%-?p ", sf->sv_vfsp);
-	mdb_printf("%-?p ", sf->sv_rootvp);
+	mdb_printf("%-10d ", sf.sv_refcnt);
+	mdb_printf("%-?p ", sf.sv_vfsp);
+	mdb_printf("%-?p ", sf.sv_rootvp);
 	mdb_printf("%-s\n", args->path);
 
 	return (WALK_NEXT);
@@ -2427,7 +2465,12 @@ smb_vfs_walk_init(mdb_walk_state_t *wsp)
 	 * OFFSETOF(smb_server_t, sv_export.e_vfs_list.ll_list);
 	 */
 	GET_OFFSET(sv_exp_off, smb_server_t, sv_export);
-	GET_OFFSET(ex_vfs_off, smb_export_t, e_vfs_list);
+	/* GET_OFFSET(ex_vfs_off, smb_export_t, e_vfs_list); */
+	ex_vfs_off = mdb_ctf_offsetof_by_name("smb_export_t", "e_vfs_list");
+	if (ex_vfs_off < 0) {
+		mdb_warn("cannot lookup: smb_export_t .e_vfs_list");
+		return (WALK_ERR);
+	}
 	GET_OFFSET(ll_off, smb_llist_t, ll_list);
 	wsp->walk_addr += (sv_exp_off + ex_vfs_off + ll_off);
 
@@ -3215,8 +3258,7 @@ smb_mbuf_dump_dcmd(uintptr_t addr, uint_t flags, int argc,
 	    addr, mdata, mh.mh_len);
 
 	dumpptr_flags = MDB_DUMP_RELATIVE | MDB_DUMP_ASCII | MDB_DUMP_HEADER;
-	if (mdb_dumpptr(mdata, len, dumpptr_flags,
-	    (mdb_dumpptr_cb_t)mdb_vread, NULL) < 0)
+	if (mdb_dumpptr(mdata, len, dumpptr_flags, NULL, NULL) < 0)
 		return (DCMD_ERR);
 
 	return (DCMD_OK);

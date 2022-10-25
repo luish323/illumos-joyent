@@ -26,6 +26,7 @@
 # Copyright 2017 Nexenta Systems, Inc.
 # Copyright 2017 RackTop Systems.
 # Copyright 2018, Joyent, Inc.
+# Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
 #
 
 <include system-library.man3.inc>
@@ -195,6 +196,7 @@ file path=lib/$(ARCH64)/libcustr.so.1
 file path=lib/$(ARCH64)/libdevice.so.1
 file path=lib/$(ARCH64)/libdevid.so.1
 file path=lib/$(ARCH64)/libdevinfo.so.1
+file path=lib/$(ARCH64)/libdhcpagent.so.1
 file path=lib/$(ARCH64)/libdhcputil.so.1
 file path=lib/$(ARCH64)/libdl.so.1
 file path=lib/$(ARCH64)/libdladm.so.1
@@ -465,7 +467,6 @@ file path=usr/lib/libsldap.so.1
 file path=usr/lib/libsmbios.so.1
 file path=usr/lib/libsoftcrypto.so.1
 file path=usr/lib/libsum.so.1
-file path=usr/lib/libsys.so.1
 $(sparc_ONLY)file path=usr/lib/libv12n.so.1
 file path=usr/lib/libvolmgt.so.1
 file path=usr/lib/libwrap.so.1.0
@@ -585,6 +586,8 @@ license usr/src/common/crypto/sha2/amd64/THIRDPARTYLICENSE.sha256-ni \
     license=usr/src/common/crypto/sha2/amd64/THIRDPARTYLICENSE.sha256-ni
 license usr/src/common/mpi/THIRDPARTYLICENSE \
     license=usr/src/common/mpi/THIRDPARTYLICENSE
+license usr/src/common/util/THIRDPARTYLICENSE.multi3 \
+    license=usr/src/common/util/THIRDPARTYLICENSE.multi3
 license usr/src/lib/libast/THIRDPARTYLICENSE \
     license=usr/src/lib/libast/THIRDPARTYLICENSE
 license usr/src/lib/libbsdmalloc/THIRDPARTYLICENSE \
@@ -842,6 +845,8 @@ link path=usr/lib/$(ARCH64)/libdevinfo.so \
     target=../../../lib/$(ARCH64)/libdevinfo.so.1
 link path=usr/lib/$(ARCH64)/libdevinfo.so.1 \
     target=../../../lib/$(ARCH64)/libdevinfo.so.1
+link path=usr/lib/$(ARCH64)/libdhcpagent.so.1 \
+    target=../../../lib/$(ARCH64)/libdhcpagent.so.1
 link path=usr/lib/$(ARCH64)/libdhcputil.so.1 \
     target=../../../lib/$(ARCH64)/libdhcputil.so.1
 link path=usr/lib/$(ARCH64)/libdisasm.so target=libdisasm.so.1
@@ -1203,7 +1208,6 @@ link path=usr/lib/libsmbios.so target=libsmbios.so.1
 link path=usr/lib/libsocket.so target=../../lib/libsocket.so.1
 link path=usr/lib/libsocket.so.1 target=../../lib/libsocket.so.1
 link path=usr/lib/libsoftcrypto.so target=./libsoftcrypto.so.1
-link path=usr/lib/libsys.so target=./libsys.so.1
 link path=usr/lib/libsysevent.so target=../../lib/libsysevent.so.1
 link path=usr/lib/libsysevent.so.1 target=../../lib/libsysevent.so.1
 link path=usr/lib/libtermcap.so target=../../lib/libtermcap.so.1

@@ -20,7 +20,8 @@
  */
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2018 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2019 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2020 RackTop Systems, Inc.
  */
 
 #include <sys/atomic.h>
@@ -45,6 +46,16 @@ static volatile uint64_t smb_kids;
  * specifies it in seconds, so convert to minutes.
  */
 uint32_t smb_keep_alive = SMB_PI_KEEP_ALIVE_MIN / 60;
+
+/*
+ * This is the maximum time we'll allow a "session" to exist with no
+ * authenticated smb_user_t objects on it.  This allows a client to
+ * logoff their "one and only" user session and then logon as some
+ * different user.  (There are some tests that do that.)  The same
+ * timeout mechanism also reduces the impact of clients that might
+ * open TCP connections but never authenticate.
+ */
+int smb_session_auth_tmo = 30; /* sec. */
 
 /*
  * There are many smbtorture test cases that send
@@ -72,8 +83,6 @@ static int smb_session_reader(smb_session_t *);
 static int smb_session_xprt_puthdr(smb_session_t *,
     uint8_t msg_type, uint32_t msg_len,
     uint8_t *dst, size_t dstlen);
-static smb_tree_t *smb_session_get_tree(smb_session_t *, smb_tree_t *);
-static void smb_session_logoff(smb_session_t *);
 static void smb_session_disconnect_trees(smb_session_t	*);
 static void smb_request_init_command_mbuf(smb_request_t *sr);
 static void smb_session_genkey(smb_session_t *);
@@ -484,6 +493,7 @@ void
 smb_session_receiver(smb_session_t *session)
 {
 	int	rc = 0;
+	timeout_id_t tmo = NULL;
 
 	SMB_SESSION_VALID(session);
 
@@ -503,6 +513,8 @@ smb_session_receiver(smb_session_t *session)
 
 	smb_rwx_rwenter(&session->s_lock, RW_WRITER);
 	session->s_state = SMB_SESSION_STATE_ESTABLISHED;
+	session->s_auth_tmo = timeout((tmo_func_t)smb_session_disconnect,
+	    session, SEC_TO_TICK(smb_session_auth_tmo));
 	smb_rwx_rwexit(&session->s_lock);
 
 	(void) smb_session_reader(session);
@@ -510,7 +522,13 @@ smb_session_receiver(smb_session_t *session)
 	smb_rwx_rwenter(&session->s_lock, RW_WRITER);
 	if (session->s_state != SMB_SESSION_STATE_TERMINATED)
 		session->s_state = SMB_SESSION_STATE_DISCONNECTED;
+	tmo = session->s_auth_tmo;
+	session->s_auth_tmo = NULL;
 	smb_rwx_rwexit(&session->s_lock);
+
+	/* Timeout callback takes s_lock. See untimeout(9f) */
+	if (tmo != NULL)
+		(void) untimeout(tmo);
 
 	smb_soshutdown(session->sock);
 
@@ -731,7 +749,6 @@ smb_session_create(ksocket_t new_so, uint16_t port, smb_server_t *sv,
 	session->opentime = now;
 	session->keep_alive = smb_keep_alive;
 	session->activity_timestamp = now;
-
 	smb_session_genkey(session);
 
 	mutex_init(&session->s_credits_mutex, NULL, MUTEX_DEFAULT, NULL);
@@ -752,7 +769,22 @@ smb_session_create(ksocket_t new_so, uint16_t port, smb_server_t *sv,
 
 	smb_rwx_init(&session->s_lock);
 
-	if (new_so != NULL) {
+	session->s_srqueue = &sv->sv_srqueue;
+	smb_server_get_cfg(sv, &session->s_cfg);
+
+	if (new_so == NULL) {
+		/*
+		 * This call is creating the special "server" session,
+		 * used for kshare export, oplock breaks, CA import.
+		 * CA import creates temporary trees on this session
+		 * and those should never get map/unmap up-calls, so
+		 * force the map/unmap flags zero on this session.
+		 * Set a "modern" dialect for CA import too, so
+		 * pathname parse doesn't do OS/2 stuff, etc.
+		 */
+		session->s_cfg.skc_execflags = 0;
+		session->dialect = session->s_cfg.skc_max_protocol;
+	} else {
 		if (family == AF_INET) {
 			slen = sizeof (sin);
 			(void) ksocket_getsockname(new_so,
@@ -794,8 +826,6 @@ smb_session_create(ksocket_t new_so, uint16_t port, smb_server_t *sv,
 		else
 			smb_server_inc_tcp_sess(sv);
 	}
-	smb_server_get_cfg(sv, &session->s_cfg);
-	session->s_srqueue = &sv->sv_srqueue;
 
 	/*
 	 * The initial new request handler is special,
@@ -827,6 +857,9 @@ smb_session_delete(smb_session_t *session)
 		kmem_free(session->signing.mackey,
 		    session->signing.mackey_len);
 	}
+
+	if (session->preauth_mech != NULL)
+		smb31_preauth_fini(session);
 
 	session->s_magic = 0;
 
@@ -871,9 +904,7 @@ smb_session_cancel(smb_session_t *session)
 	smb_slist_wait_for_empty(&session->s_req_list);
 
 	/*
-	 * At this point the reference count of the users, trees, files,
-	 * directories should be zero. It should be possible to destroy them
-	 * without any problem.
+	 * Cleanup transact state objects
 	 */
 	xa = smb_llist_head(&session->s_xa_list);
 	while (xa) {
@@ -882,6 +913,11 @@ smb_session_cancel(smb_session_t *session)
 		xa = nextxa;
 	}
 
+	/*
+	 * At this point the reference count of the files and directories
+	 * should be zero. It should be possible to destroy them without
+	 * any problem, which should trigger the destruction of other objects.
+	 */
 	smb_session_logoff(session);
 }
 
@@ -1006,117 +1042,35 @@ smb_session_lookup_tree(
 }
 
 /*
- * Find the first connected tree that matches the specified sharename.
- * If the specified tree is NULL the search starts from the beginning of
- * the user's tree list.  If a tree is provided the search starts just
- * after that tree.
- */
-smb_tree_t *
-smb_session_lookup_share(
-    smb_session_t	*session,
-    const char		*sharename,
-    smb_tree_t		*tree)
-{
-	SMB_SESSION_VALID(session);
-	ASSERT(sharename);
-
-	smb_llist_enter(&session->s_tree_list, RW_READER);
-
-	if (tree) {
-		ASSERT3U(tree->t_magic, ==, SMB_TREE_MAGIC);
-		ASSERT(tree->t_session == session);
-		tree = smb_llist_next(&session->s_tree_list, tree);
-	} else {
-		tree = smb_llist_head(&session->s_tree_list);
-	}
-
-	while (tree) {
-		ASSERT3U(tree->t_magic, ==, SMB_TREE_MAGIC);
-		ASSERT(tree->t_session == session);
-		if (smb_strcasecmp(tree->t_sharename, sharename, 0) == 0) {
-			if (smb_tree_hold(tree)) {
-				smb_llist_exit(&session->s_tree_list);
-				return (tree);
-			}
-		}
-		tree = smb_llist_next(&session->s_tree_list, tree);
-	}
-
-	smb_llist_exit(&session->s_tree_list);
-	return (NULL);
-}
-
-/*
- * Find the first connected tree that matches the specified volume name.
- * If the specified tree is NULL the search starts from the beginning of
- * the user's tree list.  If a tree is provided the search starts just
- * after that tree.
- */
-smb_tree_t *
-smb_session_lookup_volume(
-    smb_session_t	*session,
-    const char		*name,
-    smb_tree_t		*tree)
-{
-	SMB_SESSION_VALID(session);
-	ASSERT(name);
-
-	smb_llist_enter(&session->s_tree_list, RW_READER);
-
-	if (tree) {
-		ASSERT3U(tree->t_magic, ==, SMB_TREE_MAGIC);
-		ASSERT(tree->t_session == session);
-		tree = smb_llist_next(&session->s_tree_list, tree);
-	} else {
-		tree = smb_llist_head(&session->s_tree_list);
-	}
-
-	while (tree) {
-		ASSERT3U(tree->t_magic, ==, SMB_TREE_MAGIC);
-		ASSERT(tree->t_session == session);
-
-		if (smb_strcasecmp(tree->t_volume, name, 0) == 0) {
-			if (smb_tree_hold(tree)) {
-				smb_llist_exit(&session->s_tree_list);
-				return (tree);
-			}
-		}
-
-		tree = smb_llist_next(&session->s_tree_list, tree);
-	}
-
-	smb_llist_exit(&session->s_tree_list);
-	return (NULL);
-}
-
-/*
  * Disconnect all trees that match the specified client process-id.
+ * Used by the SMB1 "process exit" request.
  */
 void
 smb_session_close_pid(
     smb_session_t	*session,
     uint32_t		pid)
 {
+	smb_llist_t	*tree_list = &session->s_tree_list;
 	smb_tree_t	*tree;
 
-	SMB_SESSION_VALID(session);
+	smb_llist_enter(tree_list, RW_READER);
 
-	tree = smb_session_get_tree(session, NULL);
+	tree = smb_llist_head(tree_list);
 	while (tree) {
-		smb_tree_t *next;
-		ASSERT3U(tree->t_magic, ==, SMB_TREE_MAGIC);
-		ASSERT(tree->t_session == session);
-		smb_tree_close_pid(tree, pid);
-		next = smb_session_get_tree(session, tree);
-		smb_tree_release(tree);
-		tree = next;
+		if (smb_tree_hold(tree)) {
+			smb_tree_close_pid(tree, pid);
+			smb_tree_release(tree);
+		}
+		tree = smb_llist_next(tree_list, tree);
 	}
+
+	smb_llist_exit(tree_list);
 }
 
 static void
-smb_session_tree_dtor(void *t)
+smb_session_tree_dtor(void *arg)
 {
-	smb_tree_t	*tree = (smb_tree_t *)t;
+	smb_tree_t	*tree = arg;
 
 	smb_tree_disconnect(tree, B_TRUE);
 	/* release the ref acquired during the traversal loop */
@@ -1167,84 +1121,76 @@ static void
 smb_session_disconnect_trees(
     smb_session_t	*session)
 {
-	smb_tree_t	*tree, *next_tree;
+	smb_llist_t	*tree_list = &session->s_tree_list;
+	smb_tree_t	*tree;
 
-	SMB_SESSION_VALID(session);
+	smb_llist_enter(tree_list, RW_READER);
 
-	tree = smb_session_get_tree(session, NULL);
+	tree = smb_llist_head(tree_list);
 	while (tree) {
-		ASSERT3U(tree->t_magic, ==, SMB_TREE_MAGIC);
-		ASSERT(tree->t_session == session);
-		smb_tree_disconnect(tree, B_TRUE);
-		next_tree = smb_session_get_tree(session, tree);
-		smb_tree_release(tree);
-		tree = next_tree;
+		if (smb_tree_hold(tree)) {
+			smb_llist_post(tree_list, tree,
+			    smb_session_tree_dtor);
+		}
+		tree = smb_llist_next(tree_list, tree);
 	}
+
+	/* drop the lock and flush the dtor queue */
+	smb_llist_exit(tree_list);
 }
 
 /*
- * Disconnect all trees that match the specified share name.
+ * Variant of smb_session_tree_dtor that also
+ * cancels requests using this tree.
+ */
+static void
+smb_session_tree_kill(void *arg)
+{
+	smb_tree_t	*tree = arg;
+
+	SMB_TREE_VALID(tree);
+
+	smb_tree_disconnect(tree, B_TRUE);
+	smb_session_cancel_requests(tree->t_session, tree, NULL);
+
+	/* release the ref acquired during the traversal loop */
+	smb_tree_release(tree);
+}
+
+/*
+ * Disconnect all trees that match the specified share name,
+ * and kill requests using those trees.
  */
 void
 smb_session_disconnect_share(
     smb_session_t	*session,
     const char		*sharename)
 {
+	smb_llist_t	*ll;
 	smb_tree_t	*tree;
-	smb_tree_t	*next;
 
 	SMB_SESSION_VALID(session);
 
-	tree = smb_session_lookup_share(session, sharename, NULL);
-	while (tree) {
-		ASSERT3U(tree->t_magic, ==, SMB_TREE_MAGIC);
+	ll = &session->s_tree_list;
+	smb_llist_enter(ll, RW_READER);
+
+	for (tree = smb_llist_head(ll);
+	    tree != NULL;
+	    tree = smb_llist_next(ll, tree)) {
+
+		SMB_TREE_VALID(tree);
 		ASSERT(tree->t_session == session);
-		smb_tree_disconnect(tree, B_TRUE);
-		smb_session_cancel_requests(session, tree, NULL);
-		next = smb_session_lookup_share(session, sharename, tree);
-		smb_tree_release(tree);
-		tree = next;
-	}
-}
 
-/*
- * Get the next connected tree in the list.  A reference is taken on
- * the tree, which can be released later with smb_tree_release().
- *
- * If the specified tree is NULL the search starts from the beginning of
- * the tree list.  If a tree is provided the search starts just after
- * that tree.
- *
- * Returns NULL if there are no connected trees in the list.
- */
-static smb_tree_t *
-smb_session_get_tree(
-    smb_session_t	*session,
-    smb_tree_t		*tree)
-{
-	smb_llist_t	*tree_list;
+		if (smb_strcasecmp(tree->t_sharename, sharename, 0) != 0)
+			continue;
 
-	SMB_SESSION_VALID(session);
-	tree_list = &session->s_tree_list;
-
-	smb_llist_enter(tree_list, RW_READER);
-
-	if (tree) {
-		ASSERT3U(tree->t_magic, ==, SMB_TREE_MAGIC);
-		tree = smb_llist_next(tree_list, tree);
-	} else {
-		tree = smb_llist_head(tree_list);
+		if (smb_tree_hold(tree)) {
+			smb_llist_post(ll, tree,
+			    smb_session_tree_kill);
+		}
 	}
 
-	while (tree) {
-		if (smb_tree_hold(tree))
-			break;
-
-		tree = smb_llist_next(tree_list, tree);
-	}
-
-	smb_llist_exit(tree_list);
-	return (tree);
+	smb_llist_exit(ll);
 }
 
 /*
@@ -1255,7 +1201,7 @@ smb_session_get_tree(
  * disconnect (SMB_SESSION_STATE_DISCONNECTED).
  * If client-initiated, save durable handles.
  */
-static void
+void
 smb_session_logoff(smb_session_t *session)
 {
 	smb_llist_t	*ulist;
@@ -1279,9 +1225,6 @@ top:
 			// smb_user_hold_internal(user);
 			user->u_refcnt++;
 			mutex_exit(&user->u_mutex);
-			if (user->u_session->s_state ==
-			    SMB_SESSION_STATE_DISCONNECTED)
-				user->preserve_opens = SMB2_DH_PRESERVE_ALL;
 			smb_user_logoff(user);
 			smb_user_release(user);
 			break;
@@ -1292,8 +1235,8 @@ top:
 			break;
 
 		default:
-			ASSERT(0);
 			mutex_exit(&user->u_mutex);
+			ASSERT(0);
 			break;
 		}
 

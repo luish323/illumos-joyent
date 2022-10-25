@@ -3,6 +3,7 @@
  * Copyright (c) 2014 Tycho Nightingale <tycho.nightingale@pluribusnetworks.com>
  * Copyright (c) 2011 NetApp, Inc.
  * All rights reserved.
+ * Copyright (c) 2018 Joyent, Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -173,30 +174,29 @@ vatpit_callout_handler(void *a)
 
 done:
 	VATPIT_UNLOCK(vatpit);
-	return;
 }
 
 static void
 pit_timer_start_cntr0(struct vatpit *vatpit)
 {
 	struct channel *c;
+	struct bintime now, delta;
+	sbintime_t precision;
 
 	c = &vatpit->channel[0];
 	if (c->initial != 0) {
-		sbintime_t precision;
-		struct bintime now, delta;
-
 		delta.sec = 0;
 		delta.frac = vatpit->freq_bt.frac * c->initial;
 		bintime_add(&c->callout_bt, &delta);
 		precision = bttosbt(delta) >> tc_precexp;
 
 		/*
-		 * Reset 'callout_bt' if the time that the callout was supposed
-		 * to fire is more than 'c->initial' ticks in the past.
+		 * Reset 'callout_bt' if the time that the callout
+		 * was supposed to fire is more than 'c->initial'
+		 * ticks in the past.
 		 */
 		binuptime(&now);
-		if (bintime_cmp(&c->callout_bt, &now, <)) {
+		if (BINTIME_CMP(&c->callout_bt, <, &now)) {
 			c->callout_bt = now;
 			bintime_add(&c->callout_bt, &delta);
 		}
@@ -335,15 +335,12 @@ vatpit_update_mode(struct vatpit *vatpit, uint8_t val)
 }
 
 int
-vatpit_handler(struct vm *vm, int vcpuid, bool in, int port, int bytes,
-    uint32_t *eax)
+vatpit_handler(void *arg, bool in, uint16_t port, uint8_t bytes, uint32_t *eax)
 {
-	struct vatpit *vatpit;
+	struct vatpit *vatpit = arg;
 	struct channel *c;
 	uint8_t val;
 	int error;
-
-	vatpit = vm_atpit(vm);
 
 	if (bytes != 1)
 		return (-1);
@@ -393,8 +390,9 @@ vatpit_handler(struct vm *vm, int vcpuid, bool in, int port, int bytes,
 			tmp &= 0xff;
 			*eax = tmp;
 			c->frbyte ^= 1;
-		}  else
+		} else {
 			*eax = c->ol[--c->olbyte];
+		}
 	} else {
 		c->cr[c->crbyte++] = *eax;
 		if (c->crbyte == 2) {
@@ -418,12 +416,10 @@ vatpit_handler(struct vm *vm, int vcpuid, bool in, int port, int bytes,
 }
 
 int
-vatpit_nmisc_handler(struct vm *vm, int vcpuid, bool in, int port, int bytes,
+vatpit_nmisc_handler(void *arg, bool in, uint16_t port, uint8_t bytes,
     uint32_t *eax)
 {
-	struct vatpit *vatpit;
-
-	vatpit = vm_atpit(vm);
+	struct vatpit *vatpit = arg;
 
 	if (in) {
 			VATPIT_LOCK(vatpit);
@@ -445,7 +441,7 @@ vatpit_init(struct vm *vm)
 	struct vatpit_callout_arg *arg;
 	int i;
 
-	vatpit = malloc(sizeof(struct vatpit), M_VATPIT, M_WAITOK | M_ZERO);
+	vatpit = malloc(sizeof (struct vatpit), M_VATPIT, M_WAITOK | M_ZERO);
 	vatpit->vm = vm;
 
 	mtx_init(&vatpit->mtx, "vatpit lock", NULL, MTX_SPIN);

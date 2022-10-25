@@ -26,7 +26,7 @@
 /*	Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T	*/
 /*	  All Rights Reserved	*/
 /*
- * Copyright (c) 2018, Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
  */
 
 
@@ -111,7 +111,7 @@ typedef struct uf_entry {
 	short		uf_busy;	/* file is allocated [grow, fork] */
 	kcondvar_t	uf_wanted_cv;	/* waiting for setf() [never copied] */
 	kcondvar_t	uf_closing_cv;	/* waiting for close() [never copied] */
-	struct portfd	*uf_portfd;	/* associated with port [grow] */
+	struct portfd 	*uf_portfd;	/* associated with port [grow] */
 	uf_entry_gen_t	uf_gen;		/* assigned fd generation [grow,fork] */
 	/* Avoid false sharing - pad to coherency granularity (64 bytes) */
 	char		uf_pad[64 - sizeof (kmutex_t) - 2 * sizeof (void*) -
@@ -227,7 +227,11 @@ typedef	struct	user {
 	char	u_psargs[PSARGSZ];	/* arguments from exec */
 	int	u_argc;			/* value of argc passed to main() */
 	uintptr_t u_argv;		/* value of argv passed to main() */
+	uintptr_t u_argvstrs;		/* argv string space pointer */
+	size_t u_argvstrsize;		/* size of argv string space */
 	uintptr_t u_envp;		/* value of envp passed to main() */
+	uintptr_t u_envstrs;		/* env string space pointer */
+	size_t u_envstrsize;		/* size of env string space */
 	uintptr_t u_commpagep;		/* address of mapped comm page */
 
 	/*

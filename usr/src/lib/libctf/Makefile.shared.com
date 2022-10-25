@@ -70,11 +70,10 @@ SRCS = \
 	$(LIST_OBJS:%.o=$(SRC)/common/list/%.c) \
 	$(MERGEQ_OBJS:%.o=$(SRC)/lib/mergeq/%.c)
 
-LIBS = $(DYNLIB) $(LINTLIB)
+LIBS = $(DYNLIB)
 LDLIBS += -lc -lelf -ldwarf -lavl
 
 CSTD = $(CSTD_GNU99)
-C99LMODE = -Xc99=%all
 
 SRCDIR = $(SRC)/lib/libctf/common
 
@@ -85,6 +84,4 @@ CPPFLAGS +=	-I$(SRC)/lib/libctf/common	\
 		-DCTF_OLD_VERSIONS
 CFLAGS += $(CCVERBOSE)
 
-CERRWARN += -_gcc=-Wno-uninitialized
-
-$(LINTLIB) := SRCS = $(SRCDIR)/$(LINTSRC)
+CERRWARN += $(CNOWARN_UNINIT)

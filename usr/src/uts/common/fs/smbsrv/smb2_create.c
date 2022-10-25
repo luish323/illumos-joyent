@@ -10,7 +10,8 @@
  */
 
 /*
- * Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2018 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2019 RackTop Systems.
  */
 
 /*
@@ -77,6 +78,7 @@ typedef struct smb2_create_ctx {
 	smb2_create_ctx_elem_t cc_in_aapl;
 	smb2_create_ctx_elem_t cc_in_dh_request_v2;
 	smb2_create_ctx_elem_t cc_in_dh_reconnect_v2;
+	smb2_create_ctx_elem_t cc_in_max_access;
 	/* Elements we my place in the response */
 	smb2_create_ctx_elem_t cc_out_max_access;
 	smb2_create_ctx_elem_t cc_out_file_id;
@@ -184,12 +186,16 @@ smb2_create(smb_request_t *sr)
 		goto errout;
 	}
 	if (NameLength == 0) {
-		op->fqi.fq_path.pn_path = "\\";
+		op->fqi.fq_path.pn_path = "";
 	} else {
 		rc = smb_mbc_decodef(&sr->smb_data, "%#U", sr,
 		    NameLength, &op->fqi.fq_path.pn_path);
 		if (rc) {
 			status = NT_STATUS_OBJECT_PATH_INVALID;
+			goto errout;
+		}
+		if (op->fqi.fq_path.pn_path[0] == '\\') {
+			status = NT_STATUS_INVALID_PARAMETER;
 			goto errout;
 		}
 	}
@@ -280,7 +286,6 @@ smb2_create(smb_request_t *sr)
 	 * many create context types are ignored too.
 	 */
 	op->dh_vers = SMB2_NOT_DURABLE;
-	op->dh_v2_flags = 0;
 	if ((cctx.cc_in_flags &
 	    (CCTX_DH_RECONNECT|CCTX_DH_RECONNECT_V2)) != 0) {
 
@@ -388,6 +393,9 @@ smb2_create(smb_request_t *sr)
 		cctx.cc_in_flags &= ~CCTX_REQUEST_LEASE;
 	}
 
+	if ((sr->tid_tree->t_flags & SMB_TREE_CA) == 0)
+		op->dh_v2_flags &= ~DH_PERSISTENT;
+
 	if ((cctx.cc_in_flags &
 	    (CCTX_DH_REQUEST|CCTX_DH_REQUEST_V2)) != 0) {
 		if ((cctx.cc_in_flags & CCTX_DH_REQUEST_V2) != 0)
@@ -403,6 +411,19 @@ smb2_create(smb_request_t *sr)
 
 	/*
 	 * ImpersonationLevel (spec. says validate + ignore)
+	 */
+	switch (ImpersonationLevel) {
+	case SMB2_IMPERSONATION_ANONYMOUS:
+	case SMB2_IMPERSONATION_IDENTIFICATION:
+	case SMB2_IMPERSONATION_IMPERSONATION:
+	case SMB2_IMPERSONATION_DELEGATE:
+		break;
+	default:
+		status = NT_STATUS_BAD_IMPERSONATION_LEVEL;
+		goto cmd_done;
+	}
+
+	/*
 	 * SmbCreateFlags (spec. says ignore)
 	 */
 
@@ -441,15 +462,19 @@ smb2_create(smb_request_t *sr)
 	 * non-durable handles in case we get the ioctl
 	 * to set "resiliency" on this handle.
 	 */
-	if (of->f_ftype == SMB_FTYPE_DISK)
-		smb_ofile_set_persistid(of);
+	if (of->f_ftype == SMB_FTYPE_DISK) {
+		if ((op->dh_v2_flags & DH_PERSISTENT) != 0)
+			smb_ofile_set_persistid_ph(of);
+		else
+			smb_ofile_set_persistid_dh(of);
+	}
 
 	/*
 	 * [MS-SMB2] 3.3.5.9.8
 	 * Handling the SMB2_CREATE_REQUEST_LEASE Create Context
 	 */
 	if ((cctx.cc_in_flags & CCTX_REQUEST_LEASE) != 0) {
-		status = smb2_lease_create(sr);
+		status = smb2_lease_create(sr, sr->session->clnt_uuid);
 		if (status != NT_STATUS_SUCCESS) {
 			if (op->action_taken == SMB_OACT_CREATED) {
 				smb_ofile_set_delete_on_close(sr, of);
@@ -479,7 +504,8 @@ smb2_create(smb_request_t *sr)
 	if ((cctx.cc_in_flags &
 	    (CCTX_DH_REQUEST|CCTX_DH_REQUEST_V2)) != 0 &&
 	    smb_node_is_file(of->f_node) &&
-	    ((op->op_oplock_level == SMB2_OPLOCK_LEVEL_BATCH) ||
+	    ((op->dh_v2_flags & DH_PERSISTENT) != 0 ||
+	    (op->op_oplock_level == SMB2_OPLOCK_LEVEL_BATCH) ||
 	    (op->op_oplock_level == SMB2_OPLOCK_LEVEL_LEASE &&
 	    (op->lease_state & OPLOCK_LEVEL_CACHE_HANDLE) != 0))) {
 		/*
@@ -489,8 +515,13 @@ smb2_create(smb_request_t *sr)
 			(void) memcpy(of->dh_create_guid,
 			    op->create_guid, UUID_LEN);
 
-			/* no persistent handles yet */
-			of->dh_persist = B_FALSE;
+			if ((op->dh_v2_flags & DH_PERSISTENT) != 0) {
+				if (smb2_dh_make_persistent(sr, of) == 0) {
+					of->dh_persist = B_TRUE;
+				} else {
+					op->dh_v2_flags = 0;
+				}
+			}
 		}
 		if (op->dh_vers != SMB2_NOT_DURABLE) {
 			uint32_t msto;
@@ -503,8 +534,11 @@ smb2_create(smb_request_t *sr)
 			 * the default timeout (in mSec.)
 			 */
 			msto = op->dh_timeout;
-			if (msto == 0)
-				msto = smb2_dh_def_timeout;
+			if (msto == 0) {
+				msto = (of->dh_persist) ?
+				    smb2_persist_timeout :
+				    smb2_dh_def_timeout;
+			}
 			if (msto > smb2_dh_max_timeout)
 				msto = smb2_dh_max_timeout;
 			op->dh_timeout = msto;
@@ -512,6 +546,7 @@ smb2_create(smb_request_t *sr)
 		}
 	} else {
 		op->dh_vers = SMB2_NOT_DURABLE;
+		op->dh_v2_flags = 0;
 	}
 
 	/*
@@ -766,7 +801,8 @@ smb2_decode_create_ctx(smb_request_t *sr, smb2_create_ctx_t *cc)
 			break;
 		case SMB2_CREATE_QUERY_MAXIMAL_ACCESS_REQ: /* ("MxAc") */
 			cc->cc_in_flags |= CCTX_QUERY_MAX_ACCESS;
-			/* no input data for this */
+			/* Optional input data for this CC. See below. */
+			cce = &cc->cc_in_max_access;
 			break;
 		case SMB2_CREATE_TIMEWARP_TOKEN:	/* ("TWrp") */
 			cc->cc_in_flags |= CCTX_TIMEWARP_TOKEN;
@@ -838,6 +874,21 @@ smb2_decode_create_ctx(smb_request_t *sr, smb2_create_ctx_t *cc)
 
 		case SMB2_CREATE_ALLOCATION_SIZE:	/* ("AISi") */
 			rc = smb_mbc_decodef(&cce->cce_mbc, "q", &op->dsize);
+			if (rc != 0)
+				goto errout;
+			break;
+
+		case SMB2_CREATE_QUERY_MAXIMAL_ACCESS_REQ: /* ("MxAc") */
+			/*
+			 * The SMB spec says this can be either 0 bytes
+			 * (handled above) or an 8 byte timestamp value
+			 * but does not say what its purpose is.
+			 *
+			 * Note: The WPTS expects us to validate that it
+			 * is at least 8 bytes so we read it and discard
+			 * it.  If it was too short the decode will fail.
+			 */
+			rc = smb_mbc_decodef(&cce->cce_mbc, "q", &nttime);
 			if (rc != 0)
 				goto errout;
 			break;

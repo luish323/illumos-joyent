@@ -27,7 +27,7 @@
 LIBRARY= libdb2.a
 VERS= .1
 
-# btree  
+# btree
 BTREE_OBJS= \
 	bt_close.o \
 	bt_conv.o \
@@ -41,9 +41,9 @@ BTREE_OBJS= \
 	bt_search.o \
 	bt_seq.o \
 	bt_split.o \
-        bt_utils.o 
- 
-# db 
+        bt_utils.o
+
+# db
 DB_OBJS= db.o
 
 # hash
@@ -92,7 +92,7 @@ POFILES = generic.po
 #override liblink
 INS.liblink=	-$(RM) $@; $(SYMLINK) $(LIBLINKS)$(VERS) $@
 
-CPPFLAGS += 	-DHAVE_CONFIG_H \
+CPPFLAGS +=	-DHAVE_CONFIG_H \
 		-I$(SRC)/lib/krb5/plugins/kdb/db2/libdb2/mpool \
 		-I$(SRC)/lib/krb5/plugins/kdb/db2/libdb2/db \
 		-I$(SRC)/lib/krb5/plugins/kdb/db2/libdb2/hash \
@@ -102,7 +102,7 @@ CPPFLAGS += 	-DHAVE_CONFIG_H \
 		-I$(SRC)/lib/gss_mechs/mech_krb5/include  #for db-ndbm.h
 
 CFLAGS +=	$(CCVERBOSE) -I..
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 
 # not linted
 SMATCH=off
@@ -118,7 +118,6 @@ DYNFLAGS +=	$(ZINTERPOSE)
 
 all:	$(LIBS)
 
-lint:	lintcheck
 
 # include library targets
 include $(SRC)/lib/krb5/Makefile.targ

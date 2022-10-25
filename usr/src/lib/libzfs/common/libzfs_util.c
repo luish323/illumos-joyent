@@ -21,8 +21,8 @@
 
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2019 Joyent, Inc.
- * Copyright (c) 2011, 2017 by Delphix. All rights reserved.
+ * Copyright 2020 Joyent, Inc.
+ * Copyright (c) 2011, 2018 by Delphix. All rights reserved.
  * Copyright 2016 Igor Kozhukhov <ikozhukhov@gmail.com>
  * Copyright (c) 2017 Datto Inc.
  */
@@ -31,6 +31,7 @@
  * Internal utility routines for the ZFS library.
  */
 
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <libintl.h>
@@ -38,8 +39,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <strings.h>
-#include <unistd.h>
-#include <ctype.h>
 #include <math.h>
 #include <sys/filio.h>
 #include <sys/mnttab.h>
@@ -54,6 +53,7 @@
 #include "zfs_prop.h"
 #include "zfs_comutil.h"
 #include "zfeature_common.h"
+#include <libzutil.h>
 
 int
 libzfs_errno(libzfs_handle_t *hdl)
@@ -205,6 +205,9 @@ libzfs_error_description(libzfs_handle_t *hdl)
 	case EZFS_NOTSUP:
 		return (dgettext(TEXT_DOMAIN, "operation not supported "
 		    "on this dataset"));
+	case EZFS_IOC_NOTSUPPORTED:
+		return (dgettext(TEXT_DOMAIN, "operation not supported by "
+		    "zfs kernel module"));
 	case EZFS_ACTIVE_SPARE:
 		return (dgettext(TEXT_DOMAIN, "pool has active shared spare "
 		    "device"));
@@ -256,6 +259,8 @@ libzfs_error_description(libzfs_handle_t *hdl)
 	case EZFS_ACTIVE_POOL:
 		return (dgettext(TEXT_DOMAIN, "pool is imported on a "
 		    "different host"));
+	case EZFS_CRYPTOFAILED:
+		return (dgettext(TEXT_DOMAIN, "encryption failure"));
 	case EZFS_TOOMANY:
 		return (dgettext(TEXT_DOMAIN, "argument list too long"));
 	case EZFS_INITIALIZING:
@@ -265,11 +270,16 @@ libzfs_error_description(libzfs_handle_t *hdl)
 		    "initialization"));
 	case EZFS_WRONG_PARENT:
 		return (dgettext(TEXT_DOMAIN, "invalid parent dataset"));
+	case EZFS_TRIMMING:
+		return (dgettext(TEXT_DOMAIN, "currently trimming"));
+	case EZFS_NO_TRIM:
+		return (dgettext(TEXT_DOMAIN, "there is no active trim"));
+	case EZFS_TRIM_NOTSUP:
+		return (dgettext(TEXT_DOMAIN, "trim operations are not "
+		    "supported by this device"));
 	case EZFS_NO_RESILVER_DEFER:
 		return (dgettext(TEXT_DOMAIN, "this action requires the "
 		    "resilver_defer feature"));
-	case EZFS_CRYPTOFAILED:
-		return (dgettext(TEXT_DOMAIN, "encryption failure"));
 	case EZFS_UNKNOWN:
 		return (dgettext(TEXT_DOMAIN, "unknown error"));
 	default:
@@ -435,6 +445,22 @@ zfs_standard_error_fmt(libzfs_handle_t *hdl, int error, const char *fmt, ...)
 	case EREMOTEIO:
 		zfs_verror(hdl, EZFS_ACTIVE_POOL, fmt, ap);
 		break;
+	case ZFS_ERR_IOC_CMD_UNAVAIL:
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "the loaded zfs "
+		    "module does not support this operation. A reboot may "
+		    "be required to enable this operation."));
+		zfs_verror(hdl, EZFS_IOC_NOTSUPPORTED, fmt, ap);
+		break;
+	case ZFS_ERR_IOC_ARG_UNAVAIL:
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "the loaded zfs "
+		    "module does not support an option for this operation. "
+		    "A reboot may be required to enable this option."));
+		zfs_verror(hdl, EZFS_IOC_NOTSUPPORTED, fmt, ap);
+		break;
+	case ZFS_ERR_IOC_ARG_REQUIRED:
+	case ZFS_ERR_IOC_ARG_BADTYPE:
+		zfs_verror(hdl, EZFS_IOC_NOTSUPPORTED, fmt, ap);
+		break;
 	default:
 		zfs_error_aux(hdl, strerror(error));
 		zfs_verror(hdl, EZFS_UNKNOWN, fmt, ap);
@@ -540,6 +566,22 @@ zpool_standard_error_fmt(libzfs_handle_t *hdl, int error, const char *fmt, ...)
 	case ZFS_ERR_VDEV_TOO_BIG:
 		zfs_verror(hdl, EZFS_VDEV_TOO_BIG, fmt, ap);
 		break;
+	case ZFS_ERR_IOC_CMD_UNAVAIL:
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "the loaded zfs "
+		    "module does not support this operation. A reboot may "
+		    "be required to enable this operation."));
+		zfs_verror(hdl, EZFS_IOC_NOTSUPPORTED, fmt, ap);
+		break;
+	case ZFS_ERR_IOC_ARG_UNAVAIL:
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "the loaded zfs "
+		    "module does not support an option for this operation. "
+		    "A reboot may be required to enable this option."));
+		zfs_verror(hdl, EZFS_IOC_NOTSUPPORTED, fmt, ap);
+		break;
+	case ZFS_ERR_IOC_ARG_REQUIRED:
+	case ZFS_ERR_IOC_ARG_BADTYPE:
+		zfs_verror(hdl, EZFS_IOC_NOTSUPPORTED, fmt, ap);
+		break;
 	default:
 		zfs_error_aux(hdl, strerror(error));
 		zfs_verror(hdl, EZFS_UNKNOWN, fmt, ap);
@@ -626,15 +668,6 @@ zfs_strdup(libzfs_handle_t *hdl, const char *str)
 	return (ret);
 }
 
-/*
- * Convert a number to an appropriately human-readable output.
- */
-void
-zfs_nicenum(uint64_t num, char *buf, size_t buflen)
-{
-	nicenum(num, buf, buflen);
-}
-
 void
 libzfs_print_on_error(libzfs_handle_t *hdl, boolean_t printerr)
 {
@@ -686,13 +719,20 @@ libzfs_init(void)
 		return (NULL);
 	}
 
+	if (regcomp(&hdl->libzfs_urire, URI_REGEX, REG_EXTENDED) != 0) {
+		free(hdl);
+		return (NULL);
+	}
+
 	if ((hdl->libzfs_fd = open(ZFS_DEV, O_RDWR)) < 0) {
+		regfree(&hdl->libzfs_urire);
 		free(hdl);
 		return (NULL);
 	}
 
 	if ((hdl->libzfs_mnttab = fopen(MNTTAB, "rF")) == NULL) {
 		(void) close(hdl->libzfs_fd);
+		regfree(&hdl->libzfs_urire);
 		free(hdl);
 		return (NULL);
 	}
@@ -703,6 +743,7 @@ libzfs_init(void)
 		(void) close(hdl->libzfs_fd);
 		(void) fclose(hdl->libzfs_mnttab);
 		(void) fclose(hdl->libzfs_sharetab);
+		regfree(&hdl->libzfs_urire);
 		free(hdl);
 		return (NULL);
 	}
@@ -724,16 +765,19 @@ void
 libzfs_fini(libzfs_handle_t *hdl)
 {
 	(void) close(hdl->libzfs_fd);
-	if (hdl->libzfs_mnttab)
+	if (hdl->libzfs_mnttab != NULL)
 		(void) fclose(hdl->libzfs_mnttab);
-	if (hdl->libzfs_sharetab)
+	if (hdl->libzfs_sharetab != NULL)
 		(void) fclose(hdl->libzfs_sharetab);
+	if (hdl->libzfs_devlink != NULL)
+		(void) di_devlink_fini(&hdl->libzfs_devlink);
 	zfs_uninit_libshare(hdl);
 	zpool_free_handles(hdl);
 	libzfs_fru_clear(hdl, B_TRUE);
 	namespace_clear(hdl);
 	libzfs_mnttab_fini(hdl);
 	libzfs_core_fini();
+	regfree(&hdl->libzfs_urire);
 	free(hdl);
 }
 
@@ -1652,21 +1696,4 @@ zfs_get_hole_count(const char *path, uint64_t *count, uint64_t *bs)
 		return (errno);
 	}
 	return (0);
-}
-
-ulong_t
-get_system_hostid(void)
-{
-	char *env;
-
-	/*
-	 * Allow the hostid to be subverted for testing.
-	 */
-	env = getenv("ZFS_HOSTID");
-	if (env) {
-		ulong_t hostid = strtoull(env, NULL, 16);
-		return (hostid & 0xFFFFFFFF);
-	}
-
-	return (gethostid());
 }

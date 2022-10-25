@@ -48,22 +48,21 @@ NETNLSD = $(NETD)/nls
 # Don"t re-install /usr/lib/saf/ and /usr/net, Targetdirs installs them
 #DIRS= $(LIBSAFD) $(NETD) $(NETNLSD)
 DIRS=  $(NETNLSD)
-ROOTSAFPROG= $(PROG:%=$(LIBSAFD)/%) 
+ROOTSAFPROG= $(PROG:%=$(LIBSAFD)/%)
 
 # If machine name and /etc/issue file need to be printed
 # before the service prompt is printed, then:  CPPFLAGS += -DSYS_NAME
 # If debug is needed, then:  CPPFLAGS += -DDEBUG
 
 LDLIBS += -lnsl
-LDFLAGS += $(MAPFILE.NGB:%=-M%)
-LINTFLAGS = -b -x
+LDFLAGS += $(MAPFILE.NGB:%=-Wl,-M%)
 FILEMODE= 0755
 
 CERRWARN += -_gcc=-Wno-implicit-function-declaration
 CERRWARN += -_gcc=-Wno-unused-variable
 CERRWARN += -_gcc=-Wno-empty-body
 CERRWARN += -_gcc=-Wno-parentheses
-CERRWARN += -_gcc=-Wno-uninitialized
+CERRWARN += $(CNOWARN_UNINIT)
 
 # not linted
 SMATCH=off
@@ -94,9 +93,5 @@ $(DIRS):
 
 clean:
 	$(RM) $(OBJS)
-
-lint:
-	$(LINT.c) $(LSSRC)
-	$(LINT.c) $(NLPSSRC)
 
 include ../Makefile.targ

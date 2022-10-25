@@ -20,7 +20,8 @@
  */
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2018 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2020 RackTop Systems, Inc.
  */
 
 #ifndef	_SMBSRV_SMBINFO_H
@@ -155,7 +156,9 @@ typedef struct smb_kmod_cfg {
 	int32_t skc_print_enable;
 	int32_t skc_traverse_mounts;
 	uint32_t skc_max_protocol;	/* SMB_VERS_... */
+	uint32_t skc_min_protocol;	/* SMB_VERS_... */
 	smb_cfg_val_t skc_encrypt; /* EncryptData and RejectUnencryptedAccess */
+	uint16_t skc_encrypt_cipher;	/* 3.1.1 encryption cipher */
 	uint32_t skc_execflags;
 	uint32_t skc_negtok_len;
 	smb_version_t skc_version;
@@ -229,6 +232,14 @@ const char *smbnative_lm_str(smb_version_t *);
 #define	SMB_VERS_2_002		0x202	/* "2.002" */
 #define	SMB_VERS_2_1		0x210	/* "2.1" */
 #define	SMB_VERS_3_0		0x300	/* "3.0" */
+#define	SMB_VERS_3_02		0x302	/* "3.02" */
+#define	SMB_VERS_3_11		0x311	/* "3.11" */
+
+#define	SMB3_HASH_SHA512	1
+
+#define	SMB3_CIPHER_NONE	0
+#define	SMB3_CIPHER_AES128_CCM	1
+#define	SMB3_CIPHER_AES128_GCM	2
 
 #ifdef __cplusplus
 }

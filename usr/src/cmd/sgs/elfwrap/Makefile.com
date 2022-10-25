@@ -40,23 +40,23 @@ COMOBJ32 =	elfwrap32.o
 
 COMOBJ64 =	elfwrap64.o
 
-TOOLOBJS =	alist.o
+SGSCOMMONOBJ =	alist.o
 
 BLTOBJ =	msg.o
 
 OBJS=		$(BLTOBJ) $(COMOBJ) $(MACHOBJ) $(COMOBJ32) $(COMOBJ64) \
-		$(TOOLOBJS)
+		$(SGSCOMMONOBJ)
 
 MAPFILES =	$(MAPFILE.NGB)
-MAPOPTS =	$(MAPFILES:%=-M%)
+MAPOPTS =	$(MAPFILES:%=-Wl,-M%)
 
 CPPFLAGS =	-I. -I../common -I../../include $(CPPFLAGS.master) -I$(ELFCAP)
 LLDFLAGS =
 LLDFLAGS64 =
-LDFLAGS +=	$(VERSREF) $(CC_USE_PROTO) $(MAPOPTS) $(LLDFLAGS)
-LDLIBS +=	$(ELFLIBDIR) -lelf $(CONVLIBDIR) $(CONV_LIB)
+LDFLAGS +=	$(VERSREF) $(MAPOPTS) $(LLDFLAGS)
+LDLIBS +=	$(ELFLIBDIR) -lelf $(CONVLIBDIR) -lconv
 
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 
 BLTDEFS =	msg.h
 BLTDATA =	msg.c
@@ -71,6 +71,6 @@ SGSMSGFLAGS +=	-h $(BLTDEFS) -d $(BLTDATA) -m $(BLTMESG) -n elfwrap_msg
 
 SRCS =		$(COMOBJ:%.o=../common/%.c) ../common/machine.c \
 		$(COMOBJ32:%32.o=../common/%.c) \
-		$(TOOLOBJ:%.o=../../tools/common/%.c) $(BLTDATA)
+		$(SGSCOMMONOBJ:%.o=$(SGSCOMMON)/%.c) $(BLTDATA)
 
 CLEANFILES +=	$(BLTFILES)

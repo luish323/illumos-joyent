@@ -35,6 +35,7 @@
  *
  * Copyright 2015 Pluribus Networks Inc.
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2020 Oxide Computer Company
  */
 
 #ifndef	_VIONA_IMPL_H
@@ -70,6 +71,7 @@ enum viona_ring_state {
 	VRS_SETUP	= 0x1,	/* addrs setup and starting worker thread */
 	VRS_INIT	= 0x2,	/* worker thread started & waiting to run */
 	VRS_RUN		= 0x3,	/* running work routine */
+	VRS_STOP	= 0x4,	/* worker is exiting */
 };
 enum viona_ring_state_flags {
 	VRSF_REQ_START	= 0x1,	/* start running from INIT state */
@@ -157,7 +159,7 @@ struct viona_link {
 	uint32_t		l_features_hw;
 	uint32_t		l_cap_csum;
 
-	uintptr_t		l_notify_ioport;
+	uint16_t		l_notify_ioport;
 	void			*l_notify_cookie;
 
 	datalink_id_t		l_linkid;

@@ -35,6 +35,7 @@
  *
  * Copyright 2015 Pluribus Networks Inc.
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2020 Oxide Computer Company
  */
 
 /*
@@ -133,8 +134,14 @@
  *  +-----------+
  *        |						^
  *        |---* ioctl(VNA_IOC_RING_RESET) issued	|
- *        |	(or bhyve process begins exit)		|
- *        V						|
+ *        |	(or bhyve process begins exit)		^
+ *        |
+ *  +-----------+	The worker thread associated with the ring is in the
+ *  | VRS_STOP  |	process of exiting. All outstanding TX and RX
+ *  +-----------+	requests are allowed to complete, but new requests
+ *        |		must be ignored.
+ *        |						^
+ *        |						|
  *        +-------------------------------------------->+
  *
  *
@@ -277,7 +284,7 @@ static int viona_chpoll(dev_t dev, short events, int anyyet, short *reventsp,
 static int viona_ioc_create(viona_soft_state_t *, void *, int, cred_t *);
 static int viona_ioc_delete(viona_soft_state_t *, boolean_t);
 
-static int viona_ioc_set_notify_ioport(viona_link_t *, uint_t);
+static int viona_ioc_set_notify_ioport(viona_link_t *, uint16_t);
 static int viona_ioc_ring_init(viona_link_t *, void *, int);
 static int viona_ioc_ring_reset(viona_link_t *, uint_t);
 static int viona_ioc_ring_kick(viona_link_t *, uint_t);
@@ -464,7 +471,7 @@ viona_open(dev_t *devp, int flag, int otype, cred_t *credp)
 	}
 
 	minor = id_alloc_nosleep(viona_minors);
-	if (minor == 0) {
+	if (minor == -1) {
 		/* All minors are busy */
 		return (EBUSY);
 	}
@@ -575,7 +582,11 @@ viona_ioctl(dev_t dev, int cmd, intptr_t data, int md, cred_t *cr, int *rv)
 		err = viona_ioc_intr_poll(link, dptr, md, rv);
 		break;
 	case VNA_IOC_SET_NOTIFY_IOP:
-		err = viona_ioc_set_notify_ioport(link, (uint_t)data);
+		if (data < 0 || data > UINT16_MAX) {
+			err = EINVAL;
+			break;
+		}
+		err = viona_ioc_set_notify_ioport(link, (uint16_t)data);
 		break;
 	default:
 		err = ENOTTY;
@@ -920,19 +931,29 @@ viona_ioc_ring_set_msi(viona_link_t *link, void *data, int md)
 }
 
 static int
-viona_notify_wcb(void *arg, uintptr_t ioport, uint_t sz, uint64_t val)
+viona_notify_iop(void *arg, bool in, uint16_t port, uint8_t bytes,
+    uint32_t *val)
 {
 	viona_link_t *link = (viona_link_t *)arg;
-	uint16_t vq = (uint16_t)val;
+	uint16_t vq = *val;
 
-	if (ioport != link->l_notify_ioport || sz != sizeof (uint16_t)) {
+	if (in) {
+		/*
+		 * Do not service read (in/ins) requests on this ioport.
+		 * Instead, indicate that the handler is not found, causing a
+		 * fallback to userspace processing.
+		 */
+		return (ESRCH);
+	}
+
+	if (port != link->l_notify_ioport) {
 		return (EINVAL);
 	}
 	return (viona_ioc_ring_kick(link, vq));
 }
 
 static int
-viona_ioc_set_notify_ioport(viona_link_t *link, uint_t ioport)
+viona_ioc_set_notify_ioport(viona_link_t *link, uint16_t ioport)
 {
 	int err = 0;
 
@@ -942,8 +963,8 @@ viona_ioc_set_notify_ioport(viona_link_t *link, uint_t ioport)
 	}
 
 	if (ioport != 0) {
-		err = vmm_drv_ioport_hook(link->l_vm_hold, ioport, NULL,
-		    viona_notify_wcb, (void *)link, &link->l_notify_cookie);
+		err = vmm_drv_ioport_hook(link->l_vm_hold, ioport,
+		    viona_notify_iop, (void *)link, &link->l_notify_cookie);
 		if (err == 0) {
 			link->l_notify_ioport = ioport;
 		}

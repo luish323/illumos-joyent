@@ -36,7 +36,8 @@
  * http://www.illumos.org/license/CDDL.
  *
  * Copyright 2014 Pluribus Networks Inc.
- * Copyright 2018 Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
+ * Copyright 2020 Oxide Computer Company
  */
 
 #include <sys/types.h>
@@ -79,7 +80,7 @@ sysinit(void)
 		(*si)->func((*si)->data);
 }
 
-u_char const bin2bcd_data[] = {
+uint8_t const bin2bcd_data[] = {
 	0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
 	0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19,
 	0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29,
@@ -99,7 +100,8 @@ pmap_invalidate_cache(void)
 
 	kpreempt_disable();
 	cpuset_all_but(&cpuset, CPU->cpu_id);
-	xc_call(NULL, NULL, NULL, CPUSET2BV(cpuset), (xc_func_t)invalidate_cache);
+	xc_call((xc_arg_t)NULL, (xc_arg_t)NULL, (xc_arg_t)NULL,
+	    CPUSET2BV(cpuset), (xc_func_t)invalidate_cache);
 	invalidate_cache();
 	kpreempt_enable();
 }
@@ -179,7 +181,7 @@ vmm_alloc_check(mod_hash_key_t key, mod_hash_val_t *val, void *unused)
 {
 	struct kmem_item *i = (struct kmem_item *)val;
 
-	cmn_err(CE_PANIC, "!vmm_alloc_check: hash not empty: %p, %d", i->addr,
+	cmn_err(CE_PANIC, "!vmm_alloc_check: hash not empty: %p, %lu", i->addr,
 	    i->size);
 
 	return (MH_WALK_TERMINATE);
@@ -319,8 +321,13 @@ vmm_glue_callout_handler(void *arg)
 {
 	struct callout *c = arg;
 
-	c->c_flags &= ~CALLOUT_PENDING;
-	if (c->c_flags & CALLOUT_ACTIVE) {
+	if (callout_active(c)) {
+		/*
+		 * Record the handler fire time so that callout_pending() is
+		 * able to detect if the callout becomes rescheduled during the
+		 * course of the handler.
+		 */
+		c->c_fired = gethrtime();
 		(c->c_func)(c->c_arg);
 	}
 }
@@ -336,17 +343,9 @@ vmm_glue_callout_init(struct callout *c, int mpsafe)
 	hdlr.cyh_arg = c;
 	when.cyt_when = CY_INFINITY;
 	when.cyt_interval = CY_INFINITY;
+	bzero(c, sizeof (*c));
 
 	mutex_enter(&cpu_lock);
-#if 0
-	/*
-	 * XXXJOY: according to the freebsd sources, callouts do not begin
-	 * their life in the ACTIVE state.
-	 */
-	c->c_flags |= CALLOUT_ACTIVE;
-#else
-	bzero(c, sizeof (*c));
-#endif
 	c->c_cyc_id = cyclic_add(&hdlr, &when);
 	mutex_exit(&cpu_lock);
 }
@@ -366,15 +365,14 @@ vmm_glue_callout_reset_sbt(struct callout *c, sbintime_t sbt, sbintime_t pr,
 
 	ASSERT(c->c_cyc_id != CYCLIC_NONE);
 
+	if ((flags & C_ABSOLUTE) == 0) {
+		target += gethrtime();
+	}
+
 	c->c_func = func;
 	c->c_arg = arg;
-	c->c_flags |= (CALLOUT_ACTIVE | CALLOUT_PENDING);
-
-	if (flags & C_ABSOLUTE) {
-		cyclic_reprogram(c->c_cyc_id, target);
-	} else {
-		cyclic_reprogram(c->c_cyc_id, target + gethrtime());
-	}
+	c->c_target = target;
+	cyclic_reprogram(c->c_cyc_id, target);
 
 	return (0);
 }
@@ -383,8 +381,9 @@ int
 vmm_glue_callout_stop(struct callout *c)
 {
 	ASSERT(c->c_cyc_id != CYCLIC_NONE);
+
+	c->c_target = 0;
 	cyclic_reprogram(c->c_cyc_id, CY_INFINITY);
-	c->c_flags &= ~(CALLOUT_ACTIVE | CALLOUT_PENDING);
 
 	return (0);
 }
@@ -393,10 +392,11 @@ int
 vmm_glue_callout_drain(struct callout *c)
 {
 	ASSERT(c->c_cyc_id != CYCLIC_NONE);
+
+	c->c_target = 0;
 	mutex_enter(&cpu_lock);
 	cyclic_remove(c->c_cyc_id);
 	c->c_cyc_id = CYCLIC_NONE;
-	c->c_flags &= ~(CALLOUT_ACTIVE | CALLOUT_PENDING);
 	mutex_exit(&cpu_lock);
 
 	return (0);
@@ -411,7 +411,7 @@ vmm_glue_callout_localize(struct callout *c)
 }
 
 void
-ipi_cpu(int cpu, u_int ipi)
+ipi_cpu(int cpu, uint_t ipi)
 {
 	/*
 	 * This was previously implemented as an invocation of asynchronous
@@ -422,21 +422,21 @@ ipi_cpu(int cpu, u_int ipi)
 	poke_cpu(cpu);
 }
 
-u_int	cpu_high;		/* Highest arg to CPUID */
-u_int	cpu_exthigh;		/* Highest arg to extended CPUID */
-u_int	cpu_id;			/* Stepping ID */
+uint_t	cpu_high;		/* Highest arg to CPUID */
+uint_t	cpu_exthigh;		/* Highest arg to extended CPUID */
+uint_t	cpu_id;			/* Stepping ID */
 char	cpu_vendor[20];		/* CPU Origin code */
 
 static void
 vmm_cpuid_init(void)
 {
-	u_int regs[4];
+	uint_t regs[4];
 
 	do_cpuid(0, regs);
 	cpu_high = regs[0];
-	((u_int *)&cpu_vendor)[0] = regs[1];
-	((u_int *)&cpu_vendor)[1] = regs[3];
-	((u_int *)&cpu_vendor)[2] = regs[2];
+	((uint_t *)&cpu_vendor)[0] = regs[1];
+	((uint_t *)&cpu_vendor)[1] = regs[3];
+	((uint_t *)&cpu_vendor)[2] = regs[2];
 	cpu_vendor[12] = '\0';
 
 	do_cpuid(1, regs);
@@ -565,14 +565,14 @@ vmm_sol_glue_cleanup(void)
 
 #include <sys/clock.h>
 
-/*--------------------------------------------------------------------*
+/*
  * Generic routines to convert between a POSIX date
  * (seconds since 1/1/1970) and yr/mo/day/hr/min/sec
  * Derived from NetBSD arch/hp300/hp300/clock.c
  */
 
 #define	FEBRUARY	2
-#define	days_in_year(y) 	(leapyear(y) ? 366 : 365)
+#define	days_in_year(y)		(leapyear(y) ? 366 : 365)
 #define	days_in_month(y, m) \
 	(month_days[(m) - 1] + (m == FEBRUARY ? leapyear(y) : 0))
 /* Day of week. Days are counted from 1/1/1970, which was a Thursday */
@@ -625,8 +625,8 @@ clock_ct_to_ts(struct clocktime *ct, struct timespec *ts)
 	/* Sanity checks. */
 	if (ct->mon < 1 || ct->mon > 12 || ct->day < 1 ||
 	    ct->day > days_in_month(year, ct->mon) ||
-	    ct->hour > 23 ||  ct->min > 59 || ct->sec > 59 ||
-	    (sizeof(time_t) == 4 && year > 2037)) {	/* time_t overflow */
+	    ct->hour > 23 || ct->min > 59 || ct->sec > 59 ||
+	    (sizeof (time_t) == 4 && year > 2037)) {	/* time_t overflow */
 #ifdef __FreeBSD__
 		if (ct_debug)
 			printf(" = EINVAL\n");
@@ -644,7 +644,7 @@ clock_ct_to_ts(struct clocktime *ct, struct timespec *ts)
 
 	/* Months */
 	for (i = 1; i < ct->mon; i++)
-	  	days += days_in_month(year, i);
+		days += days_in_month(year, i);
 	days += (ct->day - 1);
 
 	ts->tv_sec = (((time_t)days * 24 + ct->hour) * 60 + ct->min) * 60 +

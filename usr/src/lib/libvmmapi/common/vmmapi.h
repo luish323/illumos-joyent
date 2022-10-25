@@ -39,6 +39,7 @@
  *
  * Copyright 2015 Pluribus Networks Inc.
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2020 Oxide Computer Company
  */
 
 #ifndef _VMMAPI_H_
@@ -46,6 +47,9 @@
 
 #include <sys/param.h>
 #include <sys/cpuset.h>
+#include <x86/segments.h>
+
+#include <stdbool.h>
 
 /*
  * API version for out-of-tree consumers like grub-bhyve for making compile
@@ -162,12 +166,34 @@ int	vm_set_register_set(struct vmctx *ctx, int vcpu, unsigned int count,
     const int *regnums, uint64_t *regvals);
 int	vm_get_register_set(struct vmctx *ctx, int vcpu, unsigned int count,
     const int *regnums, uint64_t *regvals);
-int	vm_run(struct vmctx *ctx, int vcpu, struct vm_exit *ret_vmexit);
+int	vm_run(struct vmctx *ctx, int vcpu, const struct vm_entry *vm_entry,
+    struct vm_exit *vm_exit);
 int	vm_suspend(struct vmctx *ctx, enum vm_suspend_how how);
 int	vm_reinit(struct vmctx *ctx);
 int	vm_apicid2vcpu(struct vmctx *ctx, int apicid);
 int	vm_inject_exception(struct vmctx *ctx, int vcpu, int vector,
     int errcode_valid, uint32_t errcode, int restart_instruction);
+#ifndef __FreeBSD__
+void	vm_inject_fault(struct vmctx *ctx, int vcpu, int vector,
+    int errcode_valid, int errcode);
+
+static __inline void
+vm_inject_gp(struct vmctx *ctx, int vcpuid)
+{
+	vm_inject_fault(ctx, vcpuid, IDT_GP, 1, 0);
+}
+
+static __inline void
+vm_inject_ac(struct vmctx *ctx, int vcpuid, int errcode)
+{
+	vm_inject_fault(ctx, vcpuid, IDT_AC, 1, errcode);
+}
+static __inline void
+vm_inject_ss(struct vmctx *ctx, int vcpuid, int errcode)
+{
+	vm_inject_fault(ctx, vcpuid, IDT_SS, 1, errcode);
+}
+#endif
 int	vm_lapic_irq(struct vmctx *ctx, int vcpu, int vector);
 int	vm_lapic_local_irq(struct vmctx *ctx, int vcpu, int vector);
 int	vm_lapic_msi(struct vmctx *ctx, uint64_t addr, uint64_t msg);
@@ -175,6 +201,8 @@ int	vm_ioapic_assert_irq(struct vmctx *ctx, int irq);
 int	vm_ioapic_deassert_irq(struct vmctx *ctx, int irq);
 int	vm_ioapic_pulse_irq(struct vmctx *ctx, int irq);
 int	vm_ioapic_pincount(struct vmctx *ctx, int *pincount);
+int	vm_readwrite_kernemu_device(struct vmctx *ctx, int vcpu,
+	    vm_paddr_t gpa, bool write, int size, uint64_t *value);
 int	vm_isa_assert_irq(struct vmctx *ctx, int atpic_irq, int ioapic_irq);
 int	vm_isa_deassert_irq(struct vmctx *ctx, int atpic_irq, int ioapic_irq);
 int	vm_isa_pulse_irq(struct vmctx *ctx, int atpic_irq, int ioapic_irq);
@@ -274,6 +302,7 @@ int	vm_get_topology(struct vmctx *ctx, uint16_t *sockets, uint16_t *cores,
 
 #ifndef	__FreeBSD__
 /* illumos-specific APIs */
+int	vm_pmtmr_set_location(struct vmctx *ctx, uint16_t ioport);
 int	vm_wrlock_cycle(struct vmctx *ctx);
 #endif	/* __FreeBSD__ */
 

@@ -26,7 +26,7 @@
  * Copyright (c) 2011 Bayard G. Bell.  All rights reserved.
  * Copyright (c) 2012, 2016 by Delphix. All rights reserved.
  * Copyright 2012 DEY Storage Systems, Inc.  All rights reserved.
- * Copyright 2016 Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
  * Copyright 2017 Nexenta Systems, Inc.
  * Copyright 2019 Racktop Systems
  */
@@ -22712,6 +22712,7 @@ sdioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cred_p, int *rval_p)
 		case DKIOCGMEDIAINFO:
 		case DKIOCGMEDIAINFOEXT:
 		case DKIOCSOLIDSTATE:
+		case DKIOC_CANFREE:
 		case MHIOCENFAILFAST:
 		case MHIOCSTATUS:
 		case MHIOCTKOWN:
@@ -23561,6 +23562,16 @@ skip_ready_valid:
 		}
 		break;
 
+	case DKIOC_CANFREE:
+		SD_TRACE(SD_LOG_IOCTL, un, "DKIOC_CANFREE\n");
+		i = (un->un_thin_flags & SD_THIN_PROV_ENABLED) ? 1 : 0;
+		if (ddi_copyout(&i, (void *)arg, sizeof (int), flag) != 0) {
+			err = EFAULT;
+		} else {
+			err = 0;
+		}
+		break;
+
 	case DKIOCGETWCE: {
 
 		int wce;
@@ -24079,13 +24090,24 @@ sd_get_media_info_ext(dev_t dev, caddr_t arg, int flag)
 {
 	struct dk_minfo_ext	mie;
 	int			rval = 0;
+	size_t			len;
 
 	rval = sd_get_media_info_com(dev, &mie.dki_media_type,
 	    &mie.dki_lbsize, &mie.dki_capacity, &mie.dki_pbsize);
 
 	if (rval)
 		return (rval);
-	if (ddi_copyout(&mie, arg, sizeof (struct dk_minfo_ext), flag))
+
+	switch (ddi_model_convert_from(flag & FMODELS)) {
+	case DDI_MODEL_ILP32:
+		len = sizeof (struct dk_minfo_ext32);
+		break;
+	default:
+		len = sizeof (struct dk_minfo_ext);
+		break;
+	}
+
+	if (ddi_copyout(&mie, arg, len, flag))
 		rval = EFAULT;
 	return (rval);
 

@@ -49,7 +49,7 @@ CPPFLAGS	+= -I$(PRAUDIT)
 CPPFLAGS	+= -I$(LIBBSM)
 
 CERRWARN	+= -_gcc=-Wno-char-subscripts
-CERRWARN	+= -_gcc=-Wno-uninitialized
+CERRWARN	+= $(CNOWARN_UNINIT)
 
 # not linted
 SMATCH=off
@@ -60,7 +60,6 @@ ROOTLIBDIR=	$(ROOT)/usr/lib/security
 
 all:	$(LIBS)
 
-lint:	lintcheck
 
 include		../../../Makefile.targ
 

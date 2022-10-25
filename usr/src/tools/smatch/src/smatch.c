@@ -21,6 +21,7 @@
 #include <unistd.h>
 #include <libgen.h>
 #include "smatch.h"
+#include "smatch_slist.h"
 #include "check_list.h"
 
 char *option_debug_check = (char *)"";
@@ -33,12 +34,10 @@ int option_no_data = 0;
 int option_spammy = 0;
 int option_info = 0;
 int option_full_path = 0;
-int option_param_mapper = 0;
 int option_call_tree = 0;
 int option_no_db = 0;
 int option_enable = 0;
 int option_disable = 0;
-int option_debug_related;
 int option_file_output;
 int option_time;
 int option_mem;
@@ -142,7 +141,6 @@ static void help(void)
 	printf("--spammy:  print superfluous crap.\n");
 	printf("--info:  print info used to fill smatch_data/.\n");
 	printf("--debug:  print lots of debug output.\n");
-	printf("--param-mapper:  enable param_mapper output.\n");
 	printf("--no-data:  do not use the /smatch_data/ directory.\n");
 	printf("--data=<dir>: overwrite path to default smatch data directory.\n");
 	printf("--full-path:  print the full pathname.\n");
@@ -231,13 +229,10 @@ void parse_args(int *argcp, char ***argvp)
 		OPTION(spammy);
 		OPTION(info);
 		OPTION(debug);
-		OPTION(debug_implied);
-		OPTION(debug_related);
 		OPTION(assume_loops);
 		OPTION(no_data);
 		OPTION(two_passes);
 		OPTION(full_path);
-		OPTION(param_mapper);
 		OPTION(call_tree);
 		OPTION(file_output);
 		OPTION(time);
@@ -322,6 +317,7 @@ static char *get_data_dir(char *arg0)
 
 int main(int argc, char **argv)
 {
+	struct string_list *filelist = NULL;
 	int i;
 	reg_func func;
 
@@ -343,8 +339,13 @@ int main(int argc, char **argv)
 	data_dir = get_data_dir(argv[0]);
 
 	allocate_hook_memory();
+	allocate_dynamic_states_array(num_checks);
+	allocate_tracker_array(num_checks);
 	create_function_hook_hash();
 	open_smatch_db(option_db_file);
+	sparse_initialize(argc, argv, &filelist);
+	alloc_valid_ptr_rl();
+
 	for (i = 1; i < ARRAY_SIZE(reg_funcs); i++) {
 		func = reg_funcs[i].func;
 		/* The script IDs start at 1.
@@ -355,7 +356,7 @@ int main(int argc, char **argv)
 			func(i);
 	}
 
-	smatch(argc, argv);
+	smatch(filelist);
 	free_string(data_dir);
 
 	if (option_succeed)

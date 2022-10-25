@@ -22,10 +22,11 @@
 /*
  * Copyright (c) 1989, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2015, Joyent, Inc.  All rights reserved.
+ * Copyright 2020 Oxide Computer Company
  */
 
 /*	Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T	*/
-/*	  All Rights Reserved  	*/
+/*	  All Rights Reserved	*/
 
 /* Copyright (c) 2013, OmniTI Computer Consulting, Inc. All rights reserved. */
 
@@ -347,7 +348,7 @@ const struct systable systable[] = {
 {"writev",	3, DEC, NOV, DEC, HEX, DEC},			/* 122 */
 {"preadv",	4, DEC, NOV, DEC, HEX, DEC, DEC},		/* 123 */
 {"pwritev",	4, DEC, NOV, DEC, HEX, DEC, DEC},		/* 124 */
-{ NULL,		8, HEX, HEX, HEX, HEX, HEX, HEX, HEX, HEX, HEX, HEX},
+{"upanic",	2, DEC, NOV, HEX, DEC},				/* 125 */
 {"getrandom",	3, DEC, NOV, IOB, UNS, GRF},			/* 126 */
 {"mmapobj",	5, DEC, NOV, DEC, MOB, HEX, HEX, HEX},		/* 127 */
 {"setrlimit",	2, DEC, NOV, RLM, HEX},				/* 128 */
@@ -852,7 +853,7 @@ static const	struct systable ucredsystable[] = {
 const	struct systable portfstable[] = {
 {"port_create",	2, DEC, NOV, HID, DEC},				/* 0 */
 {"port_associate",	6, DEC, NOV, HID, DEC, DEC, HEX, HEX, HEX}, /* 1 */
-{"port_dissociate",	4, DEC, NOV, HID, DEC, DEC, HEX}, 	/* 2 */
+{"port_dissociate",	4, DEC, NOV, HID, DEC, DEC, HEX},	/* 2 */
 {"port_send",	4, DEC, NOV, HID, DEC, HEX, HEX},		/* 3 */
 {"port_sendn",	6, DEC, DEC, HID, HEX, HEX, DEC, HEX, HEX},	/* 4 */
 {"port_get",	4, DEC, NOV, HID, DEC, HEX, HEX},		/* 5 */
@@ -1368,7 +1369,7 @@ getsubcode(private_t *pri)
 				    Lsp->pr_sysarg[3] == 0)? 1 : 0;
 			break;
 		case SYS_fchmodat:
-			if (nsysarg > 1 && Lsp->pr_sysarg[1] == NULL) {
+			if (nsysarg > 1 && Lsp->pr_sysarg[1] == 0) {
 				subcode = 3;
 				break;
 			}
@@ -1382,7 +1383,7 @@ getsubcode(private_t *pri)
 				    2 : 0;
 			break;
 		case SYS_fchownat:
-			if (nsysarg > 1 && Lsp->pr_sysarg[1] == NULL) {
+			if (nsysarg > 1 && Lsp->pr_sysarg[1] == 0) {
 				subcode = 3;
 				break;
 			}
@@ -1427,7 +1428,7 @@ getsubcode(private_t *pri)
 			break;
 		case SYS_fstatat:
 		case SYS_fstatat64:
-			if (nsysarg > 1 && Lsp->pr_sysarg[1] == NULL) {
+			if (nsysarg > 1 && Lsp->pr_sysarg[1] == 0) {
 				subcode = 3;
 				break;
 			}

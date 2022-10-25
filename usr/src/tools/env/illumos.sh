@@ -22,10 +22,11 @@
 # Copyright 2015 Nexenta Systems, Inc.  All rights reserved.
 # Copyright 2012 Joshua M. Clulow <josh@sysmgr.org>
 # Copyright 2015, OmniTI Computer Consulting, Inc. All rights reserved.
+# Copyright 2016 RackTop Systems.
 # Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
-# Copyright 2019, Joyent, Inc.
+# Copyright 2020 Joyent, Inc.
 #
-# - This file is sourced by "bldenv.sh" and "nightly.sh" and should not
+# - This file is sourced by "bldenv" and "nightly" and should not
 #   be executed directly.
 # - This script is only interpreted by ksh93 and explicitly allows the
 #   use of ksh93 language extensions.
@@ -95,8 +96,13 @@ export ENABLE_SMB_PRINTING=
 # contains your new defaults OR your .env file sets them.
 # These are how you would override for building on OmniOS r151028, for example.
 #export PERL_VERSION=5.28
-#export PERL_ARCH=i86pc-solaris-thread-multi-64int
+#export PERL_VARIANT=-thread-multi
 #export PERL_PKGVERS=
+
+# To disable building of the 32-bit or 64-bit perl modules (or both),
+# uncomment these lines:
+#export BUILDPERL32='#'
+#export BUILDPERL64='#'
 
 # If your distro uses certain versions of Python, make sure either
 # Makefile.master contains your new defaults OR your .env file sets them.
@@ -111,6 +117,11 @@ export ENABLE_SMB_PRINTING=
 # these lines:
 #export BUILDPY2='#'
 #export BUILDPY3='#'
+
+# To disable building this workspace's tools in $SRC/tools with either Python2
+# or Python3 (but not both!), uncomment either of these lines:
+#export BUILDPY2TOOLS='#'
+#export BUILDPY3TOOLS='#'
 
 # Set console color scheme either by build type:
 #
@@ -128,12 +139,15 @@ export ENABLE_SMB_PRINTING=
 # Set if your distribution has different package versioning
 #export PKGVERS_BRANCH=2018.0.0.17900
 
-# Skip Java 8 builds on distributions that don't support it
-#export BLD_JAVA_8=
+# Skip Java 11 builds on distributions that don't support it
+#export BLD_JAVA_11=
 
 # POST_NIGHTLY can be any command to be run at the end of nightly.  See
 # nightly(1) for interactions between environment variables and this command.
 #POST_NIGHTLY=
+
+# Populates /etc/versions/build on each nightly run
+export BUILDVERSION_EXEC="git describe --all --long --dirty"
 
 # -----------------------------------------------------------------------------
 # You are less likely to need to modify parameters below.

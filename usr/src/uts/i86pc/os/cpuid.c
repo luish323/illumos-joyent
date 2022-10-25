@@ -23,6 +23,7 @@
  * Copyright (c) 2011, 2016 by Delphix. All rights reserved.
  * Copyright 2013 Nexenta Systems, Inc. All rights reserved.
  * Copyright 2014 Josef "Jeff" Sipek <jeffpc@josefsipek.net>
+ * Copyright 2020 Joyent, Inc.
  */
 /*
  * Copyright (c) 2010, Intel Corporation.
@@ -30,9 +31,6 @@
  */
 /*
  * Portions Copyright 2009 Advanced Micro Devices, Inc.
- */
-/*
- * Copyright 2019 Joyent, Inc.
  */
 
 /*
@@ -897,6 +895,367 @@
  * microcode, and performance monitoring. These functions all ASSERT that the
  * CPU they're being called on has reached a certain cpuid pass. If the passes
  * are rearranged, then this needs to be adjusted.
+ *
+ * -----------------------------------------------
+ * Speculative Execution CPU Side Channel Security
+ * -----------------------------------------------
+ *
+ * With the advent of the Spectre and Meltdown attacks which exploit speculative
+ * execution in the CPU to create side channels there have been a number of
+ * different attacks and corresponding issues that the operating system needs to
+ * mitigate against. The following list is some of the common, but not
+ * exhaustive, set of issues that we know about and have done some or need to do
+ * more work in the system to mitigate against:
+ *
+ *   - Spectre v1
+ *   - swapgs (Spectre v1 variant)
+ *   - Spectre v2
+ *   - Meltdown (Spectre v3)
+ *   - Rogue Register Read (Spectre v3a)
+ *   - Speculative Store Bypass (Spectre v4)
+ *   - ret2spec, SpectreRSB
+ *   - L1 Terminal Fault (L1TF)
+ *   - Microarchitectural Data Sampling (MDS)
+ *
+ * Each of these requires different sets of mitigations and has different attack
+ * surfaces. For the most part, this discussion is about protecting the kernel
+ * from non-kernel executing environments such as user processes and hardware
+ * virtual machines. Unfortunately, there are a number of user vs. user
+ * scenarios that exist with these. The rest of this section will describe the
+ * overall approach that the system has taken to address these as well as their
+ * shortcomings. Unfortunately, not all of the above have been handled today.
+ *
+ * SPECTRE v2, ret2spec, SpectreRSB
+ *
+ * The second variant of the spectre attack focuses on performing branch target
+ * injection. This generally impacts indirect call instructions in the system.
+ * There are three different ways to mitigate this issue that are commonly
+ * described today:
+ *
+ *  1. Using Indirect Branch Restricted Speculation (IBRS).
+ *  2. Using Retpolines and RSB Stuffing
+ *  3. Using Enhanced Indirect Branch Restricted Speculation (EIBRS)
+ *
+ * IBRS uses a feature added to microcode to restrict speculation, among other
+ * things. This form of mitigation has not been used as it has been generally
+ * seen as too expensive and requires reactivation upon various transitions in
+ * the system.
+ *
+ * As a less impactful alternative to IBRS, retpolines were developed by
+ * Google. These basically require one to replace indirect calls with a specific
+ * trampoline that will cause speculation to fail and break the attack.
+ * Retpolines require compiler support. We always build with retpolines in the
+ * external thunk mode. This means that a traditional indirect call is replaced
+ * with a call to one of the __x86_indirect_thunk_<reg> functions. A side effect
+ * of this is that all indirect function calls are performed through a register.
+ *
+ * We have to use a common external location of the thunk and not inline it into
+ * the callsite so that way we can have a single place to patch these functions.
+ * As it turns out, we actually have three different forms of retpolines that
+ * exist in the system:
+ *
+ *  1. A full retpoline
+ *  2. An AMD-specific optimized retpoline
+ *  3. A no-op version
+ *
+ * The first one is used in the general case. The second one is used if we can
+ * determine that we're on an AMD system and we can successfully toggle the
+ * lfence serializing MSR that exists on the platform. Basically with this
+ * present, an lfence is sufficient and we don't need to do anywhere near as
+ * complicated a dance to successfully use retpolines.
+ *
+ * The third form described above is the most curious. It turns out that the way
+ * that retpolines are implemented is that they rely on how speculation is
+ * performed on a 'ret' instruction. Intel has continued to optimize this
+ * process (which is partly why we need to have return stack buffer stuffing,
+ * but more on that in a bit) and in processors starting with Cascade Lake
+ * on the server side, it's dangerous to rely on retpolines. Instead, a new
+ * mechanism has been introduced called Enhanced IBRS (EIBRS).
+ *
+ * Unlike IBRS, EIBRS is designed to be enabled once at boot and left on each
+ * physical core. However, if this is the case, we don't want to use retpolines
+ * any more. Therefore if EIBRS is present, we end up turning each retpoline
+ * function (called a thunk) into a jmp instruction. This means that we're still
+ * paying the cost of an extra jump to the external thunk, but it gives us
+ * flexibility and the ability to have a single kernel image that works across a
+ * wide variety of systems and hardware features.
+ *
+ * Unfortunately, this alone is insufficient. First, Skylake systems have
+ * additional speculation for the Return Stack Buffer (RSB) which is used to
+ * return from call instructions which retpolines take advantage of. However,
+ * this problem is not just limited to Skylake and is actually more pernicious.
+ * The SpectreRSB paper introduces several more problems that can arise with
+ * dealing with this. The RSB can be poisoned just like the indirect branch
+ * predictor. This means that one needs to clear the RSB when transitioning
+ * between two different privilege domains. Some examples include:
+ *
+ *  - Switching between two different user processes
+ *  - Going between user land and the kernel
+ *  - Returning to the kernel from a hardware virtual machine
+ *
+ * Mitigating this involves combining a couple of different things. The first is
+ * SMEP (supervisor mode execution protection) which was introduced in Ivy
+ * Bridge. When an RSB entry refers to a user address and we're executing in the
+ * kernel, speculation through it will be stopped when SMEP is enabled. This
+ * protects against a number of the different cases that we would normally be
+ * worried about such as when we enter the kernel from user land.
+ *
+ * To prevent against additional manipulation of the RSB from other contexts
+ * such as a non-root VMX context attacking the kernel we first look to enhanced
+ * IBRS. When EIBRS is present and enabled, then there is nothing else that we
+ * need to do to protect the kernel at this time.
+ *
+ * On CPUs without EIBRS we need to manually overwrite the contents of the
+ * return stack buffer. We do this through the x86_rsb_stuff() function.
+ * Currently this is employed on context switch. The x86_rsb_stuff() function is
+ * disabled when enhanced IBRS is present because Intel claims on such systems
+ * it will be ineffective. Stuffing the RSB in context switch helps prevent user
+ * to user attacks via the RSB.
+ *
+ * If SMEP is not present, then we would have to stuff the RSB every time we
+ * transitioned from user mode to the kernel, which isn't very practical right
+ * now.
+ *
+ * To fully protect user to user and vmx to vmx attacks from these classes of
+ * issues, we would also need to allow them to opt into performing an Indirect
+ * Branch Prediction Barrier (IBPB) on switch. This is not currently wired up.
+ *
+ * By default, the system will enable RSB stuffing and the required variant of
+ * retpolines and store that information in the x86_spectrev2_mitigation value.
+ * This will be evaluated after a microcode update as well, though it is
+ * expected that microcode updates will not take away features. This may mean
+ * that a late loaded microcode may not end up in the optimal configuration
+ * (though this should be rare).
+ *
+ * Currently we do not build kmdb with retpolines or perform any additional side
+ * channel security mitigations for it. One complication with kmdb is that it
+ * requires its own retpoline thunks and it would need to adjust itself based on
+ * what the kernel does. The threat model of kmdb is more limited and therefore
+ * it may make more sense to investigate using prediction barriers as the whole
+ * system is only executing a single instruction at a time while in kmdb.
+ *
+ * SPECTRE v1, v4
+ *
+ * The v1 and v4 variants of spectre are not currently mitigated in the
+ * system and require other classes of changes to occur in the code.
+ *
+ * SPECTRE v1 (SWAPGS VARIANT)
+ *
+ * The class of Spectre v1 vulnerabilities aren't all about bounds checks, but
+ * can generally affect any branch-dependent code. The swapgs issue is one
+ * variant of this. If we are coming in from userspace, we can have code like
+ * this:
+ *
+ *	cmpw	$KCS_SEL, REGOFF_CS(%rsp)
+ *	je	1f
+ *	movq	$0, REGOFF_SAVFP(%rsp)
+ *	swapgs
+ *	1:
+ *	movq	%gs:CPU_THREAD, %rax
+ *
+ * If an attacker can cause a mis-speculation of the branch here, we could skip
+ * the needed swapgs, and use the /user/ %gsbase as the base of the %gs-based
+ * load. If subsequent code can act as the usual Spectre cache gadget, this
+ * would potentially allow KPTI bypass. To fix this, we need an lfence prior to
+ * any use of the %gs override.
+ *
+ * The other case is also an issue: if we're coming into a trap from kernel
+ * space, we could mis-speculate and swapgs the user %gsbase back in prior to
+ * using it. AMD systems are not vulnerable to this version, as a swapgs is
+ * serializing with respect to subsequent uses. But as AMD /does/ need the other
+ * case, and the fix is the same in both cases (an lfence at the branch target
+ * 1: in this example), we'll just do it unconditionally.
+ *
+ * Note that we don't enable user-space "wrgsbase" via CR4_FSGSBASE, making it
+ * harder for user-space to actually set a useful %gsbase value: although it's
+ * not clear, it might still be feasible via lwp_setprivate(), though, so we
+ * mitigate anyway.
+ *
+ * MELTDOWN
+ *
+ * Meltdown, or spectre v3, allowed a user process to read any data in their
+ * address space regardless of whether or not the page tables in question
+ * allowed the user to have the ability to read them. The solution to meltdown
+ * is kernel page table isolation. In this world, there are two page tables that
+ * are used for a process, one in user land and one in the kernel. To implement
+ * this we use per-CPU page tables and switch between the user and kernel
+ * variants when entering and exiting the kernel.  For more information about
+ * this process and how the trampolines work, please see the big theory
+ * statements and additional comments in:
+ *
+ *  - uts/i86pc/ml/kpti_trampolines.s
+ *  - uts/i86pc/vm/hat_i86.c
+ *
+ * While Meltdown only impacted Intel systems and there are also Intel systems
+ * that have Meltdown fixed (called Rogue Data Cache Load), we always have
+ * kernel page table isolation enabled. While this may at first seem weird, an
+ * important thing to remember is that you can't speculatively read an address
+ * if it's never in your page table at all. Having user processes without kernel
+ * pages present provides us with an important layer of defense in the kernel
+ * against any other side channel attacks that exist and have yet to be
+ * discovered. As such, kernel page table isolation (KPTI) is always enabled by
+ * default, no matter the x86 system.
+ *
+ * L1 TERMINAL FAULT
+ *
+ * L1 Terminal Fault (L1TF) takes advantage of an issue in how speculative
+ * execution uses page table entries. Effectively, it is two different problems.
+ * The first is that it ignores the not present bit in the page table entries
+ * when performing speculative execution. This means that something can
+ * speculatively read the listed physical address if it's present in the L1
+ * cache under certain conditions (see Intel's documentation for the full set of
+ * conditions). Secondly, this can be used to bypass hardware virtualization
+ * extended page tables (EPT) that are part of Intel's hardware virtual machine
+ * instructions.
+ *
+ * For the non-hardware virtualized case, this is relatively easy to deal with.
+ * We must make sure that all unmapped pages have an address of zero. This means
+ * that they could read the first 4k of physical memory; however, we never use
+ * that first page in the operating system and always skip putting it in our
+ * memory map, even if firmware tells us we can use it in our memory map. While
+ * other systems try to put extra metadata in the address and reserved bits,
+ * which led to this being problematic in those cases, we do not.
+ *
+ * For hardware virtual machines things are more complicated. Because they can
+ * construct their own page tables, it isn't hard for them to perform this
+ * attack against any physical address. The one wrinkle is that this physical
+ * address must be in the L1 data cache. Thus Intel added an MSR that we can use
+ * to flush the L1 data cache. We wrap this up in the function
+ * spec_uarch_flush(). This function is also used in the mitigation of
+ * microarchitectural data sampling (MDS) discussed later on. Kernel based
+ * hypervisors such as KVM or bhyve are responsible for performing this before
+ * entering the guest.
+ *
+ * Because this attack takes place in the L1 cache, there's another wrinkle
+ * here. The L1 cache is shared between all logical CPUs in a core in most Intel
+ * designs. This means that when a thread enters a hardware virtualized context
+ * and flushes the L1 data cache, the other thread on the processor may then go
+ * ahead and put new data in it that can be potentially attacked. While one
+ * solution is to disable SMT on the system, another option that is available is
+ * to use a feature for hardware virtualization called 'SMT exclusion'. This
+ * goes through and makes sure that if a HVM is being scheduled on one thread,
+ * then the thing on the other thread is from the same hardware virtual machine.
+ * If an interrupt comes in or the guest exits to the broader system, then the
+ * other SMT thread will be kicked out.
+ *
+ * L1TF can be fully mitigated by hardware. If the RDCL_NO feature is set in the
+ * architecture capabilities MSR (MSR_IA32_ARCH_CAPABILITIES), then we will not
+ * perform L1TF related mitigations.
+ *
+ * MICROARCHITECTURAL DATA SAMPLING
+ *
+ * Microarchitectural data sampling (MDS) is a combination of four discrete
+ * vulnerabilities that are similar issues affecting various parts of the CPU's
+ * microarchitectural implementation around load, store, and fill buffers.
+ * Specifically it is made up of the following subcomponents:
+ *
+ *  1. Microarchitectural Store Buffer Data Sampling (MSBDS)
+ *  2. Microarchitectural Fill Buffer Data Sampling (MFBDS)
+ *  3. Microarchitectural Load Port Data Sampling (MLPDS)
+ *  4. Microarchitectural Data Sampling Uncacheable Memory (MDSUM)
+ *
+ * To begin addressing these, Intel has introduced another feature in microcode
+ * called MD_CLEAR. This changes the verw instruction to operate in a different
+ * way. This allows us to execute the verw instruction in a particular way to
+ * flush the state of the affected parts. The L1TF L1D flush mechanism is also
+ * updated when this microcode is present to flush this state.
+ *
+ * Primarily we need to flush this state whenever we transition from the kernel
+ * to a less privileged context such as user mode or an HVM guest. MSBDS is a
+ * little bit different. Here the structures are statically sized when a logical
+ * CPU is in use and resized when it goes to sleep. Therefore, we also need to
+ * flush the microarchitectural state before the CPU goes idles by calling hlt,
+ * mwait, or another ACPI method. To perform these flushes, we call
+ * x86_md_clear() at all of these transition points.
+ *
+ * If hardware enumerates RDCL_NO, indicating that it is not vulnerable to L1TF,
+ * then we change the spec_uarch_flush() function to point to x86_md_clear(). If
+ * MDS_NO has been set, then this is fully mitigated and x86_md_clear() becomes
+ * a no-op.
+ *
+ * Unfortunately, with this issue hyperthreading rears its ugly head. In
+ * particular, everything we've discussed above is only valid for a single
+ * thread executing on a core. In the case where you have hyper-threading
+ * present, this attack can be performed between threads. The theoretical fix
+ * for this is to ensure that both threads are always in the same security
+ * domain. This means that they are executing in the same ring and mutually
+ * trust each other. Practically speaking, this would mean that a system call
+ * would have to issue an inter-processor interrupt (IPI) to the other thread.
+ * Rather than implement this, we recommend that one disables hyper-threading
+ * through the use of psradm -aS.
+ *
+ * TSX ASYNCHRONOUS ABORT
+ *
+ * TSX Asynchronous Abort (TAA) is another side-channel vulnerability that
+ * behaves like MDS, but leverages Intel's transactional instructions as another
+ * vector. Effectively, when a transaction hits one of these cases (unmapped
+ * page, various cache snoop activity, etc.) then the same data can be exposed
+ * as in the case of MDS. This means that you can attack your twin.
+ *
+ * Intel has described that there are two different ways that we can mitigate
+ * this problem on affected processors:
+ *
+ *   1) We can use the same techniques used to deal with MDS. Flushing the
+ *      microarchitectural buffers and disabling hyperthreading will mitigate
+ *      this in the same way.
+ *
+ *   2) Using microcode to disable TSX.
+ *
+ * Now, most processors that are subject to MDS (as in they don't have MDS_NO in
+ * the IA32_ARCH_CAPABILITIES MSR) will not receive microcode to disable TSX.
+ * That's OK as we're already doing all such mitigations. On the other hand,
+ * processors with MDS_NO are all supposed to receive microcode updates that
+ * enumerate support for disabling TSX. In general, we'd rather use this method
+ * when available as it doesn't require disabling hyperthreading to be
+ * effective. Currently we basically are relying on microcode for processors
+ * that enumerate MDS_NO.
+ *
+ * The microcode features are enumerated as part of the IA32_ARCH_CAPABILITIES.
+ * When bit 7 (IA32_ARCH_CAP_TSX_CTRL) is present, then we are given two
+ * different powers. The first allows us to cause all transactions to
+ * immediately abort. The second gives us a means of disabling TSX completely,
+ * which includes removing it from cpuid. If we have support for this in
+ * microcode during the first cpuid pass, then we'll disable TSX completely such
+ * that user land never has a chance to observe the bit. However, if we are late
+ * loading the microcode, then we must use the functionality to cause
+ * transactions to automatically abort. This is necessary for user land's sake.
+ * Once a program sees a cpuid bit, it must not be taken away.
+ *
+ * We track whether or not we should do this based on what cpuid pass we're in.
+ * Whenever we hit cpuid_scan_security() on the boot CPU and we're still on pass
+ * 1 of the cpuid logic, then we can completely turn off TSX. Notably this
+ * should happen twice. Once in the normal cpuid_pass1() code and then a second
+ * time after we do the initial microcode update.  As a result we need to be
+ * careful in cpuid_apply_tsx() to only use the MSR if we've loaded a suitable
+ * microcode on the current CPU (which happens prior to cpuid_pass_ucode()).
+ *
+ * If TAA has been fixed, then it will be enumerated in IA32_ARCH_CAPABILITIES
+ * as TAA_NO. In such a case, we will still disable TSX: it's proven to be an
+ * unfortunate feature in a number of ways, and taking the opportunity to
+ * finally be able to turn it off is likely to be of benefit in the future.
+ *
+ * SUMMARY
+ *
+ * The following table attempts to summarize the mitigations for various issues
+ * and what's done in various places:
+ *
+ *  - Spectre v1: Not currently mitigated
+ *  - swapgs: lfences after swapgs paths
+ *  - Spectre v2: Retpolines/RSB Stuffing or EIBRS if HW support
+ *  - Meltdown: Kernel Page Table Isolation
+ *  - Spectre v3a: Updated CPU microcode
+ *  - Spectre v4: Not currently mitigated
+ *  - SpectreRSB: SMEP and RSB Stuffing
+ *  - L1TF: spec_uarch_flush, SMT exclusion, requires microcode
+ *  - MDS: x86_md_clear, requires microcode, disabling SMT
+ *  - TAA: x86_md_clear and disabling SMT OR microcode and disabling TSX
+ *
+ * The following table indicates the x86 feature set bits that indicate that a
+ * given problem has been solved or a notable feature is present:
+ *
+ *  - RDCL_NO: Meltdown, L1TF, MSBDS subset of MDS
+ *  - MDS_NO: All forms of MDS
+ *  - TAA_NO: TAA
  */
 
 #include <sys/types.h>
@@ -921,6 +1280,8 @@
 #include <sys/mach_mmu.h>
 #include <sys/ucode.h>
 #include <sys/tsc.h>
+#include <sys/kobj.h>
+#include <sys/asm_misc.h>
 
 #ifdef __xpv
 #include <sys/hypervisor.h>
@@ -939,6 +1300,38 @@ int x86_use_invpcid = 0;
 int x86_use_pcid = -1;
 int x86_use_invpcid = -1;
 #endif
+
+typedef enum {
+	X86_SPECTREV2_RETPOLINE,
+	X86_SPECTREV2_RETPOLINE_AMD,
+	X86_SPECTREV2_ENHANCED_IBRS,
+	X86_SPECTREV2_DISABLED
+} x86_spectrev2_mitigation_t;
+
+uint_t x86_disable_spectrev2 = 0;
+static x86_spectrev2_mitigation_t x86_spectrev2_mitigation =
+    X86_SPECTREV2_RETPOLINE;
+
+/*
+ * The mitigation status for TAA:
+ * X86_TAA_NOTHING -- no mitigation available for TAA side-channels
+ * X86_TAA_DISABLED -- mitigation disabled via x86_disable_taa
+ * X86_TAA_MD_CLEAR -- MDS mitigation also suffices for TAA
+ * X86_TAA_TSX_FORCE_ABORT -- transactions are forced to abort
+ * X86_TAA_TSX_DISABLE -- force abort transactions and hide from CPUID
+ * X86_TAA_HW_MITIGATED -- TSX potentially active but H/W not TAA-vulnerable
+ */
+typedef enum {
+	X86_TAA_NOTHING,
+	X86_TAA_DISABLED,
+	X86_TAA_MD_CLEAR,
+	X86_TAA_TSX_FORCE_ABORT,
+	X86_TAA_TSX_DISABLE,
+	X86_TAA_HW_MITIGATED
+} x86_taa_mitigation_t;
+
+uint_t x86_disable_taa = 0;
+static x86_taa_mitigation_t x86_taa_mitigation = X86_TAA_NOTHING;
 
 uint_t pentiumpro_bug4046376;
 
@@ -1038,10 +1431,15 @@ static char *x86_feature_names[NUM_X86_FEATURES] = {
 	"tbm",
 	"avx512_vnni",
 	"amd_pcec",
-	"mb_clear",
+	"md_clear",
 	"mds_no",
 	"core_thermal",
-	"pkg_thermal"
+	"pkg_thermal",
+	"tsx_ctrl",
+	"taa_no",
+	"ppin",
+	"vaes",
+	"vpclmulqdq"
 };
 
 boolean_t
@@ -1877,7 +2275,8 @@ cpuid_intel_getids(cpu_t *cpu, void *feature)
 		 * Multi-core (and possibly multi-threaded)
 		 * processors.
 		 */
-		uint_t ncpu_per_core;
+		uint_t ncpu_per_core = 0;
+
 		if (cpi->cpi_ncore_per_chip == 1)
 			ncpu_per_core = cpi->cpi_ncpu_per_chip;
 		else if (cpi->cpi_ncore_per_chip > 1)
@@ -2170,8 +2569,6 @@ spec_uarch_flush_msr(void)
  */
 void (*spec_uarch_flush)(void) = spec_uarch_flush_noop;
 
-void (*x86_md_clear)(void) = x86_md_clear_noop;
-
 static void
 cpuid_update_md_clear(cpu_t *cpu, uchar_t *featureset)
 {
@@ -2185,13 +2582,14 @@ cpuid_update_md_clear(cpu_t *cpu, uchar_t *featureset)
 	 */
 	if (cpi->cpi_vendor != X86_VENDOR_Intel ||
 	    is_x86_feature(featureset, X86FSET_MDS_NO)) {
-		x86_md_clear = x86_md_clear_noop;
-		membar_producer();
 		return;
 	}
 
 	if (is_x86_feature(featureset, X86FSET_MD_CLEAR)) {
-		x86_md_clear = x86_md_clear_verw;
+		const uint8_t nop = NOP_INSTR;
+		uint8_t *md = (uint8_t *)x86_md_clear;
+
+		*md = nop;
 	}
 
 	membar_producer();
@@ -2255,10 +2653,233 @@ cpuid_update_l1d_flush(cpu_t *cpu, uchar_t *featureset)
 	membar_producer();
 }
 
+/*
+ * We default to enabling RSB mitigations.
+ */
+static void
+cpuid_patch_rsb(x86_spectrev2_mitigation_t mit)
+{
+	const uint8_t ret = RET_INSTR;
+	uint8_t *stuff = (uint8_t *)x86_rsb_stuff;
+
+	switch (mit) {
+	case X86_SPECTREV2_ENHANCED_IBRS:
+	case X86_SPECTREV2_DISABLED:
+		*stuff = ret;
+		break;
+	default:
+		break;
+	}
+}
+
+static void
+cpuid_patch_retpolines(x86_spectrev2_mitigation_t mit)
+{
+	const char *thunks[] = { "_rax", "_rbx", "_rcx", "_rdx", "_rdi",
+	    "_rsi", "_rbp", "_r8", "_r9", "_r10", "_r11", "_r12", "_r13",
+	    "_r14", "_r15" };
+	const uint_t nthunks = ARRAY_SIZE(thunks);
+	const char *type;
+	uint_t i;
+
+	if (mit == x86_spectrev2_mitigation)
+		return;
+
+	switch (mit) {
+	case X86_SPECTREV2_RETPOLINE:
+		type = "gen";
+		break;
+	case X86_SPECTREV2_RETPOLINE_AMD:
+		type = "amd";
+		break;
+	case X86_SPECTREV2_ENHANCED_IBRS:
+	case X86_SPECTREV2_DISABLED:
+		type = "jmp";
+		break;
+	default:
+		panic("asked to updated retpoline state with unknown state!");
+	}
+
+	for (i = 0; i < nthunks; i++) {
+		uintptr_t source, dest;
+		int ssize, dsize;
+		char sourcebuf[64], destbuf[64];
+		size_t len;
+
+		(void) snprintf(destbuf, sizeof (destbuf),
+		    "__x86_indirect_thunk%s", thunks[i]);
+		(void) snprintf(sourcebuf, sizeof (sourcebuf),
+		    "__x86_indirect_thunk_%s%s", type, thunks[i]);
+
+		source = kobj_getelfsym(sourcebuf, NULL, &ssize);
+		dest = kobj_getelfsym(destbuf, NULL, &dsize);
+		VERIFY3U(source, !=, 0);
+		VERIFY3U(dest, !=, 0);
+		VERIFY3S(dsize, >=, ssize);
+		bcopy((void *)source, (void *)dest, ssize);
+	}
+}
+
+static void
+cpuid_enable_enhanced_ibrs(void)
+{
+	uint64_t val;
+
+	val = rdmsr(MSR_IA32_SPEC_CTRL);
+	val |= IA32_SPEC_CTRL_IBRS;
+	wrmsr(MSR_IA32_SPEC_CTRL, val);
+}
+
+#ifndef __xpv
+/*
+ * Determine whether or not we can use the AMD optimized retpoline
+ * functionality. We use this when we know we're on an AMD system and we can
+ * successfully verify that lfence is dispatch serializing.
+ */
+static boolean_t
+cpuid_use_amd_retpoline(struct cpuid_info *cpi)
+{
+	uint64_t val;
+	on_trap_data_t otd;
+
+	if (cpi->cpi_vendor != X86_VENDOR_AMD)
+		return (B_FALSE);
+
+	/*
+	 * We need to determine whether or not lfence is serializing. It always
+	 * is on families 0xf and 0x11. On others, it's controlled by
+	 * MSR_AMD_DE_CFG (MSRC001_1029). If some hypervisor gives us a crazy
+	 * old family, don't try and do anything.
+	 */
+	if (cpi->cpi_family < 0xf)
+		return (B_FALSE);
+	if (cpi->cpi_family == 0xf || cpi->cpi_family == 0x11)
+		return (B_TRUE);
+
+	/*
+	 * While it may be tempting to use get_hwenv(), there are no promises
+	 * that a hypervisor will actually declare themselves to be so in a
+	 * friendly way. As such, try to read and set the MSR. If we can then
+	 * read back the value we set (it wasn't just set to zero), then we go
+	 * for it.
+	 */
+	if (!on_trap(&otd, OT_DATA_ACCESS)) {
+		val = rdmsr(MSR_AMD_DE_CFG);
+		val |= AMD_DE_CFG_LFENCE_DISPATCH;
+		wrmsr(MSR_AMD_DE_CFG, val);
+		val = rdmsr(MSR_AMD_DE_CFG);
+	} else {
+		val = 0;
+	}
+	no_trap();
+
+	if ((val & AMD_DE_CFG_LFENCE_DISPATCH) != 0)
+		return (B_TRUE);
+	return (B_FALSE);
+}
+#endif	/* !__xpv */
+
+/*
+ * Determine how we should mitigate TAA or if we need to. Regardless of TAA, if
+ * we can disable TSX, we do so.
+ *
+ * This determination is done only on the boot CPU, potentially after loading
+ * updated microcode.
+ */
+static void
+cpuid_update_tsx(cpu_t *cpu, uchar_t *featureset)
+{
+	struct cpuid_info *cpi = cpu->cpu_m.mcpu_cpi;
+
+	VERIFY(cpu->cpu_id == 0);
+
+	if (cpi->cpi_vendor != X86_VENDOR_Intel) {
+		x86_taa_mitigation = X86_TAA_HW_MITIGATED;
+		return;
+	}
+
+	if (x86_disable_taa) {
+		x86_taa_mitigation = X86_TAA_DISABLED;
+		return;
+	}
+
+	/*
+	 * If we do not have the ability to disable TSX, then our only
+	 * mitigation options are in hardware (TAA_NO), or by using our existing
+	 * MDS mitigation as described above.  The latter relies upon us having
+	 * configured MDS mitigations correctly! This includes disabling SMT if
+	 * we want to cross-CPU-thread protection.
+	 */
+	if (!is_x86_feature(featureset, X86FSET_TSX_CTRL)) {
+		/*
+		 * It's not clear whether any parts will enumerate TAA_NO
+		 * *without* TSX_CTRL, but let's mark it as such if we see this.
+		 */
+		if (is_x86_feature(featureset, X86FSET_TAA_NO)) {
+			x86_taa_mitigation = X86_TAA_HW_MITIGATED;
+			return;
+		}
+
+		if (is_x86_feature(featureset, X86FSET_MD_CLEAR) &&
+		    !is_x86_feature(featureset, X86FSET_MDS_NO)) {
+			x86_taa_mitigation = X86_TAA_MD_CLEAR;
+		} else {
+			x86_taa_mitigation = X86_TAA_NOTHING;
+		}
+		return;
+	}
+
+	/*
+	 * We have TSX_CTRL, but we can only fully disable TSX if we're early
+	 * enough in boot.
+	 *
+	 * Otherwise, we'll fall back to causing transactions to abort as our
+	 * mitigation. TSX-using code will always take the fallback path.
+	 */
+	if (cpi->cpi_pass < 4) {
+		x86_taa_mitigation = X86_TAA_TSX_DISABLE;
+	} else {
+		x86_taa_mitigation = X86_TAA_TSX_FORCE_ABORT;
+	}
+}
+
+/*
+ * As mentioned, we should only touch the MSR when we've got a suitable
+ * microcode loaded on this CPU.
+ */
+static void
+cpuid_apply_tsx(x86_taa_mitigation_t taa, uchar_t *featureset)
+{
+	uint64_t val;
+
+	switch (taa) {
+	case X86_TAA_TSX_DISABLE:
+		if (!is_x86_feature(featureset, X86FSET_TSX_CTRL))
+			return;
+		val = rdmsr(MSR_IA32_TSX_CTRL);
+		val |= IA32_TSX_CTRL_CPUID_CLEAR | IA32_TSX_CTRL_RTM_DISABLE;
+		wrmsr(MSR_IA32_TSX_CTRL, val);
+		break;
+	case X86_TAA_TSX_FORCE_ABORT:
+		if (!is_x86_feature(featureset, X86FSET_TSX_CTRL))
+			return;
+		val = rdmsr(MSR_IA32_TSX_CTRL);
+		val |= IA32_TSX_CTRL_RTM_DISABLE;
+		wrmsr(MSR_IA32_TSX_CTRL, val);
+		break;
+	case X86_TAA_HW_MITIGATED:
+	case X86_TAA_MD_CLEAR:
+	case X86_TAA_DISABLED:
+	case X86_TAA_NOTHING:
+		break;
+	}
+}
+
 static void
 cpuid_scan_security(cpu_t *cpu, uchar_t *featureset)
 {
 	struct cpuid_info *cpi = cpu->cpu_m.mcpu_cpi;
+	x86_spectrev2_mitigation_t v2mit;
 
 	if (cpi->cpi_vendor == X86_VENDOR_AMD &&
 	    cpi->cpi_xmaxeax >= CPUID_LEAF_EXT_8) {
@@ -2268,18 +2889,24 @@ cpuid_scan_security(cpu_t *cpu, uchar_t *featureset)
 			add_x86_feature(featureset, X86FSET_IBRS);
 		if (cpi->cpi_extd[8].cp_ebx & CPUID_AMD_EBX_STIBP)
 			add_x86_feature(featureset, X86FSET_STIBP);
-		if (cpi->cpi_extd[8].cp_ebx & CPUID_AMD_EBX_IBRS_ALL)
-			add_x86_feature(featureset, X86FSET_IBRS_ALL);
 		if (cpi->cpi_extd[8].cp_ebx & CPUID_AMD_EBX_STIBP_ALL)
 			add_x86_feature(featureset, X86FSET_STIBP_ALL);
-		if (cpi->cpi_extd[8].cp_ebx & CPUID_AMD_EBX_PREFER_IBRS)
-			add_x86_feature(featureset, X86FSET_RSBA);
 		if (cpi->cpi_extd[8].cp_ebx & CPUID_AMD_EBX_SSBD)
 			add_x86_feature(featureset, X86FSET_SSBD);
 		if (cpi->cpi_extd[8].cp_ebx & CPUID_AMD_EBX_VIRT_SSBD)
 			add_x86_feature(featureset, X86FSET_SSBD_VIRT);
 		if (cpi->cpi_extd[8].cp_ebx & CPUID_AMD_EBX_SSB_NO)
 			add_x86_feature(featureset, X86FSET_SSB_NO);
+		/*
+		 * Don't enable enhanced IBRS unless we're told that we should
+		 * prefer it and it has the same semantics as Intel. This is
+		 * split into two bits rather than a single one.
+		 */
+		if ((cpi->cpi_extd[8].cp_ebx & CPUID_AMD_EBX_PREFER_IBRS) &&
+		    (cpi->cpi_extd[8].cp_ebx & CPUID_AMD_EBX_IBRS_ALL)) {
+			add_x86_feature(featureset, X86FSET_IBRS_ALL);
+		}
+
 	} else if (cpi->cpi_vendor == X86_VENDOR_Intel &&
 	    cpi->cpi_maxeax >= 7) {
 		struct cpuid_regs *ecp;
@@ -2337,6 +2964,14 @@ cpuid_scan_security(cpu_t *cpu, uchar_t *featureset)
 					add_x86_feature(featureset,
 					    X86FSET_MDS_NO);
 				}
+				if (reg & IA32_ARCH_CAP_TSX_CTRL) {
+					add_x86_feature(featureset,
+					    X86FSET_TSX_CTRL);
+				}
+				if (reg & IA32_ARCH_CAP_TAA_NO) {
+					add_x86_feature(featureset,
+					    X86FSET_TAA_NO);
+				}
 			}
 			no_trap();
 		}
@@ -2349,8 +2984,49 @@ cpuid_scan_security(cpu_t *cpu, uchar_t *featureset)
 			add_x86_feature(featureset, X86FSET_FLUSH_CMD);
 	}
 
-	if (cpu->cpu_id != 0)
+	/*
+	 * Take care of certain mitigations on the non-boot CPU. The boot CPU
+	 * will have already run this function and determined what we need to
+	 * do. This gives us a hook for per-HW thread mitigations such as
+	 * enhanced IBRS, or disabling TSX.
+	 */
+	if (cpu->cpu_id != 0) {
+		if (x86_spectrev2_mitigation == X86_SPECTREV2_ENHANCED_IBRS) {
+			cpuid_enable_enhanced_ibrs();
+		}
+
+		cpuid_apply_tsx(x86_taa_mitigation, featureset);
 		return;
+	}
+
+	/*
+	 * Go through and initialize various security mechanisms that we should
+	 * only do on a single CPU. This includes Spectre V2, L1TF, MDS, and
+	 * TAA.
+	 */
+
+	/*
+	 * By default we've come in with retpolines enabled. Check whether we
+	 * should disable them or enable enhanced IBRS. RSB stuffing is enabled
+	 * by default, but disabled if we are using enhanced IBRS.
+	 */
+	if (x86_disable_spectrev2 != 0) {
+		v2mit = X86_SPECTREV2_DISABLED;
+	} else if (is_x86_feature(featureset, X86FSET_IBRS_ALL)) {
+		cpuid_enable_enhanced_ibrs();
+		v2mit = X86_SPECTREV2_ENHANCED_IBRS;
+#ifndef __xpv
+	} else if (cpuid_use_amd_retpoline(cpi)) {
+		v2mit = X86_SPECTREV2_RETPOLINE_AMD;
+#endif	/* !__xpv */
+	} else {
+		v2mit = X86_SPECTREV2_RETPOLINE;
+	}
+
+	cpuid_patch_retpolines(v2mit);
+	cpuid_patch_rsb(v2mit);
+	x86_spectrev2_mitigation = v2mit;
+	membar_producer();
 
 	/*
 	 * We need to determine what changes are required for mitigating L1TF
@@ -2376,6 +3052,13 @@ cpuid_scan_security(cpu_t *cpu, uchar_t *featureset)
 	 * need to perform an l1d flush.
 	 */
 	cpuid_update_l1d_flush(cpu, featureset);
+
+	/*
+	 * Determine what our mitigation strategy should be for TAA and then
+	 * also apply TAA mitigations.
+	 */
+	cpuid_update_tsx(cpu, featureset);
+	cpuid_apply_tsx(x86_taa_mitigation, featureset);
 }
 
 /*
@@ -2547,6 +3230,60 @@ cpuid_pass1_thermal(cpu_t *cpu, uchar_t *featureset)
 		add_x86_feature(featureset, X86FSET_PKG_THERMAL);
 	}
 }
+
+/*
+ * PPIN is the protected processor inventory number. On AMD this is an actual
+ * feature bit. However, on Intel systems we need to read the platform
+ * information MSR if we're on a specific model.
+ */
+#if !defined(__xpv)
+static void
+cpuid_pass1_ppin(cpu_t *cpu, uchar_t *featureset)
+{
+	on_trap_data_t otd;
+	struct cpuid_info *cpi = cpu->cpu_m.mcpu_cpi;
+
+	switch (cpi->cpi_vendor) {
+	case X86_VENDOR_AMD:
+		/*
+		 * This leaf will have already been gathered in the topology
+		 * functions.
+		 */
+		if (cpi->cpi_xmaxeax >= CPUID_LEAF_EXT_8) {
+			if (cpi->cpi_extd[8].cp_ebx & CPUID_AMD_EBX_PPIN) {
+				add_x86_feature(featureset, X86FSET_PPIN);
+			}
+		}
+		break;
+	case X86_VENDOR_Intel:
+		if (cpi->cpi_family != 6)
+			break;
+		switch (cpi->cpi_model) {
+		case INTC_MODEL_IVYBRIDGE_XEON:
+		case INTC_MODEL_HASWELL_XEON:
+		case INTC_MODEL_BROADWELL_XEON:
+		case INTC_MODEL_BROADWELL_XEON_D:
+		case INTC_MODEL_SKYLAKE_XEON:
+			if (!on_trap(&otd, OT_DATA_ACCESS)) {
+				uint64_t value;
+
+				value = rdmsr(MSR_PLATFORM_INFO);
+				if ((value & MSR_PLATFORM_INFO_PPIN) != 0) {
+					add_x86_feature(featureset,
+					    X86FSET_PPIN);
+				}
+			}
+			no_trap();
+			break;
+		default:
+			break;
+		}
+		break;
+	default:
+		break;
+	}
+}
+#endif	/* ! __xpv */
 
 void
 cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
@@ -2860,6 +3597,8 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 			ecp->cp_ebx &= ~CPUID_INTC_EBX_7_0_ALL_AVX512;
 			ecp->cp_ecx &= ~CPUID_INTC_ECX_7_0_ALL_AVX512;
 			ecp->cp_edx &= ~CPUID_INTC_EDX_7_0_ALL_AVX512;
+			ecp->cp_ecx &= ~CPUID_INTC_ECX_7_0_VAES;
+			ecp->cp_ecx &= ~CPUID_INTC_ECX_7_0_VPCLMULQDQ;
 		}
 
 		if (ecp->cp_ebx & CPUID_INTC_EBX_7_0_SMEP)
@@ -2887,10 +3626,17 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 		if (ecp->cp_ebx & CPUID_INTC_EBX_7_0_CLFLUSHOPT)
 			add_x86_feature(featureset, X86FSET_CLFLUSHOPT);
 
-		if (cpi->cpi_vendor == X86_VENDOR_Intel) {
-			if (ecp->cp_ebx & CPUID_INTC_EBX_7_0_INVPCID)
-				add_x86_feature(featureset, X86FSET_INVPCID);
+		if (ecp->cp_ebx & CPUID_INTC_EBX_7_0_INVPCID)
+			add_x86_feature(featureset, X86FSET_INVPCID);
 
+		if (ecp->cp_ecx & CPUID_INTC_ECX_7_0_UMIP)
+			add_x86_feature(featureset, X86FSET_UMIP);
+		if (ecp->cp_ecx & CPUID_INTC_ECX_7_0_PKU)
+			add_x86_feature(featureset, X86FSET_PKU);
+		if (ecp->cp_ecx & CPUID_INTC_ECX_7_0_OSPKE)
+			add_x86_feature(featureset, X86FSET_OSPKE);
+
+		if (cpi->cpi_vendor == X86_VENDOR_Intel) {
 			if (ecp->cp_ebx & CPUID_INTC_EBX_7_0_MPX)
 				add_x86_feature(featureset, X86FSET_MPX);
 
@@ -2982,13 +3728,6 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 		if (cpi->cpi_std[7].cp_ebx & CPUID_INTC_EBX_7_0_SHA)
 			add_x86_feature(featureset, X86FSET_SHA);
 
-		if (cpi->cpi_std[7].cp_ecx & CPUID_INTC_ECX_7_0_UMIP)
-			add_x86_feature(featureset, X86FSET_UMIP);
-		if (cpi->cpi_std[7].cp_ecx & CPUID_INTC_ECX_7_0_PKU)
-			add_x86_feature(featureset, X86FSET_PKU);
-		if (cpi->cpi_std[7].cp_ecx & CPUID_INTC_ECX_7_0_OSPKE)
-			add_x86_feature(featureset, X86FSET_OSPKE);
-
 		if (cp->cp_ecx & CPUID_INTC_ECX_XSAVE) {
 			add_x86_feature(featureset, X86FSET_XSAVE);
 
@@ -3024,6 +3763,16 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 				    CPUID_INTC_EBX_7_0_AVX2)
 					add_x86_feature(featureset,
 					    X86FSET_AVX2);
+
+				if (cpi->cpi_std[7].cp_ecx &
+				    CPUID_INTC_ECX_7_0_VAES)
+					add_x86_feature(featureset,
+					    X86FSET_VAES);
+
+				if (cpi->cpi_std[7].cp_ecx &
+				    CPUID_INTC_ECX_7_0_VPCLMULQDQ)
+					add_x86_feature(featureset,
+					    X86FSET_VPCLMULQDQ);
 			}
 
 			if (cpi->cpi_vendor == X86_VENDOR_Intel &&
@@ -3085,10 +3834,8 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 		}
 	}
 
-	if (cpi->cpi_vendor == X86_VENDOR_Intel) {
-		if (cp->cp_ecx & CPUID_INTC_ECX_PCID) {
-			add_x86_feature(featureset, X86FSET_PCID);
-		}
+	if (cp->cp_ecx & CPUID_INTC_ECX_PCID) {
+		add_x86_feature(featureset, X86FSET_PCID);
 	}
 
 	if (cp->cp_ecx & CPUID_INTC_ECX_X2APIC) {
@@ -3385,8 +4132,15 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 		}
 	}
 
+	/*
+	 * cpuid_pass1_ppin assumes that cpuid_pass1_topology has already been
+	 * run and thus gathered some of its dependent leaves.
+	 */
 	cpuid_pass1_topology(cpu, featureset);
 	cpuid_pass1_thermal(cpu, featureset);
+#if !defined(__xpv)
+	cpuid_pass1_ppin(cpu, featureset);
+#endif
 
 	/*
 	 * Synthesize chip "revision" and socket type
@@ -3750,6 +4504,10 @@ cpuid_pass2(cpu_t *cpu)
 					    X86FSET_AVX512NNIW);
 					remove_x86_feature(x86_featureset,
 					    X86FSET_AVX512FMAPS);
+					remove_x86_feature(x86_featureset,
+					    X86FSET_VAES);
+					remove_x86_feature(x86_featureset,
+					    X86FSET_VPCLMULQDQ);
 
 					CPI_FEATURES_ECX(cpi) &=
 					    ~CPUID_INTC_ECX_XSAVE;
@@ -3772,6 +4530,11 @@ cpuid_pass2(cpu_t *cpu)
 
 					CPI_FEATURES_7_0_ECX(cpi) &=
 					    ~CPUID_INTC_ECX_7_0_ALL_AVX512;
+
+					CPI_FEATURES_7_0_ECX(cpi) &=
+					    ~CPUID_INTC_ECX_7_0_VAES;
+					CPI_FEATURES_7_0_ECX(cpi) &=
+					    ~CPUID_INTC_ECX_7_0_VPCLMULQDQ;
 
 					CPI_FEATURES_7_0_EDX(cpi) &=
 					    ~CPUID_INTC_EDX_7_0_ALL_AVX512;
@@ -4563,6 +5326,10 @@ cpuid_pass4(cpu_t *cpu, uint_t *hwcap_out)
 					hwcap_flags_2 |= AV_386_2_AVX512_VNNI;
 				if (*ecx_7 & CPUID_INTC_ECX_7_0_AVX512VPOPCDQ)
 					hwcap_flags_2 |= AV_386_2_AVX512VPOPCDQ;
+				if (*ecx_7 & CPUID_INTC_ECX_7_0_VAES)
+					hwcap_flags_2 |= AV_386_2_VAES;
+				if (*ecx_7 & CPUID_INTC_ECX_7_0_VPCLMULQDQ)
+					hwcap_flags_2 |= AV_386_2_VPCLMULQDQ;
 
 				if (*edx_7 & CPUID_INTC_EDX_7_0_AVX5124NNIW)
 					hwcap_flags_2 |= AV_386_2_AVX512_4NNIW;
@@ -6781,8 +7548,13 @@ static int
 cpuid_post_ucodeadm_xc(xc_arg_t arg0, xc_arg_t arg1, xc_arg_t arg2)
 {
 	uchar_t *fset;
+	boolean_t first_pass = (boolean_t)arg1;
 
 	fset = (uchar_t *)(arg0 + sizeof (x86_featureset) * CPU->cpu_id);
+	if (first_pass && CPU->cpu_id != 0)
+		return (0);
+	if (!first_pass && CPU->cpu_id == 0)
+		return (0);
 	cpuid_pass_ucode(CPU, fset);
 
 	return (0);
@@ -6825,8 +7597,17 @@ cpuid_post_ucodeadm(void)
 		CPUSET_ADD(cpuset, i);
 	}
 
+	/*
+	 * We do the cross calls in two passes. The first pass is only for the
+	 * boot CPU. The second pass is for all of the other CPUs. This allows
+	 * the boot CPU to go through and change behavior related to patching or
+	 * whether or not Enhanced IBRS needs to be enabled and then allow all
+	 * other CPUs to follow suit.
+	 */
 	kpreempt_disable();
-	xc_sync((xc_arg_t)argdata, 0, 0, CPUSET2BV(cpuset),
+	xc_sync((xc_arg_t)argdata, B_TRUE, 0, CPUSET2BV(cpuset),
+	    cpuid_post_ucodeadm_xc);
+	xc_sync((xc_arg_t)argdata, B_FALSE, 0, CPUSET2BV(cpuset),
 	    cpuid_post_ucodeadm_xc);
 	kpreempt_enable();
 

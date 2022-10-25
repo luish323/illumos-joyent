@@ -36,8 +36,7 @@ SRCS =	$(ASOBJS:%.o=../$(MACH)/%.s)	\
 	$(V1_OBJS:%.o=../common/%.c)	\
 	$(COBJS:%.o=../common/%.c)
 
-LIBS =		$(DYNLIB) $(LINTLIB)
-$(LINTLIB) :=	SRCS = ../common/llib-lcpc
+LIBS =		$(DYNLIB)
 LDLIBS +=	-lpctx -lnvpair -lc
 
 SRCDIR =	../common
@@ -47,7 +46,7 @@ CPPFLAGS +=	-D_REENTRANT -I../common
 CFLAGS +=	$(CCVERBOSE)
 
 CERRWARN +=	-_gcc=-Wno-switch
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 
 # not linted
 SMATCH=off
@@ -56,7 +55,6 @@ SMATCH=off
 
 all: $(LIBS)
 
-lint: lintcheck
 
 include ../../Makefile.targ
 

@@ -132,11 +132,6 @@ overlay_mux_recv(ksocket_t ks, mblk_t *mpchain, size_t msgsize, int oob,
 		 * packets and check the inside-VXLAN IP packets' checksums,
 		 * or do LSO with VXLAN), we should clear any HW-accelerated-
 		 * performed bits.
-		 *
-		 * We do this, even in cases of HW_LOCAL_MAC, because we
-		 * absolutely have NO context about the inner packet.
-		 * It could've arrived off an external NIC and been forwarded
-		 * to the overlay network, which means no context.
 		 */
 		DB_CKSUMFLAGS(mp) = 0;
 
@@ -359,8 +354,16 @@ overlay_mux_tx(overlay_mux_t *mux, struct msghdr *hdr, mblk_t *mp)
 	/*
 	 * It'd be nice to be able to use MSG_MBLK_QUICKRELE, unfortunately,
 	 * that isn't actually supported by UDP at this time.
+	 *
+	 * Send with MSG_DONTWAIT to indicate clogged UDP sockets upstack.
 	 */
-	ret = ksocket_sendmblk(mux->omux_ksock, hdr, 0, &mp, kcred);
+	ret = ksocket_sendmblk(mux->omux_ksock, hdr, MSG_DONTWAIT, &mp, kcred);
+	/*
+	 * NOTE: ksocket_sendmblk() may send partial packets downstack,
+	 * returning what's not sent in &mp (i.e. mp pre-call might be a
+	 * b_cont of mp post-call).  We can't hold up this message (it's a
+	 * datagram), so we drop, and let the caller cope.
+	 */
 	if (ret != 0)
 		freemsg(mp);
 

@@ -4,23 +4,19 @@
 .\"  Common Development and Distribution License ("CDDL"), version 1.0.
 .\"  You may only use this file in accordance with the terms of version
 .\"  1.0 of the CDDL.
-.\" 
+.\"
 .\"  A full copy of the text of the CDDL should have accompanied this
 .\"  source.  A copy of the CDDL is also available via the Internet at
 .\"  http://www.illumos.org/license/CDDL.
-.TH EPOLL 5 "Apr 17, 2014"
+.TH EPOLL 5 "May 16, 2020"
 .SH NAME
 epoll \- Linux-compatible I/O event notification facility
 .SH SYNOPSIS
-
-.LP
 .nf
 #include <sys/epoll.h>
 .fi
 
 .SH DESCRIPTION
-.LP
-
 \fBepoll\fR is a facility for efficient event-oriented I/O that has a
 similar model to \fBpoll\fR(2), but does not necessitate rescanning a
 set of file descriptors to wait for an event.  \fBepoll\fR is of Linux
@@ -32,7 +28,7 @@ the Linux facility, including the following interfaces:
 .ie t \(bu
 .el o
 \fBepoll_create\fR(3C) creates an \fBepoll\fR instance, returning a file
-descriptor. It contains a size arugment which is meaningful only in as
+descriptor. It contains a size argument which is meaningful only in as
 much as it cannot be 0.
 .RE
 .RS +4
@@ -63,15 +59,13 @@ via \fBepoll_ctl\fR(3C), blocking the caller if no such events are pending.
 .TP
 .ie t \(bu
 .el o
-\fBepoll_pwait\fR(3C) opeates in a similar manner to \fBepoll_wait\fR(3C), but
+\fBepoll_pwait\fR(3C) operates in a similar manner to \fBepoll_wait\fR(3C), but
 allows the caller to specify a signal mask to be set atomically with respect
 to waiting for events.
 .RE
 
 .sp
 .SH NOTES
-.LP
-
 The \fBepoll\fR facility is implemented
 for purposes of offering compatibility to and portability of Linux-borne
 applications; native applications should continue to prefer using event ports
@@ -102,7 +96,6 @@ will always result in no further
 events being generated for that event description.
 
 .SH SEE ALSO
-.LP
 \fBepoll_create\fR(3C), \fBepoll_create1\fR(3C), \fBepoll_ctl\fR(3C),
 \fBepoll_wait\fR(3C), \fBepoll_pwait\fR(3C),
 \fBport_create\fR(3C), \fBport_associate\fR(3C), \fBport_dissociate\fR(3C),

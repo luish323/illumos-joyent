@@ -129,7 +129,7 @@ CFLAGS += -DDIS_MEM
 # Please do not carry these forward to new Makefiles.
 #
 CERRWARN	+= -_gcc=-Wno-parentheses
-CERRWARN	+= -_gcc=-Wno-uninitialized
+CERRWARN	+= $(CNOWARN_UNINIT)
 CERRWARN	+= -_gcc=-Wno-char-subscripts
 CERRWARN	+= -_gcc=-Wno-unused-variable
 CERRWARN	+= -_gcc=-Wno-unused-function
@@ -148,6 +148,9 @@ SMOFF += all_func_returns,deref_check,signed
 $(OBJS_DIR)/fmsmb.o := SMOFF += indenting
 $(OBJS_DIR)/zutil.o := SMOFF += indenting
 $(OBJS_DIR)/bootrd_cpio.o := SMOFF += allocating_enough_data
+
+# too hairy
+$(OBJS_DIR)/inflate.o := SMATCH=off
 
 #
 #	Default build targets.

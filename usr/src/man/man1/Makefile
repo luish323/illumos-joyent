@@ -13,6 +13,8 @@
 # Copyright 2011, Richard Lowe
 # Copyright 2018 Nexenta Systems, Inc.
 # Copyright 2014 Garrett D'Amore <garrett@damore.org>
+# Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2020 Joyent, Inc.
 #
 
 include		$(SRC)/Makefile.master
@@ -94,6 +96,7 @@ MANFILES=	acctcom.1			\
 		date.1				\
 		dc.1				\
 		deallocate.1			\
+		demangle.1			\
 		deroff.1			\
 		dhcpinfo.1			\
 		diff.1				\
@@ -247,7 +250,6 @@ MANFILES=	acctcom.1			\
 		msgget.1			\
 		mt.1				\
 		mv.1				\
-		nawk.1				\
 		nc.1				\
 		nca.1				\
 		ncab2clf.1			\
@@ -261,6 +263,7 @@ MANFILES=	acctcom.1			\
 		nm.1				\
 		nohup.1				\
 		nroff.1				\
+		oawk.1				\
 		od.1				\
 		optisa.1			\
 		pack.1				\
@@ -421,7 +424,8 @@ MANFILES=	acctcom.1			\
 		yppasswd.1			\
 		ypwhich.1			\
 		zlogin.1			\
-		zonename.1
+		zonename.1			\
+		zonestat.1
 
 MANLINKS=	batch.1		\
 		bg.1		\
@@ -480,6 +484,7 @@ MANLINKS=	batch.1		\
 		ksh.1		\
 		ldapadd.1	\
 		mailq.1		\
+		nawk.1		\
 		neqn.1		\
 		notify.1	\
 		onintr.1	\
@@ -621,6 +626,8 @@ dmake.1		:= LINKSRC = make.1
 
 checkeq.1	:= LINKSRC = eqn.1
 neqn.1		:= LINKSRC = eqn.1
+
+nawk.1		:= LINKSRC = awk.1
 
 eval.1		:= LINKSRC = exec.1
 source.1	:= LINKSRC = exec.1

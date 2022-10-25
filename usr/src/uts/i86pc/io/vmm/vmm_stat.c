@@ -53,7 +53,7 @@ static struct vmm_stat_type *vsttab[MAX_VMM_STAT_ELEMS];
 
 static MALLOC_DEFINE(M_VMM_STAT, "vmm stat", "vmm stat");
 
-#define	vst_size	((size_t)vst_num_elems * sizeof(uint64_t))
+#define	vst_size	((size_t)vst_num_elems * sizeof (uint64_t))
 
 void
 vmm_stat_register(void *arg)
@@ -67,7 +67,7 @@ vmm_stat_register(void *arg)
 	if (vst->scope == VMM_STAT_SCOPE_INTEL && !vmm_is_intel())
 		return;
 
-	if (vst->scope == VMM_STAT_SCOPE_AMD && !vmm_is_amd())
+	if (vst->scope == VMM_STAT_SCOPE_AMD && !vmm_is_svm())
 		return;
 
 	if (vst_num_elems + vst->nelems >= MAX_VMM_STAT_ELEMS) {
@@ -137,7 +137,7 @@ vmm_stat_desc_copy(int index, char *buf, int bufsize)
 		if (index >= vst->index && index < vst->index + vst->nelems) {
 			if (vst->nelems > 1) {
 				snprintf(buf, bufsize, "%s[%d]",
-					 vst->desc, index - vst->index);
+				    vst->desc, index - vst->index);
 			} else {
 				strlcpy(buf, vst->desc, bufsize);
 			}
@@ -163,7 +163,7 @@ VMM_STAT(VMEXIT_NMI_WINDOW, "vm exits due to nmi window opening");
 VMM_STAT(VMEXIT_INOUT, "number of times in/out was intercepted");
 VMM_STAT(VMEXIT_CPUID, "number of times cpuid was intercepted");
 VMM_STAT(VMEXIT_NESTED_FAULT, "vm exits due to nested page fault");
-VMM_STAT(VMEXIT_INST_EMUL, "vm exits for instruction emulation");
+VMM_STAT(VMEXIT_MMIO_EMUL, "vm exits for mmio emulation");
 VMM_STAT(VMEXIT_UNKNOWN, "number of vm exits for unknown reason");
 VMM_STAT(VMEXIT_ASTPENDING, "number of times astpending at exit");
 VMM_STAT(VMEXIT_REQIDLE, "number of times idle requested at exit");

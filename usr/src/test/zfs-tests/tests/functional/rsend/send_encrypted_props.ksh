@@ -16,6 +16,7 @@
 
 #
 # Copyright (c) 2018 by Datto Inc. All rights reserved.
+# Copyright 2020 Joyent, Inc.
 #
 
 . $STF_SUITE/tests/functional/rsend/rsend.kshlib
@@ -58,7 +59,8 @@ log_assert "'zfs recv' must properly handle encryption properties"
 
 typeset keyfile=/$TESTPOOL/pkey
 typeset sendfile=/$TESTPOOL/sendfile
-typeset snap=$TESTPOOL/ds@snap
+typeset snap=$TESTPOOL/ds@snap1
+typeset snap2=$TESTPOOL/ds@snap2
 typeset esnap=$TESTPOOL/crypt@snap1
 typeset esnap2=$TESTPOOL/crypt@snap2
 
@@ -75,9 +77,10 @@ log_must zfs create -o keyformat=passphrase -o keylocation=file://$keyfile \
 
 log_must mkfile 1M /$TESTPOOL/ds/$TESTFILE0
 log_must cp /$TESTPOOL/ds/$TESTFILE0 /$TESTPOOL/crypt/$TESTFILE0
-typeset cksum=$(md5sum /$TESTPOOL/ds/$TESTFILE0 | awk '{  print $1 }')
+typeset cksum=$(digest -a md5 /$TESTPOOL/ds/$TESTFILE0)
 
 log_must zfs snap -r $snap
+log_must zfs snap -r $snap2
 log_must zfs snap -r $esnap
 log_must zfs snap -r $esnap2
 
@@ -127,7 +130,7 @@ log_must test "$(get_prop 'encryptionroot' $ds)" == "$ds"
 log_must test "$(get_prop 'keyformat' $ds)" == "passphrase"
 log_must test "$(get_prop 'keylocation' $ds)" == "file://$keyfile"
 log_must test "$(get_prop 'mounted' $ds)" == "yes"
-recv_cksum=$(md5sum /$ds/$TESTFILE0 | awk '{ print $1 }')
+recv_cksum=$(digest -a md5 /$ds/$TESTFILE0)
 log_must test "$recv_cksum" == "$cksum"
 log_must zfs destroy -r $ds
 
@@ -143,7 +146,7 @@ log_must test "$(get_prop 'encryptionroot' $ds)" == "$ds"
 log_must test "$(get_prop 'keyformat' $ds)" == "passphrase"
 log_must test "$(get_prop 'keylocation' $ds)" == "file://$keyfile"
 log_must test "$(get_prop 'mounted' $ds)" == "yes"
-recv_cksum=$(md5sum /$ds/$TESTFILE0 | awk '{ print $1 }')
+recv_cksum=$(digest -a md5 /$ds/$TESTFILE0)
 log_must test "$recv_cksum" == "$cksum"
 log_must zfs destroy -r $ds
 
@@ -161,7 +164,7 @@ log_must test "$(get_prop 'encryptionroot' $ds)" == "$ds"
 log_must test "$(get_prop 'keyformat' $ds)" == "passphrase"
 log_must test "$(get_prop 'keylocation' $ds)" == "file://$keyfile"
 log_must test "$(get_prop 'mounted' $ds)" == "yes"
-recv_cksum=$(md5sum /$ds/$TESTFILE0 | awk '{ print $1 }')
+recv_cksum=$(digest -a md5 /$ds/$TESTFILE0)
 log_must test "$recv_cksum" == "$cksum"
 log_must zfs destroy -r $ds
 
@@ -175,7 +178,21 @@ log_must test "$(get_prop 'encryptionroot' $ds)" == "$TESTPOOL/crypt"
 log_must test "$(get_prop 'encryption' $ds)" == "aes-256-ccm"
 log_must test "$(get_prop 'keyformat' $ds)" == "passphrase"
 log_must test "$(get_prop 'mounted' $ds)" == "yes"
-recv_cksum=$(md5sum /$ds/$TESTFILE0 | awk '{ print $1 }')
+recv_cksum=$(digest -a md5 /$ds/$TESTFILE0)
+log_must test "$recv_cksum" == "$cksum"
+log_must zfs destroy -r $ds
+
+# Test that we can override an unencrypted, incremental, properties stream's
+# encryption settings, receiving it as an unencrypted child.
+log_note "Must be able to receive incremental stream with props to encrypted"
+ds=$TESTPOOL/crypt/recv
+log_must eval "zfs send -p $snap > $sendfile"
+log_must eval "zfs recv -x encryption $ds < $sendfile"
+log_must test "$(get_prop 'encryptionroot' $ds)" == "$TESTPOOL/crypt"
+log_must test "$(get_prop 'encryption' $ds)" == "aes-256-ccm"
+log_must test "$(get_prop 'keyformat' $ds)" == "passphrase"
+log_must test "$(get_prop 'mounted' $ds)" == "yes"
+recv_cksum=$(digest -a md5 /$ds/$TESTFILE0)
 log_must test "$recv_cksum" == "$cksum"
 log_must zfs destroy -r $ds
 
@@ -183,13 +200,13 @@ log_must zfs destroy -r $ds
 # settings, receiving all datasets as encrypted children.
 log_note "Must be able to receive recursive stream to encrypted child"
 ds=$TESTPOOL/crypt/recv
-log_must eval "zfs send -R $snap > $sendfile"
+log_must eval "zfs send -R $snap2 > $sendfile"
 log_must eval "zfs recv -x encryption $ds < $sendfile"
 log_must test "$(get_prop 'encryptionroot' $ds)" == "$TESTPOOL/crypt"
 log_must test "$(get_prop 'encryption' $ds)" == "aes-256-ccm"
 log_must test "$(get_prop 'keyformat' $ds)" == "passphrase"
 log_must test "$(get_prop 'mounted' $ds)" == "yes"
-recv_cksum=$(md5sum /$ds/$TESTFILE0 | awk '{ print $1 }')
+recv_cksum=$(digest -a md5 /$ds/$TESTFILE0)
 log_must test "$recv_cksum" == "$cksum"
 log_must zfs destroy -r $ds
 

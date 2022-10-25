@@ -65,8 +65,8 @@ static int e1000g_quiesce(dev_info_t *);
  */
 static int e1000g_resume(dev_info_t *);
 static int e1000g_suspend(dev_info_t *);
-static uint_t e1000g_intr_pciexpress(caddr_t);
-static uint_t e1000g_intr(caddr_t);
+static uint_t e1000g_intr_pciexpress(caddr_t, caddr_t);
+static uint_t e1000g_intr(caddr_t, caddr_t);
 static void e1000g_intr_work(struct e1000g *, uint32_t);
 #pragma inline(e1000g_intr_work)
 static int e1000g_init(struct e1000g *);
@@ -712,6 +712,7 @@ e1000g_regs_map(struct e1000g *Adapter)
 		break;
 	case e1000_pch_spt:
 	case e1000_pch_cnp:
+	case e1000_pch_tgp:
 		/*
 		 * On the SPT, the device flash is actually in BAR0, not a
 		 * separate BAR. Therefore we end up setting the
@@ -911,6 +912,7 @@ e1000g_setup_max_mtu(struct e1000g *Adapter)
 	case e1000_pch_lpt:
 	case e1000_pch_spt:
 	case e1000_pch_cnp:
+	case e1000_pch_tgp:
 		Adapter->max_mtu = MAXIMUM_MTU_9K;
 		break;
 	/* types with a special limit */
@@ -1490,6 +1492,8 @@ e1000g_init(struct e1000g *Adapter)
 		pba = E1000_PBA_26K;
 	} else if (hw->mac.type == e1000_pch_cnp) {
 		pba = E1000_PBA_26K;
+	} else if (hw->mac.type == e1000_pch_tgp) {
+		pba = E1000_PBA_26K;
 	} else {
 		/*
 		 * Total FIFO is 40K
@@ -1866,7 +1870,7 @@ static mblk_t *e1000g_poll_ring(void *arg, int bytes_to_pickup)
 	e1000g_rx_ring_t	*rx_ring = (e1000g_rx_ring_t *)arg;
 	mblk_t			*mp = NULL;
 	mblk_t			*tail;
-	struct e1000g 		*adapter;
+	struct e1000g		*adapter;
 
 	adapter = rx_ring->adapter;
 
@@ -2301,7 +2305,7 @@ e1000g_global_reset(struct e1000g *Adapter)
  * bit is set.
  */
 static uint_t
-e1000g_intr_pciexpress(caddr_t arg)
+e1000g_intr_pciexpress(caddr_t arg, caddr_t arg1 __unused)
 {
 	struct e1000g *Adapter;
 	uint32_t icr;
@@ -2339,7 +2343,7 @@ e1000g_intr_pciexpress(caddr_t arg)
  * bit is set or not.
  */
 static uint_t
-e1000g_intr(caddr_t arg)
+e1000g_intr(caddr_t arg, caddr_t arg1 __unused)
 {
 	struct e1000g *Adapter;
 	uint32_t icr;
@@ -2915,8 +2919,8 @@ static int
 e1000g_rx_ring_intr_enable(mac_intr_handle_t intrh)
 {
 	e1000g_rx_ring_t	*rx_ring = (e1000g_rx_ring_t *)intrh;
-	struct e1000g 		*adapter = rx_ring->adapter;
-	struct e1000_hw 	*hw = &adapter->shared;
+	struct e1000g		*adapter = rx_ring->adapter;
+	struct e1000_hw		*hw = &adapter->shared;
 	uint32_t		intr_mask;
 
 	rw_enter(&adapter->chip_lock, RW_READER);
@@ -2948,8 +2952,8 @@ static int
 e1000g_rx_ring_intr_disable(mac_intr_handle_t intrh)
 {
 	e1000g_rx_ring_t	*rx_ring = (e1000g_rx_ring_t *)intrh;
-	struct e1000g 		*adapter = rx_ring->adapter;
-	struct e1000_hw 	*hw = &adapter->shared;
+	struct e1000g		*adapter = rx_ring->adapter;
+	struct e1000_hw		*hw = &adapter->shared;
 
 	rw_enter(&adapter->chip_lock, RW_READER);
 
@@ -6207,9 +6211,9 @@ e1000g_intr_add(struct e1000g *Adapter, int intr_type)
 	 * devices.
 	 */
 	if (Adapter->shared.mac.type < e1000_82571)
-		intr_handler = (ddi_intr_handler_t *)e1000g_intr;
+		intr_handler = e1000g_intr;
 	else
-		intr_handler = (ddi_intr_handler_t *)e1000g_intr_pciexpress;
+		intr_handler = e1000g_intr_pciexpress;
 
 	/* Call ddi_intr_add_handler() */
 	for (x = 0; x < actual; x++) {

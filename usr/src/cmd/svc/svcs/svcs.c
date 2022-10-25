@@ -21,7 +21,7 @@
 
 /*
  * Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2019, Joyent, Inc. All rights reserved.
+ * Copyright 2020 Joyent, Inc.
  * Copyright (c) 2015, 2016 by Delphix. All rights reserved.
  */
 
@@ -87,10 +87,6 @@
 #endif /* TEXT_DOMAIN */
 
 #define	LEGACY_UNKNOWN	"unknown"
-
-/* Flags for pg_get_single_val() */
-#define	EMPTY_OK	0x01
-#define	MULTI_OK	0x02
 
 /*
  * Per proc(4) when pr_nlwp, pr_nzomb, and pr_lwp.pr_lwpid are all 0,
@@ -431,7 +427,13 @@ pg_get_single_val(scf_propertygroup_t *pg, const char *propname, scf_type_t ty,
 
 	switch (ty) {
 	case SCF_TYPE_ASTRING:
-		r = scf_value_get_astring(g_val, vp, sz) > 0 ? SCF_SUCCESS : -1;
+		r = scf_value_get_astring(g_val, vp, sz);
+		if (r == 0 && !(flags & EMPTY_OK)) {
+			uu_die(gettext("Unexpected empty string for property "
+			    "%s.  Exiting.\n"), propname);
+		}
+		if (r >= 0)
+			r = SCF_SUCCESS;
 		break;
 
 	case SCF_TYPE_BOOLEAN:
@@ -2499,6 +2501,21 @@ print_detailed(void *unused, scf_walkinfo_t *wip)
 		    perm ? gettext("true") : gettext("false"));
 	}
 
+	if (temp == 0 || (temp == -1 && perm == 0)) {
+		char comment[SCF_COMMENT_MAX_LENGTH] = "";
+		const char *pg = (temp != -1 && temp != perm) ?
+		    SCF_PG_GENERAL_OVR : SCF_PG_GENERAL;
+
+		(void) inst_get_single_val(wip->inst, pg, SCF_PROPERTY_COMMENT,
+		    SCF_TYPE_ASTRING, &comment, sizeof (comment),
+		    EMPTY_OK, 0, 0);
+
+		if (comment[0] != '\0') {
+			printf(fmt, DETAILED_WIDTH, gettext("comment"),
+			    comment);
+		}
+	}
+
 	/*
 	 * Property values may be longer than max_scf_fmri_length, but these
 	 * shouldn't be, so we'll just reuse buf.  The user can use svcprop if
@@ -2651,9 +2668,8 @@ restarter_common:
 	return (0);
 }
 
-/* ARGSUSED */
 static int
-print_log(void *unused, scf_walkinfo_t *wip)
+print_log(void *unused __unused, scf_walkinfo_t *wip)
 {
 	scf_propertygroup_t *rpg;
 	char buf[MAXPATHLEN];
@@ -2669,6 +2685,9 @@ print_log(void *unused, scf_walkinfo_t *wip)
 	}
 
 	if (pg_get_single_val(rpg, SCF_PROPERTY_LOGFILE,
+	    SCF_TYPE_ASTRING, buf, sizeof (buf), 0) == 0) {
+		(void) printf("%s\n", buf);
+	} else if (pg_get_single_val(rpg, SCF_PROPERTY_ALT_LOGFILE,
 	    SCF_TYPE_ASTRING, buf, sizeof (buf), 0) == 0) {
 		(void) printf("%s\n", buf);
 	}
@@ -2937,10 +2956,10 @@ add_processes(scf_walkinfo_t *wip, char *line, scf_propertygroup_t *lpg)
 	for (i = 0; i < n; ++i) {
 		char *cp, stime[9];
 		psinfo_t psi;
-		struct tm *tm;
+		const char *name = NULL;
 		int len = 1 + 15 + 8 + 3 + 6 + 1 + PRFNSZ;
 
-		if (proc_get_psinfo(pids[i], &psi) != 0 || IS_ZOMBIE(&psi))
+		if (proc_get_psinfo(pids[i], &psi) != 0)
 			continue;
 
 		line = realloc(line, strlen(line) + len);
@@ -2949,25 +2968,40 @@ add_processes(scf_walkinfo_t *wip, char *line, scf_propertygroup_t *lpg)
 
 		cp = strchr(line, '\0');
 
-		tm = localtime(&psi.pr_start.tv_sec);
+		if (!IS_ZOMBIE(&psi)) {
+#define	DAY (24 * 60 * 60)
+#define	YEAR (12 * 30 * 24 * 60 * 60)
 
-		/*
-		 * Print time if started within the past 24 hours, print date
-		 * if within the past 12 months, print year if started greater
-		 * than 12 months ago.
-		 */
-		if (now - psi.pr_start.tv_sec < 24 * 60 * 60)
-			(void) strftime(stime, sizeof (stime),
-			    gettext(FORMAT_TIME), tm);
-		else if (now - psi.pr_start.tv_sec < 12 * 30 * 24 * 60 * 60)
-			(void) strftime(stime, sizeof (stime),
-			    gettext(FORMAT_DATE), tm);
-		else
-			(void) strftime(stime, sizeof (stime),
-			    gettext(FORMAT_YEAR), tm);
+			struct tm *tm;
+
+			tm = localtime(&psi.pr_start.tv_sec);
+
+			/*
+			 * Print time if started within the past 24 hours,
+			 * print date if within the past 12 months, print year
+			 * if started greater than 12 months ago.
+			 */
+			if (now - psi.pr_start.tv_sec < DAY) {
+				(void) strftime(stime, sizeof (stime),
+				    gettext(FORMAT_TIME), tm);
+			} else if (now - psi.pr_start.tv_sec < YEAR) {
+				(void) strftime(stime, sizeof (stime),
+				    gettext(FORMAT_DATE), tm);
+			} else {
+				(void) strftime(stime, sizeof (stime),
+				    gettext(FORMAT_YEAR), tm);
+			}
+
+			name = psi.pr_fname;
+#undef DAY
+#undef YEAR
+		} else {
+			(void) snprintf(stime, sizeof (stime), "-");
+			name = "<defunct>";
+		}
 
 		(void) snprintf(cp, len, "\n               %-8s   %6ld %.*s",
-		    stime, pids[i], PRFNSZ, psi.pr_fname);
+		    stime, pids[i], PRFNSZ, name);
 	}
 
 	free(pids);

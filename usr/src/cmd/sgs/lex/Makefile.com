@@ -44,12 +44,19 @@ FORMS=		nceucform ncform nrform
 
 include		../../../../lib/Makefile.lib
 
+COMPATLINKS=	usr/ccs/lib/libl.so
+COMPATLINKS64=	usr/ccs/lib/$(MACH64)/libl.so
+
+$(ROOT)/usr/ccs/lib/libl.so := COMPATLINKTARGET=../../lib/libl.so.1
+$(ROOT)/usr/ccs/lib/$(MACH64)/libl.so:= \
+	COMPATLINKTARGET=../../../lib/$(MACH64)/libl.so.1
+
 SRCDIR =	../common
 
 CSTD=	$(CSTD_GNU99)
 
 CERRWARN +=	-_gcc=-Wno-unused-label
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 CERRWARN +=	-_gcc=-Wno-parentheses
 
 # Override default source file derivation rule (in Makefile.lib)
@@ -76,7 +83,6 @@ objs/%_e.o:=	DEFLIST = -DEUC -DJLSLEX  -DEOPTION -D$*=$*_e
 pics/%_e.o:=	DEFLIST = -DEUC -DJLSLEX  -DEOPTION -D$*=$*_e
 
 CPPFLAGS=	$(INCLIST) $(DEFLIST) $(CPPFLAGS.master)
-BUILD.AR=	$(AR) $(ARFLAGS) $@ `$(LORDER) $(OBJS) | $(TSORT)`
 
 $(ROOTPROG):=	FILEMODE = 0555
 

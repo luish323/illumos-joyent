@@ -135,8 +135,8 @@ const dmu_object_type_info_t dmu_ot[DMU_OT_NUMTYPES] = {
 	{ DMU_BSWAP_UINT64, TRUE,  FALSE, FALSE, "FUID table size"	},
 	{ DMU_BSWAP_ZAP,    TRUE,  TRUE,  FALSE, "DSL dataset next clones" },
 	{ DMU_BSWAP_ZAP,    TRUE,  FALSE, FALSE, "scan work queue"	},
-	{ DMU_BSWAP_ZAP,    TRUE,  FALSE, TRUE,  "ZFS user/group used"	},
-	{ DMU_BSWAP_ZAP,    TRUE,  FALSE, TRUE,  "ZFS user/group quota"	},
+	{ DMU_BSWAP_ZAP,    TRUE,  FALSE, TRUE,  "ZFS user/group/project used"},
+	{ DMU_BSWAP_ZAP,    TRUE,  FALSE, TRUE,  "ZFS user/group/proj quota"},
 	{ DMU_BSWAP_ZAP,    TRUE,  TRUE,  FALSE, "snapshot refcount tags" },
 	{ DMU_BSWAP_ZAP,    TRUE,  FALSE, FALSE, "DDT ZAP algorithm"	},
 	{ DMU_BSWAP_ZAP,    TRUE,  FALSE, FALSE, "DDT statistics"	},
@@ -888,7 +888,7 @@ dmu_free_long_range_impl(objset_t *os, dnode_t *dn, uint64_t offset,
 		 */
 		if (dirty_frees_threshold != 0 &&
 		    long_free_dirty_all_txgs >= dirty_frees_threshold) {
-			txg_wait_open(dp, 0);
+			txg_wait_open(dp, 0, B_TRUE);
 			continue;
 		}
 

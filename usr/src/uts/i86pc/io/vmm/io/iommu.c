@@ -51,16 +51,9 @@ __FBSDID("$FreeBSD$");
 #include "vmm_mem.h"
 #include "iommu.h"
 
-SYSCTL_DECL(_hw_vmm);
-SYSCTL_NODE(_hw_vmm, OID_AUTO, iommu, CTLFLAG_RW, 0, "bhyve iommu parameters");
-
 static int iommu_avail;
-SYSCTL_INT(_hw_vmm_iommu, OID_AUTO, initialized, CTLFLAG_RD, &iommu_avail,
-    0, "bhyve iommu initialized?");
 
 static int iommu_enable = 1;
-SYSCTL_INT(_hw_vmm_iommu, OID_AUTO, enable, CTLFLAG_RDTUN, &iommu_enable, 0,
-    "Enable use of I/O MMU (required for PCI passthrough).");
 
 static struct iommu_ops *ops;
 static void *host_domain;
@@ -69,7 +62,7 @@ static eventhandler_tag add_tag, delete_tag;
 #endif
 
 #ifndef __FreeBSD__
-static volatile u_int iommu_initted;
+static volatile uint_t iommu_initted;
 #endif
 
 static __inline int
@@ -203,19 +196,15 @@ iommu_find_device(dev_info_t *dip, void *arg)
 static void
 iommu_init(void)
 {
-	int error, bus, slot, func;
+	int error;
 	vm_paddr_t maxaddr;
-#ifdef __FreeBSD__
-	devclass_t dc;
-#endif
-	device_t dev;
 
 	if (!iommu_enable)
 		return;
 
 	if (vmm_is_intel())
 		ops = &iommu_ops_intel;
-	else if (vmm_is_amd())
+	else if (vmm_is_svm())
 		ops = &iommu_ops_amd;
 	else
 		ops = NULL;
@@ -245,35 +234,7 @@ iommu_init(void)
 	 */
 	iommu_create_mapping(host_domain, 0, 0, maxaddr);
 
-#ifdef __FreeBSD__
-	add_tag = EVENTHANDLER_REGISTER(pci_add_device, iommu_pci_add, NULL, 0);
-	delete_tag = EVENTHANDLER_REGISTER(pci_delete_device, iommu_pci_delete,
-	    NULL, 0);
-	dc = devclass_find("ppt");
-	for (bus = 0; bus <= PCI_BUSMAX; bus++) {
-		for (slot = 0; slot <= PCI_SLOTMAX; slot++) {
-			for (func = 0; func <= PCI_FUNCMAX; func++) {
-				dev = pci_find_dbsf(0, bus, slot, func);
-				if (dev == NULL)
-					continue;
-
-				/* Skip passthrough devices. */
-				if (dc != NULL &&
-				    device_get_devclass(dev) == dc)
-					continue;
-
-				/*
-				 * Everything else belongs to the host
-				 * domain.
-				 */
-				iommu_add_device(host_domain,
-				    pci_get_rid(dev));
-			}
-		}
-	}
-#else
 	ddi_walk_devs(ddi_root_node(), iommu_find_device, (void *)B_TRUE);
-#endif
 	IOMMU_ENABLE();
 
 }

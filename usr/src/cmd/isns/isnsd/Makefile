@@ -51,17 +51,14 @@ MANIFEST	= isns_server.xml
 ROOTMANIFESTDIR	= $(ROOTSVCNETWORK)
 $(ROOTSVCNETWORK)/isns_server.xml	:= FILEMODE = 0444
 
-CFLAGS 		+=	$(CCVERBOSE)
-CPPFLAGS 	+= -I./ -I$(ADJUNCT_PROTO)/usr/include/libxml2
+CFLAGS		+=	$(CCVERBOSE)
+CPPFLAGS	+= -I./ -I$(ADJUNCT_PROTO)/usr/include/libxml2
 CPPFLAGS	+= -DTARGET_DATA_STORE=$(DATA_STORE)
 CPPFLAGS	+= -D_POSIX_PTHREAD_SEMANTICS
-LINTFLAGS += -xerroff=E_BAD_PTR_CAST_ALIGN
-LINTFLAGS += -xerroff=E_NAME_USED_NOT_DEF2
-LINTFLAGS += -xerroff=E_CASE_FALLTHRU
 
 CERRWARN += -_gcc=-Wno-char-subscripts
 CERRWARN += -_gcc=-Wno-ignored-qualifiers
-CERRWARN += -_gcc=-Wno-uninitialized
+CERRWARN += $(CNOWARN_UNINIT)
 CERRWARN += -_gcc=-Wno-implicit-function-declaration
 
 # not linted
@@ -73,6 +70,7 @@ obj.o := CERRWARN += -erroff=E_CONST_OBJ_SHOULD_HAVE_INITIZR
 obj.o := CERRWARN += -erroff=E_IMPLICIT_DECL_FUNC_RETURN_INT
 
 LDLIBS		+= -lsecdb -lsocket -lnsl -lscf -lxml2
+NATIVE_LIBS	+= libxml2.so
 
 .KEEP_STATE:
 

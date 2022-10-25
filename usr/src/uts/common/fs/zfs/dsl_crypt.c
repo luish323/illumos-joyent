@@ -1220,12 +1220,7 @@ dsl_crypto_key_sync(dsl_crypto_key_t *dck, dmu_tx_t *tx)
 	    tx);
 }
 
-typedef struct spa_keystore_change_key_args {
-	const char *skcka_dsname;
-	dsl_crypto_params_t *skcka_cp;
-} spa_keystore_change_key_args_t;
-
-static int
+int
 spa_keystore_change_key_check(void *arg, dmu_tx_t *tx)
 {
 	int ret;
@@ -1401,6 +1396,7 @@ static void
 spa_keystore_change_key_sync_impl(uint64_t rddobj, uint64_t ddobj,
     uint64_t new_rddobj, dsl_wrapping_key_t *wkey, dmu_tx_t *tx)
 {
+	int ret;
 	zap_cursor_t *zc;
 	zap_attribute_t *za;
 	dsl_pool_t *dp = dmu_tx_pool(tx);
@@ -1419,12 +1415,14 @@ spa_keystore_change_key_sync_impl(uint64_t rddobj, uint64_t ddobj,
 		return;
 	}
 
+	ret = dsl_dir_get_encryption_root_ddobj(dd, &curr_rddobj);
+	VERIFY(ret == 0 || ret == ENOENT);
+
 	/*
 	 * Stop recursing if this dsl dir didn't inherit from the root
 	 * or if this dd is a clone.
 	 */
-	VERIFY0(dsl_dir_get_encryption_root_ddobj(dd, &curr_rddobj));
-	if (curr_rddobj != rddobj || dsl_dir_is_clone(dd)) {
+	if (ret == ENOENT || curr_rddobj != rddobj || dsl_dir_is_clone(dd)) {
 		dsl_dir_rele(dd, FTAG);
 		return;
 	}
@@ -1466,7 +1464,7 @@ spa_keystore_change_key_sync_impl(uint64_t rddobj, uint64_t ddobj,
 	dsl_dir_rele(dd, FTAG);
 }
 
-static void
+void
 spa_keystore_change_key_sync(void *arg, dmu_tx_t *tx)
 {
 	dsl_dataset_t *ds;

@@ -8,9 +8,11 @@
  * source.  A copy of the CDDL is also available via the Internet at
  * http://www.illumos.org/license/CDDL.
  */
+/* This file is dual-licensed; see usr/src/contrib/bhyve/LICENSE */
 
 /*
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2020 Oxide Computer Company
  */
 
 #ifndef	_VM_GLUE_
@@ -75,8 +77,8 @@ struct vm_page {
 };
 
 /* Illumos-specific functions for setup and operation */
-int vm_segmap_obj(struct vmspace *, vm_object_t, struct as *, caddr_t *,
-    uint_t, uint_t, uint_t);
+int vm_segmap_obj(vm_object_t, off_t, size_t, struct as *, caddr_t *, uint_t,
+    uint_t, uint_t);
 int vm_segmap_space(struct vmspace *, off_t, struct as *, caddr_t *, off_t,
     uint_t, uint_t, uint_t);
 void *vmspace_find_kva(struct vmspace *, uintptr_t, size_t);

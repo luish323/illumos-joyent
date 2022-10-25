@@ -40,10 +40,10 @@ PYFILES=	$(PYSRCS) $(PYSRCS:%.py=%.pyc)
 ROOTPYSOLFILES=	$(PYFILES:%=$(ROOTLIBDIR)/%)
 
 CSTD=		$(CSTD_GNU99)
-C99LMODE=	-Xc99=%all
 
 LIBS =		$(DYNLIB)
 LDLIBS +=	-lc -lsec -lidmap -lpython$(PYVER)$(PYSUFFIX)
+NATIVE_LIBS +=	libpython$(PYVER)$(PYSUFFIX).so
 CFLAGS +=	$(CCVERBOSE)
 CPPFLAGS +=	-I$(ADJUNCT_PROTO)/usr/include/python2.6
 CERRWARN +=	-_gcc=-Wno-unused-variable
@@ -59,7 +59,5 @@ $(ROOTLIBDIR)/%: %
 
 $(ROOTLIBDIR)/%: ../common/%
 	$(INS.pyfile)
-
-lint: lintcheck
 
 include ../../Makefile.targ

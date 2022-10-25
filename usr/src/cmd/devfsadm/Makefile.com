@@ -97,7 +97,7 @@ LINTFLAGS += -erroff=E_NAME_USED_NOT_DEF2
 LINTFLAGS += -erroff=E_NAME_DEF_NOT_USED2
 LINTFLAGS += -erroff=E_NAME_MULTIPLY_DEF2
 
-CERRWARN += -_gcc=-Wno-uninitialized
+CERRWARN += $(CNOWARN_UNINIT)
 CERRWARN += -_gcc=-Wno-char-subscripts
 CERRWARN += -_gcc=-Wno-parentheses
 
@@ -185,7 +185,7 @@ $(DEVFSADM_MOD): $(DEVFSADM_OBJ)
 	$(POST_PROCESS)
 
 SUNW_%.so: %.o $(MAPFILES)
-	$(CC) -o $@ $(GSHARED) $(DYNFLAGS) -h $@ $< $(LDLIBS) -lc
+	$(LINK.c) -o $@ $(GSHARED) $(DYNFLAGS) -h $@ $< $(LDLIBS) -lc
 	$(POST_PROCESS_SO)
 
 %.o: $(COMMON)/%.c

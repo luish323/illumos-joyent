@@ -21,9 +21,10 @@ LDFLAGS += \
 	-L$(ROOTONBLDLIBMACH) \
 	'-R$$ORIGIN/../../lib/$(MACH)' \
 
+NATIVE_LIBS += libelf.so
 CPPFLAGS += -include ../../common/ctf_headers.h
 CERRWARN += -_gcc=-Wno-unused-variable
-CERRWARN += -_gcc=-Wno-uninitialized
+CERRWARN += $(CNOWARN_UNINIT)
 
 OBJS = $(SRCS:%.c=%.o)
 

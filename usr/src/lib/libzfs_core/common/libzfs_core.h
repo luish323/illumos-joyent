@@ -20,7 +20,7 @@
  */
 
 /*
- * Copyright (c) 2012, 2016 by Delphix. All rights reserved.
+ * Copyright (c) 2012, 2020 by Delphix. All rights reserved.
  * Copyright (c) 2014 Integros [integros.com]
  * Copyright 2017 RackTop Systems.
  * Copyright (c) 2017 Datto Inc.
@@ -62,6 +62,9 @@ int lzc_get_bookmarks(const char *, nvlist_t *, nvlist_t **);
 int lzc_destroy_bookmarks(nvlist_t *, nvlist_t **);
 int lzc_initialize(const char *, pool_initialize_func_t, nvlist_t *,
     nvlist_t **);
+int lzc_trim(const char *, pool_trim_func_t, uint64_t, boolean_t,
+    nvlist_t *, nvlist_t **);
+
 int lzc_load_key(const char *, boolean_t, uint8_t *, uint_t);
 int lzc_unload_key(const char *);
 int lzc_change_key(const char *, uint64_t, nvlist_t *, uint8_t *, uint_t);
@@ -115,6 +118,8 @@ int lzc_channel_program_nosync(const char *, const char *, uint64_t,
 int lzc_pool_checkpoint(const char *);
 int lzc_pool_checkpoint_discard(const char *);
 
+int lzc_set_bootenv(const char *, const nvlist_t *);
+int lzc_get_bootenv(const char *, nvlist_t **);
 #ifdef	__cplusplus
 }
 #endif

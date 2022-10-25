@@ -299,7 +299,6 @@ smrt 300
 iwn 301
 xhci 302
 qede 303
-buildstamp 304
 vmm 305
 viona 306
 ppt 307
@@ -310,3 +309,9 @@ ufm 311
 ufmtest 312
 imcstub 313
 imc 314
+ccid 315
+ksensor 316
+mlxcx 317
+amdzen_stub 318
+amdzen 319
+smntemp 320

@@ -58,6 +58,11 @@ CFLAGS64 += $(STAND_FLAGS_64)
 
 ASFLAGS += -P -D_ASM $(INCDIRS:%=-I%) $(ARCHOPTS)
 
+#
+# kmdb has bootstrapping challenges with the stack protector.
+#
+STACKPROTECT = none
+
 SUBDIR64_sparc		= sparcv9
 SUBDIR64_i386		= amd64
 SUBDIR64		= $(SUBDIR64_$(MACH))
@@ -98,7 +103,7 @@ ALLLINTFLAGS = $(LINTFLAGS) \
 	-xerroff=E_INCONS_VAL_TYPE_DECL2 \
 	-xerroff=E_INCONS_VAL_TYPE_USED2
 
-CERRWARN += -_gcc=-Wno-uninitialized
+CERRWARN += $(CNOWARN_UNINIT)
 CERRWARN += -_gcc=-Wno-unused-label
 CERRWARN += -_gcc=-Wno-char-subscripts
 CERRWARN += -_gcc=-Wno-clobbered

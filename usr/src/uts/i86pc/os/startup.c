@@ -25,6 +25,7 @@
  * Copyright 2017 Nexenta Systems, Inc.
  * Copyright (c) 2018 Joyent, Inc.
  * Copyright (c) 2015 by Delphix. All rights reserved.
+ * Copyright 2020 Oxide Computer Company
  */
 /*
  * Copyright (c) 2010, Intel Corporation.
@@ -74,6 +75,7 @@
 #include <sys/memlist_plat.h>
 #include <sys/varargs.h>
 #include <sys/promif.h>
+#include <sys/prom_debug.h>
 #include <sys/modctl.h>
 
 #include <sys/sunddi.h>
@@ -464,7 +466,7 @@ static pgcnt_t kphysm_init(page_t *, pgcnt_t);
  *			|			|
  * 0xFFFFFXXX.XXX00000  |-----------------------|- segkvmm_base (floating)
  *			|	 segkp		|
- * 			|-----------------------|- segkp_base (floating)
+ *			|-----------------------|- segkp_base (floating)
  *			|   page_t structures	|  valloc_base + valloc_sz
  *			|   memsegs, memlists,	|
  *			|   page hash, etc.	|
@@ -623,20 +625,7 @@ size_t		toxic_bit_map_len = 0;	/* in bits */
 
 #endif	/* __i386 */
 
-/*
- * Simple boot time debug facilities
- */
-static char *prm_dbg_str[] = {
-	"%s:%d: '%s' is 0x%x\n",
-	"%s:%d: '%s' is 0x%llx\n"
-};
-
 int prom_debug;
-
-#define	PRM_DEBUG(q)	if (prom_debug)		\
-	prom_printf(prm_dbg_str[sizeof (q) >> 3], "startup.c", __LINE__, #q, q);
-#define	PRM_POINT(q)	if (prom_debug)		\
-	prom_printf("%s:%d: %s\n", "startup.c", __LINE__, q);
 
 /*
  * This structure is used to keep track of the intial allocations
@@ -2273,6 +2262,7 @@ startup_end(void)
 	 * We can now setup for XSAVE because fpu_probe is done in configure().
 	 */
 	if (fp_save_mech == FP_XSAVE) {
+		PRM_POINT("xsave_setup_msr()");
 		xsave_setup_msr(CPU);
 	}
 
@@ -2281,7 +2271,9 @@ startup_end(void)
 	 * support.
 	 */
 	setx86isalist();
+	PRM_POINT("cpu_intr_alloc()");
 	cpu_intr_alloc(CPU, NINTR_THREADS);
+	PRM_POINT("psm_install()");
 	psm_install();
 
 	/*
@@ -2328,7 +2320,7 @@ startup_end(void)
 	 */
 	for (i = DDI_IPL_1; i <= DDI_IPL_10; i++) {
 		(void) add_avsoftintr((void *)&softlevel_hdl[i-1], i,
-		    (avfunc)ddi_periodic_softintr, "ddi_periodic",
+		    (avfunc)(uintptr_t)ddi_periodic_softintr, "ddi_periodic",
 		    (caddr_t)(uintptr_t)i, NULL);
 	}
 
@@ -2579,9 +2571,7 @@ add_physmem_cb(page_t *pp, pfn_t pnum)
  * kphysm_init() initializes physical memory.
  */
 static pgcnt_t
-kphysm_init(
-	page_t *pp,
-	pgcnt_t npages)
+kphysm_init(page_t *pp, pgcnt_t npages)
 {
 	struct memlist	*pmem;
 	struct memseg	*cur_memseg;
@@ -2655,9 +2645,8 @@ kphysm_init(
 		 * of these large pages, configure the memsegs based on the
 		 * memory node ranges which had been made non-contiguous.
 		 */
+		end_pfn = base_pfn + num - 1;
 		if (mnode_xwa > 1) {
-
-			end_pfn = base_pfn + num - 1;
 			ms = PFN_2_MEM_NODE(base_pfn);
 			me = PFN_2_MEM_NODE(end_pfn);
 
@@ -2716,8 +2705,14 @@ kphysm_init(
 			/* process next memory node range */
 			ms++;
 			base_pfn = mem_node_config[ms].physbase;
-			num = MIN(mem_node_config[ms].physmax,
-			    end_pfn) - base_pfn + 1;
+
+			if (mnode_xwa > 1) {
+				num = MIN(mem_node_config[ms].physmax,
+				    end_pfn) - base_pfn + 1;
+			} else {
+				num = mem_node_config[ms].physmax -
+				    base_pfn + 1;
+			}
 		}
 	}
 

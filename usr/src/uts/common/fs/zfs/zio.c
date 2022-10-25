@@ -26,6 +26,7 @@
  * Copyright (c) 2014 Integros [integros.com]
  * Copyright (c) 2019 Joyent, Inc.
  * Copyright (c) 2017, Intel Corporation.
+ * Copyright 2020 Joyent, Inc.
  */
 
 #include <sys/sysmacros.h>
@@ -35,6 +36,7 @@
 #include <sys/txg.h>
 #include <sys/spa_impl.h>
 #include <sys/vdev_impl.h>
+#include <sys/vdev_trim.h>
 #include <sys/zio_impl.h>
 #include <sys/zio_compress.h>
 #include <sys/zio_checksum.h>
@@ -44,6 +46,7 @@
 #include <sys/blkptr.h>
 #include <sys/zfeature.h>
 #include <sys/zfs_zone.h>
+#include <sys/time.h>
 #include <sys/dsl_scan.h>
 #include <sys/metaslab_impl.h>
 #include <sys/abd.h>
@@ -57,7 +60,7 @@
  */
 const char *zio_type_name[ZIO_TYPES] = {
 	"zio_null", "zio_read", "zio_write", "zio_free", "zio_claim",
-	"zio_ioctl"
+	"zio_ioctl", "z_trim"
 };
 
 boolean_t zio_dva_throttle_enabled = B_TRUE;
@@ -78,6 +81,9 @@ extern vmem_t *zio_alloc_arena;
 
 #define	ZIO_PIPELINE_CONTINUE		0x100
 #define	ZIO_PIPELINE_STOP		0x101
+
+/* Mark IOs as "slow" if they take longer than 30 seconds */
+int zio_slow_io_ms = (30 * MILLISEC);
 
 #define	BP_SPANB(indblkshift, level) \
 	(((uint64_t)1) << ((level) * ((indblkshift) - SPA_BLKPTRSHIFT)))
@@ -477,7 +483,7 @@ error:
 		zio->io_error = SET_ERROR(EIO);
 		if ((zio->io_flags & ZIO_FLAG_SPECULATIVE) == 0) {
 			spa_log_error(spa, &zio->io_bookmark);
-			zfs_ereport_post(FM_EREPORT_ZFS_AUTHENTICATION,
+			(void) zfs_ereport_post(FM_EREPORT_ZFS_AUTHENTICATION,
 			    spa, NULL, &zio->io_bookmark, zio, 0, 0);
 		}
 	} else {
@@ -694,7 +700,7 @@ zio_create(zio_t *pio, spa_t *spa, uint64_t txg, const blkptr_t *bp,
 {
 	zio_t *zio;
 
-	ASSERT3U(psize, <=, SPA_MAXBLOCKSIZE);
+	IMPLY(type != ZIO_TYPE_TRIM, psize <= SPA_MAXBLOCKSIZE);
 	ASSERT(P2PHASE(psize, SPA_MINBLOCKSIZE) == 0);
 	ASSERT(P2PHASE(offset, SPA_MINBLOCKSIZE) == 0);
 
@@ -1041,10 +1047,16 @@ zio_free(spa_t *spa, uint64_t txg, const blkptr_t *bp)
 	 * deferred, and which will not need to do a read (i.e. not GANG or
 	 * DEDUP), can be processed immediately.  Otherwise, put them on the
 	 * in-memory list for later processing.
+	 *
+	 * Note that we only defer frees after zfs_sync_pass_deferred_free
+	 * when the log space map feature is disabled. [see relevant comment
+	 * in spa_sync_iterate_to_convergence()]
 	 */
-	if (BP_IS_GANG(bp) || BP_GET_DEDUP(bp) ||
+	if (BP_IS_GANG(bp) ||
+	    BP_GET_DEDUP(bp) ||
 	    txg != spa->spa_syncing_txg ||
-	    spa_sync_pass(spa) >= zfs_sync_pass_deferred_free) {
+	    (spa_sync_pass(spa) >= zfs_sync_pass_deferred_free &&
+	    !spa_feature_is_active(spa, SPA_FEATURE_LOG_SPACEMAP))) {
 		bplist_append(&spa->spa_free_bplist[txg & TXG_MASK], bp);
 	} else {
 		VERIFY0(zio_wait(zio_free_sync(NULL, spa, txg, bp, 0)));
@@ -1060,7 +1072,6 @@ zio_free_sync(zio_t *pio, spa_t *spa, uint64_t txg, const blkptr_t *bp,
 
 	ASSERT(!BP_IS_HOLE(bp));
 	ASSERT(spa_syncing_txg(spa) == txg);
-	ASSERT(spa_sync_pass(spa) < zfs_sync_pass_deferred_free);
 
 	if (BP_IS_EMBEDDED(bp))
 		return (zio_null(pio, spa, NULL, NULL, NULL, 0));
@@ -1140,6 +1151,26 @@ zio_ioctl(zio_t *pio, spa_t *spa, vdev_t *vd, int cmd,
 			zio_nowait(zio_ioctl(zio, spa, vd->vdev_child[c], cmd,
 			    done, private, flags));
 	}
+
+	return (zio);
+}
+
+zio_t *
+zio_trim(zio_t *pio, vdev_t *vd, uint64_t offset, uint64_t size,
+    zio_done_func_t *done, void *private, zio_priority_t priority,
+    enum zio_flag flags, enum trim_flag trim_flags)
+{
+	zio_t *zio;
+
+	ASSERT0(vd->vdev_children);
+	ASSERT0(P2PHASE(offset, 1ULL << vd->vdev_ashift));
+	ASSERT0(P2PHASE(size, 1ULL << vd->vdev_ashift));
+	ASSERT3U(size, !=, 0);
+
+	zio = zio_create(pio, vd->vdev_spa, 0, NULL, NULL, size, size, done,
+	    private, ZIO_TYPE_TRIM, priority, flags | ZIO_FLAG_PHYSICAL,
+	    vd, offset, NULL, ZIO_STAGE_OPEN, ZIO_TRIM_PIPELINE);
+	zio->io_trim_flags = trim_flags;
 
 	return (zio);
 }
@@ -1960,7 +1991,11 @@ zio_suspend(spa_t *spa, zio_t *zio, zio_suspend_reason_t reason)
 		    "failure and the failure mode property for this pool "
 		    "is set to panic.", spa_name(spa));
 
-	zfs_ereport_post(FM_EREPORT_ZFS_IO_FAILURE, spa, NULL,
+	cmn_err(CE_WARN, "Pool '%s' has encountered an uncorrectable I/O "
+	    "failure and has been suspended; `zpool clear` will be required "
+	    "before the pool can be written to.", spa_name(spa));
+
+	(void) zfs_ereport_post(FM_EREPORT_ZFS_IO_FAILURE, spa, NULL,
 	    NULL, NULL, 0, 0);
 
 	mutex_enter(&spa->spa_suspend_lock);
@@ -3351,7 +3386,6 @@ zio_alloc_zil(spa_t *spa, objset_t *os, uint64_t txg, blkptr_t *new_bp,
  * ==========================================================================
  */
 
-
 /*
  * Issue an I/O to the underlying vdev. Typically the issue pipeline
  * stops after this stage and will resume upon I/O completion.
@@ -3368,6 +3402,8 @@ zio_vdev_io_start(zio_t *zio)
 	vdev_t *vd = zio->io_vd;
 	uint64_t align;
 	spa_t *spa = zio->io_spa;
+
+	zio->io_delay = 0;
 
 	ASSERT(zio->io_error == 0);
 	ASSERT(zio->io_child_error[ZIO_CHILD_VDEV] == 0);
@@ -3472,8 +3508,8 @@ zio_vdev_io_start(zio_t *zio)
 		return (ZIO_PIPELINE_CONTINUE);
 	}
 
-	if (vd->vdev_ops->vdev_op_leaf &&
-	    (zio->io_type == ZIO_TYPE_READ || zio->io_type == ZIO_TYPE_WRITE)) {
+	if (vd->vdev_ops->vdev_op_leaf && (zio->io_type == ZIO_TYPE_READ ||
+	    zio->io_type == ZIO_TYPE_WRITE || zio->io_type == ZIO_TYPE_TRIM)) {
 
 		if (zio->io_type == ZIO_TYPE_READ && vdev_cache_read(zio))
 			return (ZIO_PIPELINE_CONTINUE);
@@ -3486,6 +3522,7 @@ zio_vdev_io_start(zio_t *zio)
 			zio_interrupt(zio);
 			return (ZIO_PIPELINE_STOP);
 		}
+		zio->io_delay = gethrtime();
 	}
 
 	vd->vdev_ops->vdev_op_io_start(zio);
@@ -3503,7 +3540,11 @@ zio_vdev_io_done(zio_t *zio)
 		return (ZIO_PIPELINE_STOP);
 	}
 
-	ASSERT(zio->io_type == ZIO_TYPE_READ || zio->io_type == ZIO_TYPE_WRITE);
+	ASSERT(zio->io_type == ZIO_TYPE_READ ||
+	    zio->io_type == ZIO_TYPE_WRITE || zio->io_type == ZIO_TYPE_TRIM);
+
+	if (zio->io_delay)
+		zio->io_delay = gethrtime() - zio->io_delay;
 
 	if (vd != NULL && vd->vdev_ops->vdev_op_leaf) {
 
@@ -3519,7 +3560,7 @@ zio_vdev_io_done(zio_t *zio)
 		if (zio_injection_enabled && zio->io_error == 0)
 			zio->io_error = zio_handle_label_injection(zio, EIO);
 
-		if (zio->io_error) {
+		if (zio->io_error && zio->io_type != ZIO_TYPE_TRIM) {
 			if (!vdev_accessible(vd, zio)) {
 				zio->io_error = SET_ERROR(ENXIO);
 			} else {
@@ -3649,8 +3690,8 @@ zio_vdev_io_assess(zio_t *zio)
 
 	/*
 	 * If a cache flush returns ENOTSUP or ENOTTY, we know that no future
-	 * attempts will ever succeed. In this case we set a persistent bit so
-	 * that we don't bother with it in the future.
+	 * attempts will ever succeed. In this case we set a persistent
+	 * boolean flag so that we don't bother with it in the future.
 	 */
 	if ((zio->io_error == ENOTSUP || zio->io_error == ENOTTY) &&
 	    zio->io_type == ZIO_TYPE_IOCTL &&
@@ -4208,6 +4249,29 @@ zio_done(zio_t *zio)
 
 	vdev_stat_update(zio, psize);
 
+	if (zio->io_delay >= MSEC2NSEC(zio_slow_io_ms)) {
+		if (zio->io_vd != NULL && !vdev_is_dead(zio->io_vd)) {
+			/*
+			 * We want to only increment our slow IO counters if
+			 * the IO is valid (i.e. not if the drive is removed).
+			 *
+			 * zfs_ereport_post() will also do these checks, but
+			 * it can also have other failures, so we need to
+			 * increment the slow_io counters independent of it.
+			 */
+			if (zfs_ereport_is_valid(FM_EREPORT_ZFS_DELAY,
+			    zio->io_spa, zio->io_vd, zio)) {
+				mutex_enter(&zio->io_vd->vdev_stat_lock);
+				zio->io_vd->vdev_stat.vs_slow_ios++;
+				mutex_exit(&zio->io_vd->vdev_stat_lock);
+
+				(void) zfs_ereport_post(FM_EREPORT_ZFS_DELAY,
+				    zio->io_spa, zio->io_vd, &zio->io_bookmark,
+				    zio, 0, 0);
+			}
+		}
+	}
+
 	if (zio->io_error) {
 		/*
 		 * If this I/O is attached to a particular vdev,
@@ -4216,7 +4280,7 @@ zio_done(zio_t *zio)
 		 * device is currently unavailable.
 		 */
 		if (zio->io_error != ECKSUM && vd != NULL && !vdev_is_dead(vd))
-			zfs_ereport_post(FM_EREPORT_ZFS_IO, spa, vd,
+			(void) zfs_ereport_post(FM_EREPORT_ZFS_IO, spa, vd,
 			    &zio->io_bookmark, zio, 0, 0);
 
 		if ((zio->io_error == EIO || !(zio->io_flags &
@@ -4227,7 +4291,7 @@ zio_done(zio_t *zio)
 			 * error and generate a logical data ereport.
 			 */
 			spa_log_error(spa, &zio->io_bookmark);
-			zfs_ereport_post(FM_EREPORT_ZFS_DATA, spa, NULL,
+			(void) zfs_ereport_post(FM_EREPORT_ZFS_DATA, spa, NULL,
 			    &zio->io_bookmark, zio, 0, 0);
 		}
 	}

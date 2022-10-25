@@ -29,13 +29,10 @@ OBJS =		$(SRCS:%.c=%.o)
 
 include ../../Makefile.cmd
 
-LDLIBS 		+= -lscf -lzonestat -lumem
+LDLIBS		+= -lscf -lzonestat -lumem
 LINTFLAGS	+= -u
 
-CERRWARN	+= -_gcc=-Wno-uninitialized
-
-# not linted
-SMATCH=off
+CERRWARN	+= $(CNOWARN_UNINIT)
 
 .KEEP_STATE:
 

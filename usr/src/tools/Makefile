@@ -24,7 +24,7 @@
 # Copyright 2014 Garrett D'Amore <garrett@damore.org>
 # Copyright 2016 Toomas Soome <tsoome@me.com>
 # Copyright (c) 2016, Chris Fraire <cfraire@me.com>.
-# Copyright (c) 2019, Joyent, Inc.
+# Copyright 2019 Joyent, Inc.
 # Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
 #
 
@@ -50,7 +50,6 @@ BOOT_SUBDIRS= \
 	ctf
 
 COMMON_SUBDIRS= \
-	codereview \
 	codesign \
 	cscope-fast \
 	env \
@@ -62,15 +61,23 @@ COMMON_SUBDIRS= \
 	onbld \
 	protocmp \
 	protolist \
-	scripts
+	scripts \
+	sgs
 
 #
 #  special versions of commands for use only in build
 #
 UNSHIPPED_SUBDIRS = \
+	$(SGSMSG) \
+	$(SGSLIBCONV) \
+	$(SGSLIBELF) \
+	$(SGSLIBLDDBG) \
+	$(SGSLIBLD) \
+	$(SGSLD) \
 	localedef \
 	man \
 	mandoc \
+	rpcgen \
 	tic \
 	vtfontcvt \
 	zic
@@ -86,6 +93,8 @@ i386_SUBDIRS=		\
 	elfextract	\
 	mbh_patch	\
 	btxld
+
+$(INTEL_BLD)sgs: aw
 
 SUBDIRS= \
 	$($(MACH)_SUBDIRS) \

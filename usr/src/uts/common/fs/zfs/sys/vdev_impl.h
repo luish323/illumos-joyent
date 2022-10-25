@@ -20,8 +20,10 @@
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2011, 2018 by Delphix. All rights reserved.
+ * Copyright (c) 2011, 2020 by Delphix. All rights reserved.
  * Copyright (c) 2017, Intel Corporation.
+ * Copyright 2019 Joyent, Inc.
+ * Copyright 2020 Joshua M. Clulow <josh@sysmgr.org>
  */
 
 #ifndef _SYS_VDEV_IMPL_H
@@ -81,12 +83,14 @@ typedef void	vdev_remap_cb_t(uint64_t inner_offset, vdev_t *vd,
     uint64_t offset, uint64_t size, void *arg);
 typedef void	vdev_remap_func_t(vdev_t *vd, uint64_t offset, uint64_t size,
     vdev_remap_cb_t callback, void *arg);
+typedef int	vdev_dumpio_func_t(vdev_t *vd, caddr_t data, size_t size,
+    uint64_t offset, uint64_t origoffset, boolean_t doread, boolean_t isdump);
 /*
  * Given a target vdev, translates the logical range "in" to the physical
  * range "res"
  */
-typedef void vdev_xlation_func_t(vdev_t *cvd, const range_seg_t *in,
-    range_seg_t *res);
+typedef void vdev_xlation_func_t(vdev_t *cvd, const range_seg64_t *in,
+    range_seg64_t *res);
 
 typedef struct vdev_ops {
 	vdev_open_func_t		*vdev_op_open;
@@ -104,6 +108,7 @@ typedef struct vdev_ops {
 	 * Used when initializing vdevs. Isn't used by leaf ops.
 	 */
 	vdev_xlation_func_t		*vdev_op_xlate;
+	vdev_dumpio_func_t		*vdev_op_dumpio;
 	char				vdev_op_type[16];
 	boolean_t			vdev_op_leaf;
 } vdev_ops_t;
@@ -144,6 +149,7 @@ struct vdev_queue {
 	avl_tree_t	vq_active_tree;
 	avl_tree_t	vq_read_offset_tree;
 	avl_tree_t	vq_write_offset_tree;
+	avl_tree_t	vq_trim_offset_tree;
 	uint64_t	vq_last_offset;
 	zoneid_t	vq_last_zone_id;
 	hrtime_t	vq_io_complete_ts; /* time last i/o completed */
@@ -224,6 +230,7 @@ struct vdev {
 	vdev_t		**vdev_child;	/* array of children		*/
 	uint64_t	vdev_children;	/* number of children		*/
 	vdev_stat_t	vdev_stat;	/* virtual device statistics	*/
+	vdev_stat_ex_t	vdev_stat_ex;	/* extended statistics		*/
 	boolean_t	vdev_expanding;	/* expand the vdev?		*/
 	boolean_t	vdev_reopening;	/* reopen in progress?		*/
 	boolean_t	vdev_nonrot;	/* true if solid state		*/
@@ -256,8 +263,10 @@ struct vdev {
 	/* pool checkpoint related */
 	space_map_t	*vdev_checkpoint_sm;	/* contains reserved blocks */
 
+	/* Initialize related */
 	boolean_t	vdev_initialize_exit_wanted;
 	vdev_initializing_state_t	vdev_initialize_state;
+	list_node_t	vdev_initialize_node;
 	kthread_t	*vdev_initialize_thread;
 	/* Protects vdev_initialize_thread and vdev_initialize_state. */
 	kmutex_t	vdev_initialize_lock;
@@ -269,10 +278,37 @@ struct vdev {
 	uint64_t	vdev_initialize_bytes_done;
 	time_t		vdev_initialize_action_time;	/* start and end time */
 
-	/* for limiting outstanding I/Os */
+	/* TRIM related */
+	boolean_t	vdev_trim_exit_wanted;
+	boolean_t	vdev_autotrim_exit_wanted;
+	vdev_trim_state_t	vdev_trim_state;
+	list_node_t	vdev_trim_node;
+	kmutex_t	vdev_autotrim_lock;
+	kcondvar_t	vdev_autotrim_cv;
+	kthread_t	*vdev_autotrim_thread;
+	/* Protects vdev_trim_thread and vdev_trim_state. */
+	kmutex_t	vdev_trim_lock;
+	kcondvar_t	vdev_trim_cv;
+	kthread_t	*vdev_trim_thread;
+	uint64_t	vdev_trim_offset[TXG_SIZE];
+	uint64_t	vdev_trim_last_offset;
+	uint64_t	vdev_trim_bytes_est;
+	uint64_t	vdev_trim_bytes_done;
+	uint64_t	vdev_trim_rate;		/* requested rate (bytes/sec) */
+	uint64_t	vdev_trim_partial;	/* requested partial TRIM */
+	uint64_t	vdev_trim_secure;	/* requested secure TRIM */
+	time_t		vdev_trim_action_time;	/* start and end time */
+
+	/* The following is not in ZoL, but used for auto-trim test progress */
+	uint64_t	vdev_autotrim_bytes_done;
+
+	/* for limiting outstanding I/Os (initialize and TRIM) */
 	kmutex_t	vdev_initialize_io_lock;
 	kcondvar_t	vdev_initialize_io_cv;
 	uint64_t	vdev_initialize_inflight;
+	kmutex_t	vdev_trim_io_lock;
+	kcondvar_t	vdev_trim_io_cv;
+	uint64_t	vdev_trim_inflight[2];
 
 	/*
 	 * Values stored in the config for an indirect or removing vdev.
@@ -337,6 +373,8 @@ struct vdev {
 	uint64_t	vdev_not_present; /* not present during import	*/
 	uint64_t	vdev_unspare;	/* unspare when resilvering done */
 	boolean_t	vdev_nowritecache; /* true if flushwritecache failed */
+	boolean_t	vdev_has_trim;	/* TRIM is supported		*/
+	boolean_t	vdev_has_securetrim; /* secure TRIM is supported */
 	boolean_t	vdev_checkremove; /* temporary online test	*/
 	boolean_t	vdev_forcefault; /* force online fault		*/
 	boolean_t	vdev_splitting;	/* split or repair in progress  */
@@ -373,7 +411,7 @@ struct vdev {
 #define	VDEV_RAIDZ_MAXPARITY	3
 
 #define	VDEV_PAD_SIZE		(8 << 10)
-/* 2 padding areas (vl_pad1 and vl_pad2) to skip */
+/* 2 padding areas (vl_pad1 and vl_be) to skip */
 #define	VDEV_SKIP_SIZE		VDEV_PAD_SIZE * 2
 #define	VDEV_PHYS_SIZE		(112 << 10)
 #define	VDEV_UBERBLOCK_RING	(128 << 10)
@@ -400,9 +438,38 @@ typedef struct vdev_phys {
 	zio_eck_t	vp_zbt;
 } vdev_phys_t;
 
+typedef enum vbe_vers {
+	/*
+	 * The bootenv file is stored as ascii text in the envblock.
+	 * It is used by the GRUB bootloader used on Linux to store the
+	 * contents of the grubenv file. The file is stored as raw ASCII,
+	 * and is protected by an embedded checksum. By default, GRUB will
+	 * check if the boot filesystem supports storing the environment data
+	 * in a special location, and if so, will invoke filesystem specific
+	 * logic to retrieve it. This can be overriden by a variable, should
+	 * the user so desire.
+	 */
+	VB_RAW = 0,
+
+	/*
+	 * The bootenv file is converted to an nvlist and then packed into the
+	 * envblock.
+	 */
+	VB_NVLIST = 1
+} vbe_vers_t;
+
+typedef struct vdev_boot_envblock {
+	uint64_t	vbe_version;
+	char		vbe_bootenv[VDEV_PAD_SIZE - sizeof (uint64_t) -
+			sizeof (zio_eck_t)];
+	zio_eck_t	vbe_zbt;
+} vdev_boot_envblock_t;
+
+CTASSERT(sizeof (vdev_boot_envblock_t) == VDEV_PAD_SIZE);
+
 typedef struct vdev_label {
 	char		vl_pad1[VDEV_PAD_SIZE];			/*  8K */
-	char		vl_pad2[VDEV_PAD_SIZE];			/*  8K */
+	vdev_boot_envblock_t	vl_be;				/*  8K */
 	vdev_phys_t	vl_vdev_phys;				/* 112K	*/
 	char		vl_uberblock[VDEV_UBERBLOCK_RING];	/* 128K	*/
 } vdev_label_t;							/* 256K total */
@@ -483,8 +550,8 @@ extern vdev_ops_t vdev_indirect_ops;
 /*
  * Common size functions
  */
-extern void vdev_default_xlate(vdev_t *vd, const range_seg_t *in,
-    range_seg_t *out);
+extern void vdev_default_xlate(vdev_t *vd, const range_seg64_t *in,
+    range_seg64_t *out);
 extern uint64_t vdev_default_asize(vdev_t *vd, uint64_t psize);
 extern uint64_t vdev_get_min_asize(vdev_t *vd);
 extern void vdev_set_min_asize(vdev_t *vd);
@@ -492,7 +559,7 @@ extern void vdev_set_min_asize(vdev_t *vd);
 /*
  * Global variables
  */
-extern int vdev_standard_sm_blksz;
+extern int zfs_vdev_standard_sm_blksz;
 /* zdb uses this tunable, so it must be declared here to make lint happy. */
 extern int zfs_vdev_cache_size;
 
@@ -517,6 +584,14 @@ typedef struct vdev_buf {
 	buf_t	vb_buf;		/* buffer that describes the io */
 	zio_t	*vb_io;		/* pointer back to the original zio_t */
 } vdev_buf_t;
+
+/*
+ * Support routines used during boot from a ZFS pool
+ */
+extern int vdev_disk_read_rootlabel(const char *, const char *, nvlist_t **);
+extern void vdev_disk_preroot_init(void);
+extern void vdev_disk_preroot_fini(void);
+extern const char *vdev_disk_preroot_lookup(uint64_t, uint64_t);
 
 #ifdef	__cplusplus
 }

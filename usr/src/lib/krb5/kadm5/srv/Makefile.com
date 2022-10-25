@@ -57,7 +57,7 @@ include ../../../Makefile.lib
 SRCS=		$(SRV_OBJS:%.o=../%.c) \
 		$(SHARED_OBJS:%.o=../../%.c)
 
-KRB5LIB= 	$(ROOT)/usr/lib/krb5
+KRB5LIB=	$(ROOT)/usr/lib/krb5
 LIBS=		$(DYNLIB)
 
 
@@ -92,7 +92,7 @@ CERRWARN +=	-_gcc=-Wno-unused-function
 CERRWARN +=	-_gcc=-Wno-unused-variable
 CERRWARN +=	-_gcc=-Wno-parentheses
 CERRWARN +=	-_gcc=-Wno-type-limits
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 
 SMOFF += all_func_returns,indenting
 
@@ -100,7 +100,6 @@ SMOFF += all_func_returns,indenting
 
 all:	$(LIBS)
 
-lint:	lintcheck
 
 # include library targets
 include ../../../Makefile.targ

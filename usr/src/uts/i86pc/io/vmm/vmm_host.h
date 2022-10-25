@@ -78,12 +78,7 @@ const struct xsave_limits *vmm_get_xsave_limits(void);
 static __inline uint64_t
 vmm_get_host_trbase(void)
 {
-
-#ifdef	__FreeBSD__
-	return ((uint64_t)PCPU_GET(tssp));
-#else
-	return ((u_long)CPU->cpu_tss);
-#endif
+	return ((uint64_t)CPU->cpu_tss);
 }
 
 static __inline uint64_t
@@ -91,7 +86,7 @@ vmm_get_host_gdtrbase(void)
 {
 
 #ifdef	__FreeBSD__
-	return ((uint64_t)&gdt[NGDT * curcpu]);
+	return ((uint64_t)*PCPU_PTR(gdt));
 #else
 	desctbr_t gdtr;
 
@@ -100,17 +95,12 @@ vmm_get_host_gdtrbase(void)
 #endif
 }
 
-#ifdef	__FreeBSD__
-struct pcpu;
-extern struct pcpu __pcpu[];
-#endif
-
 static __inline uint64_t
 vmm_get_host_gsbase(void)
 {
 
 #ifdef	__FreeBSD__
-	return ((uint64_t)&__pcpu[curcpu]);
+	return ((uint64_t)get_pcpu());
 #else
 	return (rdmsr(MSR_GSBASE));
 #endif

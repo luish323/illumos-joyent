@@ -60,10 +60,6 @@ $(ROOTLIBDIR64)/$(LIBLINKSCCC): $(ROOTLIBDIR64)/$(LIBLINKSCCC)$(VERS)
 objs pics:
 	-@mkdir -p $@
 
-$(LIBRARY): objs .WAIT $$(OBJS)
-	$(BUILD.AR)
-	$(POST_PROCESS_A)
-
 $(DYNLIB): pics .WAIT $$(PICS)
 	$(BUILD.SO)
 	$(POST_PROCESS_SO)
@@ -82,6 +78,9 @@ objs/%.o pics/%.o:	../common/%.c
 
 $(DYNLINKLIBDIR)/%: %$(VERS)
 	$(INS.liblink)
+
+$(ROOTCOMPATLINKS) $(ROOTCOMPATLINKS64):
+	$(RM) $@; $(SYMLINK) $(COMPATLINKTARGET) $@
 
 clean:
 	$(RM) $(POBJS) $(OBJS) $(PICS) $(CLEANFILES)

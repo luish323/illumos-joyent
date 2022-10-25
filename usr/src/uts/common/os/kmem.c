@@ -24,6 +24,7 @@
  * Copyright (c) 2012, 2017 by Delphix. All rights reserved.
  * Copyright 2015 Nexenta Systems, Inc.  All rights reserved.
  * Copyright 2018, Joyent, Inc.
+ * Copyright 2020 Oxide Computer Company
  */
 
 /*
@@ -1060,6 +1061,8 @@ static vmem_t		*kmem_va_arena;
 static vmem_t		*kmem_default_arena;
 static vmem_t		*kmem_firewall_va_arena;
 static vmem_t		*kmem_firewall_arena;
+
+static int		kmem_zerosized;		/* # of zero-sized allocs */
 
 /*
  * kmem slab consolidator thresholds (tunables)
@@ -3872,6 +3875,7 @@ kmem_cache_create(
 		size_t chunks, bestfit, waste, slabsize;
 		size_t minwaste = LONG_MAX;
 
+		bestfit = 0;
 		for (chunks = 1; chunks <= KMEM_VOID_FRACTION; chunks++) {
 			slabsize = P2ROUNDUP(chunksize * chunks,
 			    vmp->vm_quantum);
@@ -4527,8 +4531,21 @@ void
 kmem_thread_init(void)
 {
 	kmem_move_init();
+
+	/*
+	 * This taskq is used for various kmem maintenance functions, including
+	 * kmem_reap().   When maintenance is required on every cache,
+	 * kmem_cache_applyall() dispatches one task per cache onto this queue.
+	 *
+	 * In the case of kmem_reap(), the system may be under increasingly
+	 * dire memory pressure and may not be able to allocate a new task
+	 * entry.  The count of entries to prepopulate (below) should cover at
+	 * least as many caches as we generally expect to exist on the system
+	 * so that they may all be scheduled for reaping under those
+	 * conditions.
+	 */
 	kmem_taskq = taskq_create_instance("kmem_taskq", 0, 1, minclsyspri,
-	    300, INT_MAX, TASKQ_PREPOPULATE);
+	    600, INT_MAX, TASKQ_PREPOPULATE);
 }
 
 void

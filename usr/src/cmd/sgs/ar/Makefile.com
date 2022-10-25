@@ -43,11 +43,11 @@ CPPFLAGS=	-I. -I../../include $(CPPFLAGS.master) -I$(ELFCAP)
 CFLAGS +=	$(CCVERBOSE)
 CSTD=	$(CSTD_GNU99)
 
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 
 SMOFF += signed
 
-LDLIBS +=	-lelf $(CONVLIBDIR) $(CONV_LIB) -lsendfile
+LDLIBS +=	-lelf $(CONVLIBDIR) -lconv -lsendfile
 
 $(XPG4) :=	CPPFLAGS += -DXPG4
 
@@ -63,6 +63,6 @@ SGSMSGALL =	$(SGSMSGCOM)
 
 SGSMSGFLAGS +=	-h $(BLTDEFS) -d $(BLTDATA) -m $(BLTMESG) -n ar_msg
 
-SRCS=		$(COMOBJ:%.o=../common/%.c) $(BLTDATA:%.o=$(SGSTOOLS)/common/%.c)
+SRCS=		$(COMOBJ:%.o=../common/%.c) $(BLTDATA:%.o=$(SGSCOMMON)/%.c)
 
 CLEANFILES +=	$(BLTFILES)

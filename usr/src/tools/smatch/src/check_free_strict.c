@@ -36,10 +36,27 @@ static void ok_to_use(struct sm_state *sm, struct expression *mod_expr)
 		set_state(my_id, sm->name, sm->sym, &ok);
 }
 
-static void pre_merge_hook(struct sm_state *sm)
+static void pre_merge_hook(struct sm_state *cur, struct sm_state *other)
 {
 	if (is_impossible_path())
-		set_state(my_id, sm->name, sm->sym, &ok);
+		set_state(my_id, cur->name, cur->sym, &ok);
+}
+
+static struct smatch_state *unmatched_state(struct sm_state *sm)
+{
+	struct smatch_state *state;
+	sval_t sval;
+
+	if (sm->state != &freed)
+		return &undefined;
+
+	state = get_state(SMATCH_EXTRA, sm->name, sm->sym);
+	if (!state)
+		return &undefined;
+	if (!estate_get_single_value(state, &sval) || sval.value != 0)
+		return &undefined;
+	/* It makes it easier to consider NULL pointers as freed.  */
+	return &freed;
 }
 
 static int is_freed(struct expression *expr)
@@ -291,6 +308,38 @@ free:
 	return ret;
 }
 
+static void match_untracked(struct expression *call, int param)
+{
+	struct state_list *slist = NULL;
+	struct expression *arg;
+	struct sm_state *sm;
+	char *name;
+	char buf[64];
+	int len;
+
+	arg = get_argument_from_call_expr(call->args, param);
+	if (!arg)
+		return;
+
+	name = expr_to_var(arg);
+	if (!name)
+		return;
+	snprintf(buf, sizeof(buf), "%s->", name);
+	free_string(name);
+	len = strlen(buf);
+
+	FOR_EACH_MY_SM(my_id, __get_cur_stree(), sm) {
+		if (strncmp(sm->name, buf, len) == 0)
+			add_ptr_list(&slist, sm);
+	} END_FOR_EACH_SM(sm);
+
+	FOR_EACH_PTR(slist, sm) {
+		set_state(sm->owner, sm->name, sm->sym, &ok);
+	} END_FOR_EACH_PTR(sm);
+
+	free_slist(&slist);
+}
+
 void check_free_strict(int id)
 {
 	my_id = id;
@@ -309,6 +358,8 @@ void check_free_strict(int id)
 
 	add_modification_hook_late(my_id, &ok_to_use);
 	add_pre_merge_hook(my_id, &pre_merge_hook);
+	add_unmatched_state_hook(my_id, &unmatched_state);
 
 	select_return_states_hook(PARAM_FREED, &set_param_freed);
+	add_untracked_param_hook(&match_untracked);
 }

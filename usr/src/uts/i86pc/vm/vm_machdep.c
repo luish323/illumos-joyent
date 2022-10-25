@@ -1619,7 +1619,7 @@ mtype_init(vnode_t *vp, caddr_t vaddr, uint_t *flags, size_t pgsz)
 /* mtype init for page_get_replacement_page */
 /*ARGSUSED*/
 int
-mtype_pgr_init(int *flags, page_t *pp, int mnode, pgcnt_t pgcnt)
+mtype_pgr_init(int *flags, page_t *pp, pgcnt_t pgcnt)
 {
 	int mtype = mtypetop;
 #if !defined(__xpv)
@@ -2791,6 +2791,7 @@ page_swap_with_hypervisor(struct vnode *vp, u_offset_t off, caddr_t vaddr,
 	page_t *pp, *expp, *pp_first, **pplist = NULL;
 	mfn_t *mfnlist = NULL;
 
+	extra = 0;
 	contig = flags & PG_PHYSCONTIG;
 	if (minctg == 1)
 		contig = 0;

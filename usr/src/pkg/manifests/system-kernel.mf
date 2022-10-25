@@ -21,10 +21,12 @@
 
 #
 # Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2014, 2017 by Delphix. All rights reserved.
 # Copyright 2013 Saso Kiselkov. All rights reserved.
 # Copyright 2015 Nexenta Systems, Inc. All rights reserved.
 # Copyright 2016 Hans Rosenfeld <rosenfeld@grumpf.hope-2000.org>
 # Copyright 2017 James S Blachly, MD <james.blachly@gmail.com>
+# Copyright 2019 Peter Tribble.
 # Copyright 2019 RackTop Systems
 # Copyright 2019 Joyent, Inc.
 #
@@ -65,6 +67,8 @@ dir path=etc/crypto group=sys
 dir path=etc/sock2path.d group=sys
 dir path=kernel group=sys
 $(i386_ONLY)dir path=kernel/$(ARCH64) group=sys
+dir path=kernel/cc group=sys
+dir path=kernel/cc/$(ARCH64) group=sys
 dir path=kernel/crypto group=sys
 dir path=kernel/crypto/$(ARCH64) group=sys
 dir path=kernel/dacf group=sys
@@ -123,10 +127,6 @@ driver name=arp perms="arp 0666 root sys"
 driver name=bl perms="* 0666 root sys"
 driver name=bridge clone_perms="bridge 0666 root sys" \
     policy="read_priv_set=net_rawaccess write_priv_set=net_rawaccess"
-$(sparc_ONLY)driver name=bscbus alias=SUNW,bscbus
-$(i386_ONLY)driver name=bscbus alias=SVI0101
-$(sparc_ONLY)driver name=bscv alias=SUNW,bscv perms="* 0644 root sys"
-$(i386_ONLY)driver name=bscv
 driver name=clone
 driver name=cn perms="* 0620 root tty"
 driver name=conskbd perms="kbd 0666 root sys"
@@ -276,7 +276,6 @@ driver name=tcp perms="tcp 0666 root sys"
 driver name=tcp6 perms="tcp6 0666 root sys"
 driver name=tl perms="* 0666 root sys" clone_perms="ticlts 0666 root sys" \
     clone_perms="ticots 0666 root sys" clone_perms="ticotsord 0666 root sys"
-$(sparc_ONLY)driver name=ttymux alias=multiplexer
 $(i386_ONLY)driver name=tzmon
 $(sparc_ONLY)driver name=uata \
     alias=pci1095,646 \
@@ -311,6 +310,9 @@ file path=etc/name_to_sysnum group=sys \
 file path=etc/sock2path.d/system%2Fkernel group=sys
 file path=etc/system group=sys original_name=SUNWckr:etc/system preserve=true
 $(i386_ONLY)file path=kernel/$(ARCH64)/genunix group=sys mode=0755
+file path=kernel/cc/$(ARCH64)/cc_cubic group=sys mode=0755
+file path=kernel/cc/$(ARCH64)/cc_newreno group=sys mode=0755
+file path=kernel/cc/$(ARCH64)/cc_sunreno group=sys mode=0755
 file path=kernel/crypto/$(ARCH64)/aes group=sys mode=0755
 file path=kernel/crypto/$(ARCH64)/arcfour group=sys mode=0755
 file path=kernel/crypto/$(ARCH64)/blowfish group=sys mode=0755
@@ -333,8 +335,6 @@ file path=kernel/drv/$(ARCH64)/aggr group=sys
 file path=kernel/drv/$(ARCH64)/arp group=sys
 file path=kernel/drv/$(ARCH64)/bl group=sys
 file path=kernel/drv/$(ARCH64)/bridge group=sys
-$(i386_ONLY)file path=kernel/drv/$(ARCH64)/bscbus group=sys
-$(i386_ONLY)file path=kernel/drv/$(ARCH64)/bscv group=sys
 file path=kernel/drv/$(ARCH64)/clone group=sys
 file path=kernel/drv/$(ARCH64)/cn group=sys
 file path=kernel/drv/$(ARCH64)/conskbd group=sys
@@ -402,7 +402,6 @@ file path=kernel/drv/$(ARCH64)/sysmsg group=sys
 file path=kernel/drv/$(ARCH64)/tcp group=sys
 file path=kernel/drv/$(ARCH64)/tcp6 group=sys
 file path=kernel/drv/$(ARCH64)/tl group=sys
-$(sparc_ONLY)file path=kernel/drv/$(ARCH64)/ttymux group=sys
 $(i386_ONLY)file path=kernel/drv/$(ARCH64)/tzmon group=sys
 $(sparc_ONLY)file path=kernel/drv/$(ARCH64)/uata group=sys
 $(i386_ONLY)file path=kernel/drv/$(ARCH64)/ucode group=sys
@@ -417,8 +416,6 @@ file path=kernel/drv/aggr.conf group=sys
 file path=kernel/drv/arp.conf group=sys
 file path=kernel/drv/bl.conf group=sys
 file path=kernel/drv/bridge.conf group=sys
-$(i386_ONLY)file path=kernel/drv/bscbus.conf group=sys
-$(i386_ONLY)file path=kernel/drv/bscv.conf group=sys
 file path=kernel/drv/clone.conf group=sys
 file path=kernel/drv/cn.conf group=sys
 file path=kernel/drv/conskbd.conf group=sys
@@ -534,6 +531,7 @@ file path=kernel/misc/$(ARCH64)/bignum group=sys mode=0755
 $(i386_ONLY)file path=kernel/misc/$(ARCH64)/bootdev group=sys mode=0755
 file path=kernel/misc/$(ARCH64)/busra group=sys mode=0755
 file path=kernel/misc/$(ARCH64)/cardbus group=sys mode=0755
+file path=kernel/misc/$(ARCH64)/cc group=sys mode=0755
 file path=kernel/misc/$(ARCH64)/cmlb group=sys mode=0755
 file path=kernel/misc/$(ARCH64)/consconfig group=sys mode=0755
 file path=kernel/misc/$(ARCH64)/ctf group=sys mode=0755
@@ -621,8 +619,6 @@ file path=usr/kernel/drv/$(ARCH64)/signalfd group=sys
 file path=usr/kernel/drv/signalfd.conf group=sys
 $(sparc_ONLY)file path=usr/share/man/man1m/monitor.1m
 $(sparc_ONLY)file path=usr/share/man/man1m/obpsym.1m
-# On SPARC driver/bscv is Serverblade1 specific, and in system/kernel/platform
-# We keep the manual page generic
 $(sparc_ONLY)file path=usr/share/man/man7d/dad.7d
 $(i386_ONLY)file path=usr/share/man/man7d/smbios.7d
 # Sadly vuid mouse support is in different packages on different platforms

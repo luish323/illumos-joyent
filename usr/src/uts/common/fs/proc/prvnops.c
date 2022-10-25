@@ -21,8 +21,9 @@
 
 /*
  * Copyright (c) 1989, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2018, Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
  * Copyright (c) 2017 by Delphix. All rights reserved.
+ * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
  */
 
 /*	Copyright (c) 1984,	 1986, 1987, 1988, 1989 AT&T	*/
@@ -98,11 +99,6 @@ struct prdirect {
 #define	PRSDSIZE	(sizeof (struct prdirect))
 
 /*
- * Maximum length of the /proc/$$/argv file:
- */
-int prmaxargvlen = 4096;
-
-/*
  * Directory characteristics.
  */
 typedef struct prdirent {
@@ -159,24 +155,28 @@ static prdirent_t piddir[] = {
 		"root" },
 	{ PR_FDDIR,	21 * sizeof (prdirent_t), sizeof (prdirent_t),
 		"fd" },
-	{ PR_OBJECTDIR,	22 * sizeof (prdirent_t), sizeof (prdirent_t),
+	{ PR_FDINFODIR,	22 * sizeof (prdirent_t), sizeof (prdirent_t),
+		"fdinfo" },
+	{ PR_OBJECTDIR,	23 * sizeof (prdirent_t), sizeof (prdirent_t),
 		"object" },
-	{ PR_LWPDIR,	23 * sizeof (prdirent_t), sizeof (prdirent_t),
+	{ PR_LWPDIR,	24 * sizeof (prdirent_t), sizeof (prdirent_t),
 		"lwp" },
-	{ PR_PRIV,	24 * sizeof (prdirent_t), sizeof (prdirent_t),
+	{ PR_PRIV,	25 * sizeof (prdirent_t), sizeof (prdirent_t),
 		"priv" },
-	{ PR_PATHDIR,	25 * sizeof (prdirent_t), sizeof (prdirent_t),
+	{ PR_PATHDIR,	26 * sizeof (prdirent_t), sizeof (prdirent_t),
 		"path" },
-	{ PR_CTDIR,	26 * sizeof (prdirent_t), sizeof (prdirent_t),
+	{ PR_CTDIR,	27 * sizeof (prdirent_t), sizeof (prdirent_t),
 		"contracts" },
-	{ PR_SECFLAGS,	27 * sizeof (prdirent_t), sizeof (prdirent_t),
+	{ PR_SECFLAGS,	28 * sizeof (prdirent_t), sizeof (prdirent_t),
 		"secflags" },
-#if defined(__x86)
-	{ PR_LDT,	28 * sizeof (prdirent_t), sizeof (prdirent_t),
-		"ldt" },
-#endif
 	{ PR_ARGV,	28 * sizeof (prdirent_t), sizeof (prdirent_t),
 		"argv" },
+	{ PR_CMDLINE,	29 * sizeof (prdirent_t), sizeof (prdirent_t),
+		"cmdline" },
+#if defined(__x86)
+	{ PR_LDT,	30 * sizeof (prdirent_t), sizeof (prdirent_t),
+		"ldt" },
+#endif
 };
 
 #define	NPIDDIRFILES	(sizeof (piddir) / sizeof (piddir[0]) - 2)
@@ -595,7 +595,7 @@ static int pr_read_inval(), pr_read_as(), pr_read_status(),
 #if defined(__x86)
 	pr_read_ldt(),
 #endif
-	pr_read_argv(),
+	pr_read_argv(), pr_read_cmdline(),
 	pr_read_usage(), pr_read_lusage(), pr_read_pagedata(),
 	pr_read_watch(), pr_read_lwpstatus(), pr_read_lwpsinfo(),
 	pr_read_lwpusage(), pr_read_lwpname(),
@@ -604,7 +604,8 @@ static int pr_read_inval(), pr_read_as(), pr_read_status(),
 #if defined(__sparc)
 	pr_read_gwindows(), pr_read_asrs(),
 #endif
-	pr_read_piddir(), pr_read_pidfile(), pr_read_opagedata();
+	pr_read_piddir(), pr_read_pidfile(), pr_read_opagedata(),
+	pr_read_fdinfo();
 
 static int (*pr_read_function[PR_NFILES])() = {
 	pr_read_inval,		/* /proc				*/
@@ -626,6 +627,7 @@ static int (*pr_read_function[PR_NFILES])() = {
 	pr_read_ldt,		/* /proc/<pid>/ldt			*/
 #endif
 	pr_read_argv,		/* /proc/<pid>/argv			*/
+	pr_read_cmdline,	/* /proc/<pid>/cmdline			*/
 	pr_read_usage,		/* /proc/<pid>/usage			*/
 	pr_read_lusage,		/* /proc/<pid>/lusage			*/
 	pr_read_pagedata,	/* /proc/<pid>/pagedata			*/
@@ -634,6 +636,8 @@ static int (*pr_read_function[PR_NFILES])() = {
 	pr_read_inval,		/* /proc/<pid>/root			*/
 	pr_read_inval,		/* /proc/<pid>/fd			*/
 	pr_read_inval,		/* /proc/<pid>/fd/nn			*/
+	pr_read_inval,		/* /proc/<pid>/fdinfo			*/
+	pr_read_fdinfo,		/* /proc/<pid>/fdinfo/nn		*/
 	pr_read_inval,		/* /proc/<pid>/object			*/
 	pr_read_inval,		/* /proc/<pid>/object/xxx		*/
 	pr_read_inval,		/* /proc/<pid>/lwp			*/
@@ -664,7 +668,7 @@ static int (*pr_read_function[PR_NFILES])() = {
 
 /* ARGSUSED */
 static int
-pr_read_inval(prnode_t *pnp, uio_t *uiop)
+pr_read_inval(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	/*
 	 * No read() on any /proc directory, use getdents(2) instead.
@@ -690,11 +694,46 @@ pr_uioread(void *base, long count, uio_t *uiop)
 }
 
 static int
+pr_read_cmdline(prnode_t *pnp, uio_t *uiop)
+{
+	char *args;
+	int error;
+	size_t asz = PRMAXARGVLEN, sz;
+
+	/*
+	 * Allocate a scratch buffer for collection of the process arguments.
+	 */
+	args = kmem_alloc(asz, KM_SLEEP);
+
+	ASSERT(pnp->pr_type == PR_CMDLINE);
+
+	if ((error = prlock(pnp, ZNO)) != 0) {
+		kmem_free(args, asz);
+		return (error);
+	}
+
+	if ((error = prreadcmdline(pnp->pr_common->prc_proc, args, asz,
+	    &sz)) != 0) {
+		prunlock(pnp);
+		kmem_free(args, asz);
+		return (error);
+	}
+
+	prunlock(pnp);
+
+	error = pr_uioread(args, sz, uiop);
+
+	kmem_free(args, asz);
+
+	return (error);
+}
+
+static int
 pr_read_argv(prnode_t *pnp, uio_t *uiop)
 {
 	char *args;
 	int error;
-	size_t asz = prmaxargvlen, sz;
+	size_t asz = PRMAXARGVLEN, sz;
 
 	/*
 	 * Allocate a scratch buffer for collection of the process arguments.
@@ -762,7 +801,7 @@ pr_read_as(prnode_t *pnp, uio_t *uiop)
 }
 
 static int
-pr_read_status(prnode_t *pnp, uio_t *uiop)
+pr_read_status(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	pstatus_t *sp;
 	int error;
@@ -784,7 +823,7 @@ pr_read_status(prnode_t *pnp, uio_t *uiop)
 }
 
 static int
-pr_read_lstatus(prnode_t *pnp, uio_t *uiop)
+pr_read_lstatus(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	proc_t *p;
 	kthread_t *t;
@@ -830,7 +869,7 @@ pr_read_lstatus(prnode_t *pnp, uio_t *uiop)
 }
 
 static int
-pr_read_psinfo(prnode_t *pnp, uio_t *uiop)
+pr_read_psinfo(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	psinfo_t psinfo;
 	proc_t *p;
@@ -857,7 +896,95 @@ pr_read_psinfo(prnode_t *pnp, uio_t *uiop)
 }
 
 static int
-pr_read_lpsinfo(prnode_t *pnp, uio_t *uiop)
+pr_read_fdinfo(prnode_t *pnp, uio_t *uiop, cred_t *cr)
+{
+	prfdinfo_t *fdinfo;
+	list_t data;
+	proc_t *p;
+	vnode_t *vp;
+	uint_t fd;
+	file_t *fp;
+	cred_t *file_cred;
+	short ufp_flag;
+	int error = 0;
+
+	ASSERT(pnp->pr_type == PR_FDINFO);
+
+	/*
+	 * This is a guess at the size of the structure that needs to
+	 * be returned. It's a balance between not allocating too much more
+	 * space than is required and not requiring too many subsequent
+	 * reallocations. Allocate it before acquiring the process lock.
+	 */
+	pr_iol_initlist(&data, sizeof (prfdinfo_t) + MAXPATHLEN + 2, 1);
+
+	if ((error = prlock(pnp, ZNO)) != 0) {
+		pr_iol_freelist(&data);
+		return (error);
+	}
+
+	p = pnp->pr_common->prc_proc;
+
+	if ((p->p_flag & SSYS) || p->p_as == &kas) {
+		prunlock(pnp);
+		pr_iol_freelist(&data);
+		return (0);
+	}
+
+	fd = pnp->pr_index;
+
+	/* Fetch and lock the file_t for this descriptor */
+	fp = pr_getf(p, fd, &ufp_flag);
+
+	if (fp == NULL) {
+		error = ENOENT;
+		prunlock(pnp);
+		goto out;
+	}
+
+	vp = fp->f_vnode;
+	VN_HOLD(vp);
+
+	/*
+	 * For fdinfo, we don't want to include the placeholder pr_misc at the
+	 * end of the struct. We'll terminate the data with an empty pr_misc
+	 * header before returning.
+	 */
+
+	fdinfo = pr_iol_newbuf(&data, offsetof(prfdinfo_t, pr_misc));
+	fdinfo->pr_fd = fd;
+	fdinfo->pr_fdflags = ufp_flag;
+	fdinfo->pr_fileflags = fp->f_flag2 << 16 | fp->f_flag;
+	if ((fdinfo->pr_fileflags & (FSEARCH | FEXEC)) == 0)
+		fdinfo->pr_fileflags += FOPEN;
+	fdinfo->pr_offset = fp->f_offset;
+	file_cred = fp->f_cred;
+	crhold(file_cred);
+	/*
+	 * Information from the vnode (rather than the file_t) is retrieved
+	 * later, in prgetfdinfo() - for example sock_getfasync()
+	 */
+	pr_releasef(p, fd);
+
+	prunlock(pnp);
+
+	error = prgetfdinfo(p, vp, fdinfo, cr, file_cred, &data);
+
+	crfree(file_cred);
+
+	VN_RELE(vp);
+
+out:
+	if (error == 0)
+		error = pr_iol_uiomove_and_free(&data, uiop, error);
+	else
+		pr_iol_freelist(&data);
+
+	return (error);
+}
+
+static int
+pr_read_lpsinfo(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	proc_t *p;
 	kthread_t *t;
@@ -971,28 +1098,28 @@ readmap_common:
 }
 
 static int
-pr_read_map(prnode_t *pnp, uio_t *uiop)
+pr_read_map(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	ASSERT(pnp->pr_type == PR_MAP);
 	return (pr_read_map_common(pnp, uiop, pnp->pr_type));
 }
 
 static int
-pr_read_rmap(prnode_t *pnp, uio_t *uiop)
+pr_read_rmap(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	ASSERT(pnp->pr_type == PR_RMAP);
 	return (pr_read_map_common(pnp, uiop, pnp->pr_type));
 }
 
 static int
-pr_read_xmap(prnode_t *pnp, uio_t *uiop)
+pr_read_xmap(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	ASSERT(pnp->pr_type == PR_XMAP);
 	return (pr_read_map_common(pnp, uiop, pnp->pr_type));
 }
 
 static int
-pr_read_cred(prnode_t *pnp, uio_t *uiop)
+pr_read_cred(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	proc_t *p;
 	prcred_t *pcrp;
@@ -1027,7 +1154,7 @@ out:
 }
 
 static int
-pr_read_priv(prnode_t *pnp, uio_t *uiop)
+pr_read_priv(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	proc_t *p;
 	size_t psize = prgetprivsize();
@@ -1051,7 +1178,7 @@ out:
 }
 
 static int
-pr_read_sigact(prnode_t *pnp, uio_t *uiop)
+pr_read_sigact(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	int nsig = PROC_IS_BRANDED(curproc)? BROP(curproc)->b_nsig : NSIG;
 	proc_t *p;
@@ -1090,7 +1217,7 @@ out:
 }
 
 static int
-pr_read_auxv(prnode_t *pnp, uio_t *uiop)
+pr_read_auxv(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	auxv_t auxv[__KERN_NAUXV_IMPL];
 	proc_t *p;
@@ -1125,7 +1252,7 @@ pr_read_auxv(prnode_t *pnp, uio_t *uiop)
  *	For now let's just have a ldt of size 0 for 64-bit processes.
  */
 static int
-pr_read_ldt(prnode_t *pnp, uio_t *uiop)
+pr_read_ldt(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	proc_t *p;
 	struct ssd *ssd;
@@ -1161,7 +1288,7 @@ pr_read_ldt(prnode_t *pnp, uio_t *uiop)
 #endif	/* __x86 */
 
 static int
-pr_read_usage(prnode_t *pnp, uio_t *uiop)
+pr_read_usage(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	prhusage_t *pup;
 	prusage_t *upup;
@@ -1250,7 +1377,7 @@ out:
 }
 
 static int
-pr_read_lusage(prnode_t *pnp, uio_t *uiop)
+pr_read_lusage(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	int nlwp;
 	prhusage_t *pup;
@@ -1361,7 +1488,7 @@ pr_read_lusage(prnode_t *pnp, uio_t *uiop)
 }
 
 static int
-pr_read_pagedata(prnode_t *pnp, uio_t *uiop)
+pr_read_pagedata(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	proc_t *p;
 	int error;
@@ -1386,7 +1513,7 @@ pr_read_pagedata(prnode_t *pnp, uio_t *uiop)
 }
 
 static int
-pr_read_opagedata(prnode_t *pnp, uio_t *uiop)
+pr_read_opagedata(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	proc_t *p;
 	struct as *as;
@@ -1413,7 +1540,7 @@ pr_read_opagedata(prnode_t *pnp, uio_t *uiop)
 }
 
 static int
-pr_read_watch(prnode_t *pnp, uio_t *uiop)
+pr_read_watch(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	proc_t *p;
 	int error;
@@ -1459,7 +1586,7 @@ pr_read_watch(prnode_t *pnp, uio_t *uiop)
 }
 
 static int
-pr_read_lwpstatus(prnode_t *pnp, uio_t *uiop)
+pr_read_lwpstatus(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	lwpstatus_t *sp;
 	int error;
@@ -1490,7 +1617,7 @@ out:
 }
 
 static int
-pr_read_lwpsinfo(prnode_t *pnp, uio_t *uiop)
+pr_read_lwpsinfo(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	lwpsinfo_t lwpsinfo;
 	proc_t *p;
@@ -1537,7 +1664,7 @@ pr_read_lwpsinfo(prnode_t *pnp, uio_t *uiop)
 }
 
 static int
-pr_read_lwpusage(prnode_t *pnp, uio_t *uiop)
+pr_read_lwpusage(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	prhusage_t *pup;
 	prusage_t *upup;
@@ -1588,7 +1715,7 @@ out:
 }
 
 static int
-pr_read_lwpname(prnode_t *pnp, uio_t *uiop)
+pr_read_lwpname(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	char lwpname[THREAD_NAME_MAX];
 	kthread_t *t;
@@ -1616,7 +1743,7 @@ pr_read_lwpname(prnode_t *pnp, uio_t *uiop)
 
 /* ARGSUSED */
 static int
-pr_read_xregs(prnode_t *pnp, uio_t *uiop)
+pr_read_xregs(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 #if defined(__sparc)
 	proc_t *p;
@@ -1657,7 +1784,7 @@ out:
 }
 
 static int
-pr_read_spymaster(prnode_t *pnp, uio_t *uiop)
+pr_read_spymaster(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	psinfo_t psinfo;
 	int error;
@@ -1687,7 +1814,7 @@ pr_read_spymaster(prnode_t *pnp, uio_t *uiop)
 }
 
 static int
-pr_read_secflags(prnode_t *pnp, uio_t *uiop)
+pr_read_secflags(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	prsecflags_t ret;
 	int error;
@@ -1708,7 +1835,7 @@ pr_read_secflags(prnode_t *pnp, uio_t *uiop)
 #if defined(__sparc)
 
 static int
-pr_read_gwindows(prnode_t *pnp, uio_t *uiop)
+pr_read_gwindows(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	proc_t *p;
 	kthread_t *t;
@@ -1752,7 +1879,7 @@ out:
 
 /* ARGSUSED */
 static int
-pr_read_asrs(prnode_t *pnp, uio_t *uiop)
+pr_read_asrs(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	int error;
 
@@ -1789,7 +1916,7 @@ pr_read_asrs(prnode_t *pnp, uio_t *uiop)
 #endif	/* __sparc */
 
 static int
-pr_read_piddir(prnode_t *pnp, uio_t *uiop)
+pr_read_piddir(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	ASSERT(pnp->pr_type == PR_PIDDIR);
 	ASSERT(pnp->pr_pidfile != NULL);
@@ -1802,7 +1929,7 @@ pr_read_piddir(prnode_t *pnp, uio_t *uiop)
 }
 
 static int
-pr_read_pidfile(prnode_t *pnp, uio_t *uiop)
+pr_read_pidfile(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	int error;
 
@@ -1872,6 +1999,7 @@ static int (*pr_read_function_32[PR_NFILES])() = {
 	pr_read_ldt,		/* /proc/<pid>/ldt			*/
 #endif
 	pr_read_argv,		/* /proc/<pid>/argv			*/
+	pr_read_cmdline,	/* /proc/<pid>/cmdline			*/
 	pr_read_usage_32,	/* /proc/<pid>/usage			*/
 	pr_read_lusage_32,	/* /proc/<pid>/lusage			*/
 	pr_read_pagedata_32,	/* /proc/<pid>/pagedata			*/
@@ -1880,6 +2008,8 @@ static int (*pr_read_function_32[PR_NFILES])() = {
 	pr_read_inval,		/* /proc/<pid>/root			*/
 	pr_read_inval,		/* /proc/<pid>/fd			*/
 	pr_read_inval,		/* /proc/<pid>/fd/nn			*/
+	pr_read_inval,		/* /proc/<pid>/fdinfo			*/
+	pr_read_fdinfo,		/* /proc/<pid>/fdinfo/nn		*/
 	pr_read_inval,		/* /proc/<pid>/object			*/
 	pr_read_inval,		/* /proc/<pid>/object/xxx		*/
 	pr_read_inval,		/* /proc/<pid>/lwp			*/
@@ -1909,7 +2039,7 @@ static int (*pr_read_function_32[PR_NFILES])() = {
 };
 
 static int
-pr_read_status_32(prnode_t *pnp, uio_t *uiop)
+pr_read_status_32(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	pstatus32_t *sp;
 	proc_t *p;
@@ -1943,7 +2073,7 @@ pr_read_status_32(prnode_t *pnp, uio_t *uiop)
 }
 
 static int
-pr_read_lstatus_32(prnode_t *pnp, uio_t *uiop)
+pr_read_lstatus_32(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	proc_t *p;
 	kthread_t *t;
@@ -1997,7 +2127,7 @@ pr_read_lstatus_32(prnode_t *pnp, uio_t *uiop)
 }
 
 static int
-pr_read_psinfo_32(prnode_t *pnp, uio_t *uiop)
+pr_read_psinfo_32(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	psinfo32_t psinfo;
 	proc_t *p;
@@ -2024,7 +2154,7 @@ pr_read_psinfo_32(prnode_t *pnp, uio_t *uiop)
 }
 
 static int
-pr_read_lpsinfo_32(prnode_t *pnp, uio_t *uiop)
+pr_read_lpsinfo_32(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	proc_t *p;
 	kthread_t *t;
@@ -2140,28 +2270,28 @@ readmap32_common:
 }
 
 static int
-pr_read_map_32(prnode_t *pnp, uio_t *uiop)
+pr_read_map_32(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	ASSERT(pnp->pr_type == PR_MAP);
 	return (pr_read_map_common_32(pnp, uiop, pnp->pr_type));
 }
 
 static int
-pr_read_rmap_32(prnode_t *pnp, uio_t *uiop)
+pr_read_rmap_32(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	ASSERT(pnp->pr_type == PR_RMAP);
 	return (pr_read_map_common_32(pnp, uiop, pnp->pr_type));
 }
 
 static int
-pr_read_xmap_32(prnode_t *pnp, uio_t *uiop)
+pr_read_xmap_32(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	ASSERT(pnp->pr_type == PR_XMAP);
 	return (pr_read_map_common_32(pnp, uiop, pnp->pr_type));
 }
 
 static int
-pr_read_sigact_32(prnode_t *pnp, uio_t *uiop)
+pr_read_sigact_32(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	int nsig = PROC_IS_BRANDED(curproc)? BROP(curproc)->b_nsig : NSIG;
 	proc_t *p;
@@ -2205,7 +2335,7 @@ out:
 }
 
 static int
-pr_read_auxv_32(prnode_t *pnp, uio_t *uiop)
+pr_read_auxv_32(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	auxv32_t auxv[__KERN_NAUXV_IMPL];
 	proc_t *p;
@@ -2240,7 +2370,7 @@ pr_read_auxv_32(prnode_t *pnp, uio_t *uiop)
 }
 
 static int
-pr_read_usage_32(prnode_t *pnp, uio_t *uiop)
+pr_read_usage_32(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	prhusage_t *pup;
 	prusage32_t *upup;
@@ -2329,7 +2459,7 @@ out:
 }
 
 static int
-pr_read_lusage_32(prnode_t *pnp, uio_t *uiop)
+pr_read_lusage_32(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	int nlwp;
 	prhusage_t *pup;
@@ -2441,7 +2571,7 @@ pr_read_lusage_32(prnode_t *pnp, uio_t *uiop)
 }
 
 static int
-pr_read_pagedata_32(prnode_t *pnp, uio_t *uiop)
+pr_read_pagedata_32(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	proc_t *p;
 	int error;
@@ -2471,7 +2601,7 @@ pr_read_pagedata_32(prnode_t *pnp, uio_t *uiop)
 }
 
 static int
-pr_read_opagedata_32(prnode_t *pnp, uio_t *uiop)
+pr_read_opagedata_32(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	proc_t *p;
 	struct as *as;
@@ -2504,7 +2634,7 @@ pr_read_opagedata_32(prnode_t *pnp, uio_t *uiop)
 }
 
 static int
-pr_read_watch_32(prnode_t *pnp, uio_t *uiop)
+pr_read_watch_32(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	proc_t *p;
 	int error;
@@ -2554,7 +2684,7 @@ pr_read_watch_32(prnode_t *pnp, uio_t *uiop)
 }
 
 static int
-pr_read_lwpstatus_32(prnode_t *pnp, uio_t *uiop)
+pr_read_lwpstatus_32(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	lwpstatus32_t *sp;
 	proc_t *p;
@@ -2597,7 +2727,7 @@ out:
 }
 
 static int
-pr_read_lwpsinfo_32(prnode_t *pnp, uio_t *uiop)
+pr_read_lwpsinfo_32(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	lwpsinfo32_t lwpsinfo;
 	proc_t *p;
@@ -2642,7 +2772,7 @@ pr_read_lwpsinfo_32(prnode_t *pnp, uio_t *uiop)
 }
 
 static int
-pr_read_lwpusage_32(prnode_t *pnp, uio_t *uiop)
+pr_read_lwpusage_32(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	prhusage_t *pup;
 	prusage32_t *upup;
@@ -2693,7 +2823,7 @@ out:
 }
 
 static int
-pr_read_spymaster_32(prnode_t *pnp, uio_t *uiop)
+pr_read_spymaster_32(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	psinfo32_t psinfo;
 	int error;
@@ -2724,7 +2854,7 @@ pr_read_spymaster_32(prnode_t *pnp, uio_t *uiop)
 
 #if defined(__sparc)
 static int
-pr_read_gwindows_32(prnode_t *pnp, uio_t *uiop)
+pr_read_gwindows_32(prnode_t *pnp, uio_t *uiop, cred_t *cr)
 {
 	proc_t *p;
 	kthread_t *t;
@@ -2790,11 +2920,11 @@ prread(vnode_t *vp, uio_t *uiop, int ioflag, cred_t *cr, caller_context_t *ct)
 	 * data.  An ILP32 process will see ILP32 data.
 	 */
 	if (curproc->p_model == DATAMODEL_LP64)
-		return (pr_read_function[pnp->pr_type](pnp, uiop));
+		return (pr_read_function[pnp->pr_type](pnp, uiop, cr));
 	else
-		return (pr_read_function_32[pnp->pr_type](pnp, uiop));
+		return (pr_read_function_32[pnp->pr_type](pnp, uiop, cr));
 #else
-	return (pr_read_function[pnp->pr_type](pnp, uiop));
+	return (pr_read_function[pnp->pr_type](pnp, uiop, cr));
 #endif
 }
 
@@ -3225,9 +3355,29 @@ prgetattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 		vap->va_size = 0;
 		break;
 	case PR_FDDIR:
+	case PR_FDINFODIR:
 		vap->va_nlink = 2;
 		vap->va_size = (P_FINFO(p)->fi_nfiles + 2) * PRSDSIZE;
 		break;
+	case PR_FDINFO: {
+		file_t *fp;
+		vnode_t *vp;
+		int fd = pnp->pr_index;
+
+		fp = pr_getf(p, fd, NULL);
+		if (fp == NULL) {
+			prunlock(pnp);
+			return (ENOENT);
+		}
+		vp = fp->f_vnode;
+		VN_HOLD(vp);
+		pr_releasef(p, fd);
+		prunlock(pnp);
+		vap->va_size = prgetfdinfosize(p, vp, cr);
+		VN_RELE(vp);
+		vap->va_nblocks = (fsblkcnt64_t)btod(vap->va_size);
+		return (0);
+	}
 	case PR_LWPDIR:
 		/*
 		 * va_nlink: count each lwp as a directory link.
@@ -3317,7 +3467,7 @@ prgetattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 		if ((p->p_flag & SSYS) || p->p_as == &kas) {
 			vap->va_size = PSARGSZ;
 		} else {
-			vap->va_size = prmaxargvlen;
+			vap->va_size = PRMAXARGVLEN;
 		}
 		break;
 #if defined(__x86)
@@ -3442,6 +3592,7 @@ prgetattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 #endif
 	case PR_CTL:
 	case PR_LWPCTL:
+	case PR_CMDLINE:
 	default:
 		vap->va_size = 0;
 		break;
@@ -3497,6 +3648,7 @@ praccess(vnode_t *vp, int mode, int flags, cred_t *cr, caller_context_t *ct)
 	case PR_LUSAGE:
 	case PR_LWPUSAGE:
 	case PR_ARGV:
+	case PR_CMDLINE:
 		p = pr_p_lock(pnp);
 		mutex_exit(&pr_pidlock);
 		if (p == NULL)
@@ -3560,8 +3712,8 @@ praccess(vnode_t *vp, int mode, int flags, cred_t *cr, caller_context_t *ct)
  */
 static vnode_t *pr_lookup_notdir(), *pr_lookup_procdir(), *pr_lookup_piddir(),
 	*pr_lookup_objectdir(), *pr_lookup_lwpdir(), *pr_lookup_lwpiddir(),
-	*pr_lookup_fddir(), *pr_lookup_pathdir(), *pr_lookup_tmpldir(),
-	*pr_lookup_ctdir();
+	*pr_lookup_fddir(), *pr_lookup_fdinfodir(), *pr_lookup_pathdir(),
+	*pr_lookup_tmpldir(), *pr_lookup_ctdir();
 
 static vnode_t *(*pr_lookup_function[PR_NFILES])() = {
 	pr_lookup_procdir,	/* /proc				*/
@@ -3583,6 +3735,7 @@ static vnode_t *(*pr_lookup_function[PR_NFILES])() = {
 	pr_lookup_notdir,	/* /proc/<pid>/ldt			*/
 #endif
 	pr_lookup_notdir,	/* /proc/<pid>/argv			*/
+	pr_lookup_notdir,	/* /proc/<pid>/cmdline			*/
 	pr_lookup_notdir,	/* /proc/<pid>/usage			*/
 	pr_lookup_notdir,	/* /proc/<pid>/lusage			*/
 	pr_lookup_notdir,	/* /proc/<pid>/pagedata			*/
@@ -3591,6 +3744,8 @@ static vnode_t *(*pr_lookup_function[PR_NFILES])() = {
 	pr_lookup_notdir,	/* /proc/<pid>/root			*/
 	pr_lookup_fddir,	/* /proc/<pid>/fd			*/
 	pr_lookup_notdir,	/* /proc/<pid>/fd/nn			*/
+	pr_lookup_fdinfodir,	/* /proc/<pid>/fdinfo			*/
+	pr_lookup_notdir,	/* /proc/<pid>/fdinfo/nn		*/
 	pr_lookup_objectdir,	/* /proc/<pid>/object			*/
 	pr_lookup_notdir,	/* /proc/<pid>/object/xxx		*/
 	pr_lookup_lwpdir,	/* /proc/<pid>/lwp			*/
@@ -3678,7 +3833,8 @@ prlookup(vnode_t *dp, char *comp, vnode_t **vpp, pathname_t *pathp,
 		break;
 	}
 
-	if ((type == PR_OBJECTDIR || type == PR_FDDIR || type == PR_PATHDIR) &&
+	if ((type == PR_OBJECTDIR || type == PR_FDDIR ||
+	    type == PR_FDINFODIR || type == PR_PATHDIR) &&
 	    (error = praccess(dp, VEXEC, 0, cr, ct)) != 0)
 		return (error);
 
@@ -4292,8 +4448,6 @@ pr_lookup_fddir(vnode_t *dp, char *comp)
 	file_t *fp;
 	uint_t fd;
 	int c;
-	uf_entry_t *ufp;
-	uf_info_t *fip;
 
 	ASSERT(dpnp->pr_type == PR_FDDIR);
 
@@ -4303,8 +4457,8 @@ pr_lookup_fddir(vnode_t *dp, char *comp)
 		if (c < '0' || c > '9')
 			return (NULL);
 		ofd = fd;
-		fd = 10*fd + c - '0';
-		if (fd/10 != ofd)	/* integer overflow */
+		fd = 10 * fd + c - '0';
+		if (fd / 10 != ofd)	/* integer overflow */
 			return (NULL);
 	}
 
@@ -4321,44 +4475,93 @@ pr_lookup_fddir(vnode_t *dp, char *comp)
 		return (NULL);
 	}
 
-	fip = P_FINFO(p);
-	mutex_exit(&p->p_lock);
-	mutex_enter(&fip->fi_lock);
-	if (fd < fip->fi_nfiles) {
-		UF_ENTER(ufp, fip, fd);
-		if ((fp = ufp->uf_file) != NULL) {
-			pnp->pr_mode = 07111;
-			if (fp->f_flag & FREAD)
-				pnp->pr_mode |= 0444;
-			if (fp->f_flag & FWRITE)
-				pnp->pr_mode |= 0222;
-			vp = fp->f_vnode;
-			VN_HOLD(vp);
-		}
-		UF_EXIT(ufp);
+	if ((fp = pr_getf(p, fd, NULL)) != NULL) {
+		pnp->pr_mode = 07111;
+		if (fp->f_flag & FREAD)
+			pnp->pr_mode |= 0444;
+		if (fp->f_flag & FWRITE)
+			pnp->pr_mode |= 0222;
+		vp = fp->f_vnode;
+		VN_HOLD(vp);
+		pr_releasef(p, fd);
 	}
-	mutex_exit(&fip->fi_lock);
-	mutex_enter(&p->p_lock);
+
 	prunlock(dpnp);
 
-	if (vp == NULL)
+	if (vp == NULL) {
 		prfreenode(pnp);
-	else {
-		/*
-		 * Fill in the prnode so future references will
-		 * be able to find the underlying object's vnode.
-		 * Don't link this prnode into the list of all
-		 * prnodes for the process; this is a one-use node.
-		 */
-		pnp->pr_realvp = vp;
-		pnp->pr_parent = dp;		/* needed for prlookup */
-		VN_HOLD(dp);
-		vp = PTOV(pnp);
-		if (pnp->pr_realvp->v_type == VDIR) {
-			vp->v_type = VDIR;
-			vp->v_flag |= VTRAVERSE;
-		}
+		return (NULL);
 	}
+
+	/*
+	 * Fill in the prnode so future references will
+	 * be able to find the underlying object's vnode.
+	 * Don't link this prnode into the list of all
+	 * prnodes for the process; this is a one-use node.
+	 */
+	pnp->pr_realvp = vp;
+	pnp->pr_parent = dp;		/* needed for prlookup */
+	VN_HOLD(dp);
+	vp = PTOV(pnp);
+	if (pnp->pr_realvp->v_type == VDIR) {
+		vp->v_type = VDIR;
+		vp->v_flag |= VTRAVERSE;
+	}
+
+	return (vp);
+}
+
+static vnode_t *
+pr_lookup_fdinfodir(vnode_t *dp, char *comp)
+{
+	prnode_t *dpnp = VTOP(dp);
+	prnode_t *pnp;
+	vnode_t *vp = NULL;
+	proc_t *p;
+	uint_t fd;
+	int c;
+
+	ASSERT(dpnp->pr_type == PR_FDINFODIR);
+
+	fd = 0;
+	while ((c = *comp++) != '\0') {
+		int ofd;
+		if (c < '0' || c > '9')
+			return (NULL);
+		ofd = fd;
+		fd = 10 * fd + c - '0';
+		if (fd / 10 != ofd)	/* integer overflow */
+			return (NULL);
+	}
+
+	pnp = prgetnode(dp, PR_FDINFO);
+
+	if (prlock(dpnp, ZNO) != 0) {
+		prfreenode(pnp);
+		return (NULL);
+	}
+	p = dpnp->pr_common->prc_proc;
+	if ((p->p_flag & SSYS) || p->p_as == &kas) {
+		prunlock(dpnp);
+		prfreenode(pnp);
+		return (NULL);
+	}
+
+	/*
+	 * Don't link this prnode into the list of all
+	 * prnodes for the process; this is a one-use node.
+	 * Unlike the FDDIR case, the underlying vnode is not stored in
+	 * pnp->pr_realvp. Instead, the fd number is stored in pnp->pr_index
+	 * and used by pr_read_fdinfo() to return information for the right
+	 * file descriptor.
+	 */
+	pnp->pr_common = dpnp->pr_common;
+	pnp->pr_pcommon = dpnp->pr_pcommon;
+	pnp->pr_parent = dp;
+	pnp->pr_index = fd;
+	VN_HOLD(dp);
+	prunlock(dpnp);
+	vp = PTOV(pnp);
 
 	return (vp);
 }
@@ -4821,6 +5024,7 @@ prgetnode(vnode_t *dp, prnodetype_t type)
 	case PR_CURDIR:
 	case PR_ROOTDIR:
 	case PR_FDDIR:
+	case PR_FDINFODIR:
 	case PR_OBJECTDIR:
 	case PR_PATHDIR:
 	case PR_CTDIR:
@@ -4871,6 +5075,7 @@ prgetnode(vnode_t *dp, prnodetype_t type)
 	case PR_LUSAGE:
 	case PR_LWPUSAGE:
 	case PR_ARGV:
+	case PR_CMDLINE:
 		pnp->pr_mode = 0444;	/* read-only by all */
 		break;
 
@@ -4954,8 +5159,8 @@ prfreecommon(prcommon_t *pcp)
  */
 static int pr_readdir_notdir(), pr_readdir_procdir(), pr_readdir_piddir(),
 	pr_readdir_objectdir(), pr_readdir_lwpdir(), pr_readdir_lwpiddir(),
-	pr_readdir_fddir(), pr_readdir_pathdir(), pr_readdir_tmpldir(),
-	pr_readdir_ctdir();
+	pr_readdir_fddir(), pr_readdir_fdinfodir(), pr_readdir_pathdir(),
+	pr_readdir_tmpldir(), pr_readdir_ctdir();
 
 static int (*pr_readdir_function[PR_NFILES])() = {
 	pr_readdir_procdir,	/* /proc				*/
@@ -4977,6 +5182,7 @@ static int (*pr_readdir_function[PR_NFILES])() = {
 	pr_readdir_notdir,	/* /proc/<pid>/ldt			*/
 #endif
 	pr_readdir_notdir,	/* /proc/<pid>/argv			*/
+	pr_readdir_notdir,	/* /proc/<pid>/cmdline			*/
 	pr_readdir_notdir,	/* /proc/<pid>/usage			*/
 	pr_readdir_notdir,	/* /proc/<pid>/lusage			*/
 	pr_readdir_notdir,	/* /proc/<pid>/pagedata			*/
@@ -4985,6 +5191,8 @@ static int (*pr_readdir_function[PR_NFILES])() = {
 	pr_readdir_notdir,	/* /proc/<pid>/root			*/
 	pr_readdir_fddir,	/* /proc/<pid>/fd			*/
 	pr_readdir_notdir,	/* /proc/<pid>/fd/nn			*/
+	pr_readdir_fdinfodir,	/* /proc/<pid>/fdinfo			*/
+	pr_readdir_notdir,	/* /proc/<pid>/fdinfo/nn		*/
 	pr_readdir_objectdir,	/* /proc/<pid>/object			*/
 	pr_readdir_notdir,	/* /proc/<pid>/object/xxx		*/
 	pr_readdir_lwpdir,	/* /proc/<pid>/lwp			*/
@@ -5129,6 +5337,7 @@ pr_readdir_piddir(prnode_t *pnp, uio_t *uiop, int *eofp)
 			case PR_PSINFO:
 			case PR_USAGE:
 			case PR_ARGV:
+			case PR_CMDLINE:
 				break;
 			default:
 				continue;
@@ -5518,9 +5727,12 @@ out:
 	return (0);
 }
 
-/* ARGSUSED */
+/*
+ * Helper function for reading a directory which lists open file desciptors
+ */
 static int
-pr_readdir_fddir(prnode_t *pnp, uio_t *uiop, int *eofp)
+pr_readdir_fdlist(prnode_t *pnp, uio_t *uiop, int *eofp,
+    prnodetype_t dirtype, prnodetype_t entrytype)
 {
 	gfs_readdir_state_t gstate;
 	int error, eof = 0;
@@ -5530,8 +5742,6 @@ pr_readdir_fddir(prnode_t *pnp, uio_t *uiop, int *eofp)
 	int fddirsize;
 	uf_info_t *fip;
 
-	ASSERT(pnp->pr_type == PR_FDDIR);
-
 	if ((error = prlock(pnp, ZNO)) != 0)
 		return (error);
 	p = pnp->pr_common->prc_proc;
@@ -5540,7 +5750,7 @@ pr_readdir_fddir(prnode_t *pnp, uio_t *uiop, int *eofp)
 	mutex_exit(&p->p_lock);
 
 	if ((error = gfs_readdir_init(&gstate, PLNSIZ, PRSDSIZE, uiop,
-	    pmkino(0, pslot, PR_PIDDIR), pmkino(0, pslot, PR_FDDIR), 0)) != 0) {
+	    pmkino(0, pslot, PR_PIDDIR), pmkino(0, pslot, dirtype), 0)) != 0) {
 		mutex_enter(&p->p_lock);
 		prunlock(pnp);
 		return (error);
@@ -5571,7 +5781,7 @@ pr_readdir_fddir(prnode_t *pnp, uio_t *uiop, int *eofp)
 		}
 
 		error = gfs_readdir_emitn(&gstate, uiop, n,
-		    pmkino(n, pslot, PR_FD), n);
+		    pmkino(n, pslot, entrytype), n);
 		if (error)
 			break;
 	}
@@ -5581,6 +5791,24 @@ pr_readdir_fddir(prnode_t *pnp, uio_t *uiop, int *eofp)
 	prunlock(pnp);
 
 	return (gfs_readdir_fini(&gstate, error, eofp, eof));
+}
+
+static int
+pr_readdir_fddir(prnode_t *pnp, uio_t *uiop, int *eofp)
+{
+
+	ASSERT(pnp->pr_type == PR_FDDIR);
+
+	return (pr_readdir_fdlist(pnp, uiop, eofp, pnp->pr_type, PR_FD));
+}
+
+static int
+pr_readdir_fdinfodir(prnode_t *pnp, uio_t *uiop, int *eofp)
+{
+
+	ASSERT(pnp->pr_type == PR_FDINFODIR);
+
+	return (pr_readdir_fdlist(pnp, uiop, eofp, pnp->pr_type, PR_FDINFO));
 }
 
 /* ARGSUSED */
@@ -5892,6 +6120,7 @@ prinactive(vnode_t *vp, cred_t *cr, caller_context_t *ct)
 	switch (type) {
 	case PR_OBJECT:
 	case PR_FD:
+	case PR_FDINFO:
 	case PR_SELF:
 	case PR_PATH:
 		/* These are not linked into the usual lists */

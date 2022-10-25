@@ -33,7 +33,7 @@ include ../Makefile.cmd
 
 LDLIBS +=	-lsec -lmd
 CERRWARN +=	-_gcc=-Wno-parentheses
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 
 SMOFF +=	indenting
 
@@ -52,7 +52,7 @@ ROOTLIBDIFFH=	$(DIFFH:%=$(ROOTLIB)/%)
 all:	$(PROG)
 
 $(PROG):	$(OBJS)
-	$(CC) -o $(PROG) $(OBJS) $(LDFLAGS) $(LDLIBS)
+	$(LINK.c) -o $(PROG) $(OBJS) $(LDLIBS)
 	$(POST_PROCESS)
 
 clean:

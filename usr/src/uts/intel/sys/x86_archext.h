@@ -27,7 +27,7 @@
  * All rights reserved.
  */
 /*
- * Copyright 2019 Joyent, Inc.
+ * Copyright 2020 Joyent, Inc.
  * Copyright 2012 Jens Elkner <jel+illumos@cs.uni-magdeburg.de>
  * Copyright 2012 Hans Rosenfeld <rosenfeld@grumpf.hope-2000.org>
  * Copyright 2014 Josef 'Jeff' Sipek <jeffpc@josefsipek.net>
@@ -209,6 +209,7 @@ extern "C" {
 #define	CPUID_AMD_EBX_IBRS_ALL		0x000010000 /* AMD: Enhanced IBRS */
 #define	CPUID_AMD_EBX_STIBP_ALL		0x000020000 /* AMD: STIBP ALL */
 #define	CPUID_AMD_EBX_PREFER_IBRS	0x000040000 /* AMD: Don't retpoline */
+#define	CPUID_AMD_EBX_PPIN		0x000800000 /* AMD: PPIN Support */
 #define	CPUID_AMD_EBX_SSBD		0x001000000 /* AMD: SSBD */
 #define	CPUID_AMD_EBX_VIRT_SSBD		0x002000000 /* AMD: VIRT SSBD */
 #define	CPUID_AMD_EBX_SSB_NO		0x004000000 /* AMD: SSB Fixed */
@@ -455,13 +456,21 @@ extern "C" {
 #define	MSR_PRP4_LBSTK_TO_15	0x6cf
 
 /*
- * General Xeon based MSRs
+ * PPIN definitions for Intel and AMD. Unfortunately, Intel and AMD use
+ * different MSRS for this and different MSRS to control whether or not it
+ * should be readable.
  */
-#define	MSR_PPIN_CTL		0x04e
-#define	MSR_PPIN		0x04f
+#define	MSR_PPIN_CTL_INTC	0x04e
+#define	MSR_PPIN_INTC		0x04f
 #define	MSR_PLATFORM_INFO	0x0ce
-
 #define	MSR_PLATFORM_INFO_PPIN	(1 << 23)
+
+#define	MSR_PPIN_CTL_AMD	0xC00102F0
+#define	MSR_PPIN_AMD		0xC00102F1
+
+/*
+ * These values are currently the same between Intel and AMD.
+ */
 #define	MSR_PPIN_CTL_MASK	0x03
 #define	MSR_PPIN_CTL_LOCKED	0x01
 #define	MSR_PPIN_CTL_ENABLED	0x02
@@ -476,6 +485,9 @@ extern "C" {
 #define	IA32_ARCH_CAP_SKIP_L1DFL_VMENTRY	0x0008
 #define	IA32_ARCH_CAP_SSB_NO			0x0010
 #define	IA32_ARCH_CAP_MDS_NO			0x0020
+#define	IA32_ARCH_CAP_IF_PSCHANGE_MC_NO		0x0040
+#define	IA32_ARCH_CAP_TSX_CTRL			0x0080
+#define	IA32_ARCH_CAP_TAA_NO			0x0100
 
 /*
  * Intel Speculation related MSRs
@@ -515,6 +527,13 @@ extern "C" {
 #define	IA32_VMX_EPT_VPID_INVEPT	(1UL << 20)
 #define	IA32_VMX_EPT_VPID_INVEPT_SINGLE	(1UL << 25)
 #define	IA32_VMX_EPT_VPID_INVEPT_ALL	(1UL << 26)
+
+/*
+ * Intel TSX Control MSRs
+ */
+#define	MSR_IA32_TSX_CTRL		0x122
+#define	IA32_TSX_CTRL_RTM_DISABLE	0x01
+#define	IA32_TSX_CTRL_CPUID_CLEAR	0x02
 
 /*
  * Intel Thermal MSRs
@@ -583,6 +602,7 @@ extern "C" {
 #define	IA32_PKG_THERM_INTTERUPT_TR2_VAL(x)	(((x) >> 16) & 0x7f)
 #define	IA32_PKG_THERM_INTERRUPT_TR2_IE		0x00800000
 #define	IA32_PKG_THERM_INTERRUPT_PL_NE		0x01000000
+
 
 #define	MCI_CTL_VALUE		0xffffffff
 
@@ -712,6 +732,11 @@ extern "C" {
 #define	X86FSET_MDS_NO		94
 #define	X86FSET_CORE_THERMAL	95
 #define	X86FSET_PKG_THERMAL	96
+#define	X86FSET_TSX_CTRL	97
+#define	X86FSET_TAA_NO		98
+#define	X86FSET_PPIN		99
+#define	X86FSET_VAES		100
+#define	X86FSET_VPCLMULQDQ	101
 
 /*
  * Intel Deep C-State invariant TSC in leaf 0x80000007.
@@ -924,6 +949,24 @@ extern "C" {
 #define	X86_CHIPREV_AMD_17_PiR_B2 \
 	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x17, 0x0003)
 
+#define	X86_CHIPREV_AMD_17_RV_B0 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x17, 0x0004)
+
+#define	X86_CHIPREV_AMD_17_RV_B1 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x17, 0x0005)
+
+#define	X86_CHIPREV_AMD_17_PCO_B1 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x17, 0x0006)
+
+#define	X86_CHIPREV_AMD_17_SSP_A0 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x17, 0x0007)
+
+#define	X86_CHIPREV_AMD_17_SSP_B0 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x17, 0x0008)
+
+#define	X86_CHIPREV_AMD_17_MTS_B0 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x17, 0x0009)
+
 /*
  * Various socket/package types, extended as the need to distinguish
  * a new type arises.  The top 8 byte identfies the vendor and the
@@ -978,7 +1021,10 @@ extern "C" {
 #define	X86_SOCKET_FT3B		_X86_SOCKET_MKVAL(X86_VENDOR_AMD, 0x1e)
 #define	X86_SOCKET_SP3		_X86_SOCKET_MKVAL(X86_VENDOR_AMD, 0x1f)
 #define	X86_SOCKET_SP3R2	_X86_SOCKET_MKVAL(X86_VENDOR_AMD, 0x20)
-#define	X86_NUM_SOCKETS_AMD	0x21
+#define	X86_SOCKET_FP5		_X86_SOCKET_MKVAL(X86_VENDOR_AMD, 0x21)
+#define	X86_SOCKET_FP6		_X86_SOCKET_MKVAL(X86_VENDOR_AMD, 0x22)
+#define	X86_SOCKET_STRX4	_X86_SOCKET_MKVAL(X86_VENDOR_AMD, 0x23)
+#define	X86_NUM_SOCKETS_AMD	0x24
 
 
 /*
@@ -1015,7 +1061,7 @@ extern "C" {
 #define	INTC_MODEL_BROADWELL_XEON	0x4f
 #define	INTC_MODEL_BROADWELL_XEON_D	0x56
 
-#define	INCC_MODEL_SKYLAKE_MOBILE	0x4e
+#define	INTC_MODEL_SKYLAKE_MOBILE	0x4e
 #define	INTC_MODEL_SKYLAKE_XEON		0x55
 #define	INTC_MODEL_SKYLAKE_DESKTOP	0x5e
 
@@ -1073,7 +1119,7 @@ extern "C" {
 
 #if defined(_KERNEL) || defined(_KMEMUSER)
 
-#define	NUM_X86_FEATURES	97
+#define	NUM_X86_FEATURES	102
 extern uchar_t x86_featureset[];
 
 extern void free_x86_featureset(void *featureset);
@@ -1092,20 +1138,17 @@ extern uint_t pentiumpro_bug4046376;
 
 extern const char CyrixInstead[];
 
+/*
+ * These functions are all used to perform various side-channel mitigations.
+ * Please see uts/i86pc/os/cpuid.c for more information.
+ */
 extern void (*spec_uarch_flush)(void);
+extern void x86_rsb_stuff(void);
+extern void x86_md_clear(void);
 
 #endif
 
 #if defined(_KERNEL)
-
-/*
- * x86_md_clear is the main entry point that should be called to deal with
- * clearing u-arch buffers. Implementations are below because they're
- * implemented in ASM. They shouldn't be used.
- */
-extern void (*x86_md_clear)(void);
-extern void x86_md_clear_noop(void);
-extern void x86_md_clear_verw(void);
 
 /*
  * This structure is used to pass arguments and get return values back

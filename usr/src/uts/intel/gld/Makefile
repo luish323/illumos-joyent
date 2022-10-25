@@ -26,7 +26,7 @@
 #
 
 #
-#	This makefile drives the production of the gld driver 
+#	This makefile drives the production of the gld driver
 #	kernel module.
 #
 #	intel architecture dependent
@@ -57,6 +57,8 @@ ALL_TARGET	= $(BINARY)
 LINT_TARGET	= $(MODULE).lint
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 
+LDFLAGS		+= -dy -Nmisc/mac
+
 #
 # For now, disable these lint checks; maintainers should endeavor
 # to investigate and remove these for maximum lint coverage.
@@ -66,7 +68,7 @@ LINTTAGS	+= -erroff=E_BAD_PTR_CAST_ALIGN
 LINTTAGS	+= -erroff=E_PTRDIFF_OVERFLOW
 LINTTAGS	+= -erroff=E_ASSIGN_NARROW_CONV
 
-CERRWARN	+= -_gcc=-Wno-uninitialized
+CERRWARN	+= $(CNOWARN_UNINIT)
 CERRWARN	+= -_gcc=-Wno-parentheses
 
 #

@@ -1716,10 +1716,8 @@ mac_srs_create_proto_softrings(int id, uint16_t type, pri_t pri,
 	bzero(&mrf, sizeof (mac_rx_fifo_t));
 	mrf.mrf_type = MAC_RX_FIFO;
 	mrf.mrf_receive = (mac_receive_t)mac_soft_ring_poll;
-	mrf.mrf_intr_enable =
-	    (mac_intr_enable_t)mac_soft_ring_intr_enable;
-	mrf.mrf_intr_disable =
-	    (mac_intr_disable_t)mac_soft_ring_intr_disable;
+	mrf.mrf_intr_enable = (mac_intr_enable_t)mac_soft_ring_intr_enable;
+	mrf.mrf_intr_disable = (mac_intr_disable_t)mac_soft_ring_intr_disable;
 	mrf.mrf_flow_priority = pri;
 
 	softring = mac_soft_ring_create(id, mac_soft_ring_worker_wait,
@@ -2894,8 +2892,8 @@ mac_datapath_setup(mac_client_impl_t *mcip, flow_entry_t *flent,
 	mac_group_t		*default_rgroup;
 	mac_group_t		*default_tgroup;
 	int			err;
-	uint8_t 		*mac_addr;
 	uint16_t		vid;
+	uint8_t			*mac_addr;
 	mac_group_state_t	next_state;
 	mac_client_impl_t	*group_only_mcip;
 	mac_resource_props_t	*mrp = MCIP_RESOURCE_PROPS(mcip);

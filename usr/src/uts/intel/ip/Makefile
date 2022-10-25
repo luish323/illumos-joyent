@@ -22,7 +22,7 @@
 # Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
 #
-# Copyright (c) 2018, Joyent, Inc.
+# Copyright 2019 Joyent, Inc.
 #
 #	This makefile drives the production of the ip driver
 #	kernel module.
@@ -53,7 +53,7 @@ include $(UTSBASE)/intel/Makefile.intel
 #
 #	Define targets
 #
-ALL_TARGET	= $(BINARY) $(SRC_CONFILE)
+ALL_TARGET	= $(BINARY) $(SRC_CONFFILE)
 LINT_TARGET	= $(MODULE).lint
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE) $(ROOTLINK) $(ROOT_CONFFILE)
 
@@ -66,7 +66,7 @@ CERRWARN	+= -_gcc=-Wno-unused-label
 CERRWARN	+= -_gcc=-Wno-unused-function
 CERRWARN	+= -_gcc=-Wno-unused-variable
 CERRWARN	+= -_gcc=-Wno-switch
-CERRWARN	+= -_gcc=-Wno-uninitialized
+CERRWARN	+= $(CNOWARN_UNINIT)
 CERRWARN	+= -_gcc=-Wno-type-limits
 
 # false positives
@@ -77,10 +77,6 @@ $(OBJS_DIR)/igmp.o := SMOFF += shift_to_zero
 $(OBJS_DIR)/tnet.o := SMOFF += shift_to_zero
 SMOFF += signed,all_func_returns
 SMOFF += signed_integer_overflow_check
-
-# definitely wrong
-$(OBJS_DIR)/ip_input.o := SMOFF += or_vs_and
-$(OBJS_DIR)/ip6_input.o := SMOFF += or_vs_and
 
 #
 # To get the BPF header files included by ipnet.h
@@ -93,6 +89,12 @@ INC_PATH	+= -I$(UTSBASE)/common/io/bpf
 # kCF subsystem can load swrand.
 #
 LDFLAGS		+= -dy -Nmisc/md5 -Ncrypto/swrand -Nmisc/hook -Nmisc/neti
+
+#
+# Depends on the congestion control framework for TCP connections.
+# We make several different algorithms available by default.
+#
+LDFLAGS		+= -N misc/cc -N cc/cc_sunreno -N cc/cc_newreno -N cc/cc_cubic
 
 #
 # For now, disable these lint checks; maintainers should endeavor

@@ -21,7 +21,8 @@
 
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2016 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2019 Nexenta by DDN, Inc. All rights reserved.
+ * Copyright 2020 RackTop Systems, Inc.
  */
 
 #ifndef	_LIBSMB_H
@@ -158,6 +159,9 @@ typedef enum {
 	SMB_CI_MAXIMUM_CREDITS,
 	SMB_CI_MAX_PROTOCOL,
 	SMB_CI_ENCRYPT,
+	SMB_CI_MIN_PROTOCOL,
+	SMB_CI_BYPASS_TRAVERSE_CHECKING,
+	SMB_CI_ENCRYPT_CIPHER,
 
 	SMB_CI_MAX
 } smb_cfg_id_t;
@@ -184,7 +188,8 @@ extern int smb_smf_restart_service(void);
 extern int smb_smf_maintenance_mode(void);
 
 /* ZFS interface */
-int smb_getdataset(const char *, char *, size_t);
+struct libzfs_handle;
+int smb_getdataset(struct libzfs_handle *, const char *, char *, size_t);
 
 /* Configuration management functions  */
 extern int smb_config_get(smb_cfg_id_t, char *, int);
@@ -216,7 +221,9 @@ extern void smb_config_get_negtok(uchar_t *, uint32_t *);
 
 extern int smb_config_check_protocol(char *);
 extern uint32_t smb_config_get_max_protocol(void);
+extern uint32_t smb_config_get_min_protocol(void);
 extern void smb_config_upgrade(void);
+extern uint16_t smb31_config_get_encrypt_cipher(void);
 
 extern smb_cfg_val_t smb_config_get_require(smb_cfg_id_t);
 
@@ -454,6 +461,7 @@ typedef struct smb_passwd {
 #define	SMB_PWC_DISABLE	0x01
 #define	SMB_PWC_ENABLE	0x02
 #define	SMB_PWC_NOLM	0x04
+#define	SMB_PWC_DELETE	0x08
 
 #define	SMB_PWE_SUCCESS		0
 #define	SMB_PWE_USER_UNKNOWN	1
@@ -633,6 +641,7 @@ typedef struct smb_trusted_domains {
 typedef struct smb_dcinfo {
 	char			dc_name[MAXHOSTNAMELEN];
 	smb_inaddr_t		dc_addr;
+	uint32_t		dc_flags;
 } smb_dcinfo_t;
 
 /*
@@ -717,7 +726,9 @@ boolean_t smb_lgrp_itererror(smb_giter_t *);
 int smb_lgrp_iterate(smb_giter_t *, smb_group_t *);
 
 int smb_lookup_sid(const char *, lsa_account_t *);
+int smb_lookup_lsid(const char *, lsa_account_t *);
 int smb_lookup_name(const char *, sid_type_t, lsa_account_t *);
+int smb_lookup_lname(const char *, sid_type_t, lsa_account_t *);
 
 #define	SMB_LGRP_SUCCESS		0
 #define	SMB_LGRP_INVALID_ARG		1
@@ -864,6 +875,7 @@ typedef struct smb_account {
 	smb_sid_t	*a_sid;
 	smb_sid_t	*a_domsid;
 	uint32_t	a_rid;
+	uint32_t	a_flags;
 } smb_account_t;
 
 uint32_t smb_sam_lookup_name(char *, char *, uint16_t, smb_account_t *);

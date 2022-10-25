@@ -39,13 +39,12 @@
  */
 
 /* If you modify this file, you must increment CW_VERSION */
-#define	CW_VERSION	"4.0"
+#define	CW_VERSION	"5.0"
 
 /*
  * -#		Verbose mode
  * -###		Show compiler commands built by driver, no compilation
  * -A<name[(tokens)]>	Preprocessor predicate assertion
- * -B<[static|dynamic]>	Specify dynamic or static binding
  * -C		Prevent preprocessor from removing comments
  * -c		Compile only - produce .o files, suppress linking
  * -cg92	Alias for -xtarget=ss1000
@@ -66,7 +65,6 @@
  * -fsingle	Use single-precision arithmetic (-Xt and -Xs modes only)
  * -ftrap=<t>	Select floating-point trapping mode in effect at startup
  * -fstore	force floating pt. values to target precision on assignment
- * -G		Build a dynamic shared library
  * -g		Compile for debugging
  * -H		Print path name of each file included during compilation
  * -h <name>	Assign <name> to generated dynamic shared library
@@ -158,7 +156,6 @@
  * -c				pass-thru
  * -cg92			-m32 -mcpu=v8 -mtune=supersparc (SPARC only)
  * -D<name[=token]>		pass-thru
- * -dy or -dn			-Wl,-dy or -Wl,-dn
  * -E				pass-thru
  * -erroff=E_EMPTY_TRANSLATION_UNIT ignore
  * -errtags=%all		-Wall
@@ -173,7 +170,6 @@
  * -fsingle[=<n>]		error
  * -ftrap=<t>			error
  * -fstore			error
- * -G				pass-thru
  * -g				pass-thru
  * -H				pass-thru
  * -h <name>			pass-thru
@@ -197,8 +193,6 @@
  * -Q[y|n]			error
  * -R<dir[:dir]>		pass-thru
  * -S				pass-thru
- * -s				-Wl,-s
- * -t				-Wl,-t
  * -U<name>			pass-thru
  * -V				--version
  * -v				-Wall
@@ -306,6 +300,7 @@ typedef struct {
 typedef struct cw_ictx {
 	struct cw_ictx	*i_next;
 	cw_compiler_t	*i_compiler;
+	char		*i_linker;
 	struct aelist	*i_ae;
 	uint32_t	i_flags;
 	int		i_oldargc;
@@ -423,7 +418,7 @@ newae(struct aelist *ael, const char *arg)
 {
 	struct ae *ae;
 
-	if ((ae = calloc(sizeof (*ae), 1)) == NULL)
+	if ((ae = calloc(1, sizeof (*ae))) == NULL)
 		nomem();
 	ae->ae_arg = strdup(arg);
 	if (ael->ael_tail == NULL)
@@ -437,9 +432,9 @@ newae(struct aelist *ael, const char *arg)
 static cw_ictx_t *
 newictx(void)
 {
-	cw_ictx_t *ctx = calloc(sizeof (cw_ictx_t), 1);
+	cw_ictx_t *ctx = calloc(1, sizeof (cw_ictx_t));
 	if (ctx)
-		if ((ctx->i_ae = calloc(sizeof (struct aelist), 1)) == NULL) {
+		if ((ctx->i_ae = calloc(1, sizeof (struct aelist))) == NULL) {
 			free(ctx);
 			return (NULL);
 		}
@@ -495,7 +490,7 @@ Xsmode(struct aelist *h)
 }
 
 static void
-usage()
+usage(void)
 {
 	extern char *__progname;
 	(void) fprintf(stderr,
@@ -822,16 +817,6 @@ do_gcc(cw_ictx_t *ctx)
 				newae(ctx->i_ae, "-ffreestanding");
 			break;
 		case 'd':
-			if (arglen == 2) {
-				if (strcmp(arg, "-dy") == 0) {
-					newae(ctx->i_ae, "-Wl,-dy");
-					break;
-				}
-				if (strcmp(arg, "-dn") == 0) {
-					newae(ctx->i_ae, "-Wl,-dn");
-					break;
-				}
-			}
 			if (strcmp(arg, "-dalign") == 0) {
 				/*
 				 * -dalign forces alignment in some cases;
@@ -864,10 +849,6 @@ do_gcc(cw_ictx_t *ctx)
 			}
 			error(arg);
 			break;
-		case 'G':
-			newae(ctx->i_ae, "-shared");
-			nolibc = 1;
-			break;
 		case 'k':
 			if (strcmp(arg, "-keeptmp") == 0) {
 				newae(ctx->i_ae, "-save-temps");
@@ -895,30 +876,6 @@ do_gcc(cw_ictx_t *ctx)
 			}
 			error(arg);
 			break;
-		case 'B':	/* linker options */
-		case 'M':
-		case 'z':
-			{
-				char *opt;
-				size_t len;
-				char *s;
-
-				if (arglen == 1) {
-					opt = *++ctx->i_oldargv;
-					if (opt == NULL || *opt == '\0')
-						error(arg);
-					ctx->i_oldargc--;
-				} else {
-					opt = arg + 2;
-				}
-				len = strlen(opt) + 7;
-				if ((s = malloc(len)) == NULL)
-					nomem();
-				(void) snprintf(s, len, "-Wl,-%c%s", c, opt);
-				newae(ctx->i_ae, s);
-				free(s);
-			}
-			break;
 		case 'O':
 			if (arglen == 1) {
 				newae(ctx->i_ae, "-O");
@@ -939,19 +896,14 @@ do_gcc(cw_ictx_t *ctx)
 			nolibc = 1;
 			break;
 		case 's':
-			if (arglen == 1) {
-				newae(ctx->i_ae, "-Wl,-s");
+			if (strcmp(arg, "-shared") == 0) {
+				newae(ctx->i_ae, "-shared");
+				nolibc = 1;
 				break;
 			}
 			error(arg);
 			break;
-		case 't':
-			if (arglen == 1) {
-				newae(ctx->i_ae, "-Wl,-t");
-				break;
-			}
-			error(arg);
-			break;
+
 		case 'V':
 			if (arglen == 1) {
 				ctx->i_flags &= ~CW_F_ECHO;
@@ -1209,14 +1161,6 @@ do_gcc(cw_ictx_t *ctx)
 			/* Just ignore -YS,... for now */
 			if (strncmp(arg, "S,", 2) == 0)
 				break;
-			if (strncmp(arg, "l,", 2) == 0) {
-				char *s = strdup(arg);
-				s[0] = '-';
-				s[1] = 'B';
-				newae(ctx->i_ae, s);
-				free(s);
-				break;
-			}
 			if (strncmp(arg, "I,", 2) == 0) {
 				char *s = strdup(arg);
 				s[0] = '-';
@@ -1467,6 +1411,14 @@ prepctx(cw_ictx_t *ctx)
 		    "shadow" : "primary", ctx->i_compiler->c_path);
 		(void) fflush(stdout);
 	}
+
+	/*
+	 * If LD_ALTEXEC is already set, the expectation would be that that
+	 * link-editor is run, as such we need to leave it the environment
+	 * alone and let that happen.
+	 */
+	if ((ctx->i_linker != NULL) && (getenv("LD_ALTEXEC") == NULL))
+		setenv("LD_ALTEXEC", ctx->i_linker, 1);
 
 	if (!(ctx->i_flags & CW_F_XLATE))
 		return;
@@ -1727,6 +1679,7 @@ main(int argc, char **argv)
 
 	static struct option longopts[] = {
 		{ "compiler", no_argument, NULL, 'c' },
+		{ "linker", required_argument, NULL, 'l' },
 		{ "noecho", no_argument, NULL, 'n' },
 		{ "primary", required_argument, NULL, 'p' },
 		{ "shadow", required_argument, NULL, 's' },
@@ -1745,6 +1698,10 @@ main(int argc, char **argv)
 			break;
 		case 'C':
 			Cflg = B_TRUE;
+			break;
+		case 'l':
+			if ((main_ctx->i_linker = strdup(optarg)) == NULL)
+				nomem();
 			break;
 		case 'n':
 			nflg = B_TRUE;

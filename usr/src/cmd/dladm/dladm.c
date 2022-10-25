@@ -23,6 +23,7 @@
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2017 Joyent, Inc.
  * Copyright 2016 Nexenta Systems, Inc.
+ * Copyright 2020 Peter Tribble.
  */
 
 #include <stdio.h>
@@ -1148,7 +1149,7 @@ typedef struct  usage_fields_buf_s {
 	char	usage_rbytes[10];
 	char	usage_opackets[9];
 	char	usage_obytes[10];
-	char	usage_bandwidth[14];
+	char	usage_bandwidth[15];
 } usage_fields_buf_t;
 
 static const ofmt_field_t usage_fields[] = {
@@ -1164,7 +1165,7 @@ static const ofmt_field_t usage_fields[] = {
 	offsetof(usage_fields_buf_t, usage_opackets), print_default_cb},
 { "OBYTES",	11,
 	offsetof(usage_fields_buf_t, usage_obytes), print_default_cb},
-{ "BANDWIDTH",	15,
+{ "BANDWIDTH",	16,
 	offsetof(usage_fields_buf_t, usage_bandwidth), print_default_cb},
 { NULL,		0, 0, NULL}}
 ;
@@ -1180,7 +1181,7 @@ typedef struct  usage_l_fields_buf_s {
 	char	usage_l_etime[13];
 	char	usage_l_rbytes[8];
 	char	usage_l_obytes[8];
-	char	usage_l_bandwidth[14];
+	char	usage_l_bandwidth[15];
 } usage_l_fields_buf_t;
 
 static const ofmt_field_t usage_l_fields[] = {
@@ -1195,7 +1196,7 @@ static const ofmt_field_t usage_l_fields[] = {
 	offsetof(usage_l_fields_buf_t, usage_l_rbytes), print_default_cb},
 { "OBYTES",	9,
 	offsetof(usage_l_fields_buf_t, usage_l_obytes), print_default_cb},
-{ "BANDWIDTH",	15,
+{ "BANDWIDTH",	16,
 	offsetof(usage_l_fields_buf_t, usage_l_bandwidth), print_default_cb},
 { NULL,		0, 0, NULL}}
 ;
@@ -7856,8 +7857,9 @@ show_etherprop(dladm_handle_t dh, datalink_id_t linkid, void *arg)
 	}
 
 	status = dladm_ether_info(dh, linkid, &eattr);
-	if (status != DLADM_STATUS_OK)
-		goto cleanup;
+	if (status != DLADM_STATUS_OK) {
+		return (DLADM_WALK_CONTINUE);
+	}
 
 	(void) strlcpy(ebuf.eth_ptype, "current", sizeof (ebuf.eth_ptype));
 
@@ -7879,7 +7881,6 @@ show_etherprop(dladm_handle_t dh, datalink_id_t linkid, void *arg)
 	if (statep->es_extended)
 		show_ether_xprop(arg, &eattr);
 
-cleanup:
 	dladm_ether_info_done(&eattr);
 	return (DLADM_WALK_CONTINUE);
 }
@@ -9936,7 +9937,7 @@ do_create_overlay(int argc, char *argv[], const char *use)
 	if (encap == NULL)
 		die("missing required encapsulation plugin");
 
-	if (encap == NULL)
+	if (search == NULL)
 		die("missing required search plugin");
 
 	if (optind != (argc - 1))

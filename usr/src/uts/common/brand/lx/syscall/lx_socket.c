@@ -22,8 +22,8 @@
 /*
  * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Copyright 2019 Joyent, Inc.
- * Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2020 Joyent, Inc.
+ * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
  */
 
 #include <sys/errno.h>
@@ -54,6 +54,7 @@
 #include <netinet/tcp.h>
 #include <netinet/igmp.h>
 #include <netinet/icmp6.h>
+#include <inet/cc.h>
 #include <inet/tcp_impl.h>
 #include <lx_errno.h>
 
@@ -705,12 +706,16 @@ static lx_cmsg_xlate_t lx_cmsg_xlate_tbl[] = {
 	    LX_IPPROTO_IP, LX_IP_PKTINFO, cmsg_conv_generic },
 	{ IPPROTO_IP, IP_RECVTTL, stol_conv_recvttl,
 	    LX_IPPROTO_IP, LX_IP_TTL, NULL },
+	{ IPPROTO_IP, IP_RECVTOS, cmsg_conv_generic,
+	    LX_IPPROTO_IP, LX_IP_TOS, cmsg_conv_generic },
 	{ IPPROTO_IP, IP_TTL, cmsg_conv_generic,
 	    LX_IPPROTO_IP, LX_IP_TTL, cmsg_conv_generic },
 	{ IPPROTO_IPV6, IPV6_HOPLIMIT, cmsg_conv_generic,
 	    LX_IPPROTO_IPV6, LX_IPV6_HOPLIMIT, cmsg_conv_generic },
 	{ IPPROTO_IPV6, IPV6_PKTINFO, cmsg_conv_generic,
-	    LX_IPPROTO_IPV6, LX_IPV6_PKTINFO, cmsg_conv_generic }
+	    LX_IPPROTO_IPV6, LX_IPV6_PKTINFO, cmsg_conv_generic },
+	{ IPPROTO_IPV6, IPV6_TCLASS, cmsg_conv_generic,
+	    LX_IPPROTO_IPV6, LX_IPV6_TCLASS, cmsg_conv_generic }
 };
 
 #define	LX_MAX_CMSG_XLATE	\
@@ -1400,6 +1405,18 @@ lx_socket_create(int domain, int type, int protocol, int options, file_t **fpp,
 	vnode_t *vp;
 	file_t *fp;
 	int err, fd;
+
+	/*
+	 * EACCES is returned in Linux when the user isn't allowed to use a
+	 * "ping socket". EACCES is also used by the iputils-ping userland
+	 * application to determine if fallback to SOCK_RAW is necessary.
+	 *
+	 * This can be removed if we ever implement SOCK_DGRAM + IPPROTO_ICMP.
+	 */
+	if ((domain == AF_INET && type == SOCK_DGRAM && protocol ==
+	    IPPROTO_ICMP) || (domain == AF_INET6 && type == SOCK_DGRAM &&
+	    protocol == IPPROTO_ICMPV6))
+		return (EACCES);
 
 	/* logic cloned from so_socket */
 	so = socket_create(domain, type, protocol, NULL, NULL, SOCKET_SLEEP,
@@ -2651,7 +2668,7 @@ static const lx_sockopt_map_t ltos_ip_sockopts[LX_IP_UNICAST_IF + 1] = {
 	{ OPTNOTSUP, 0 },			/* IP_MTUDISCOVER	*/
 	{ OPTNOTSUP, 0 },			/* IP_RECVERR		*/
 	{ IP_RECVTTL, sizeof (int) },		/* IP_RECVTTL		*/
-	{ OPTNOTSUP, 0 },			/* IP_RECVTOS		*/
+	{ IP_RECVTOS, sizeof (int) },		/* IP_RECVTOS		*/
 	{ OPTNOTSUP, 0 },			/* IP_MTU		*/
 	{ OPTNOTSUP, 0 },			/* IP_FREEBIND		*/
 	{ OPTNOTSUP, 0 },			/* IP_IPSEC_POLICY	*/
@@ -2761,7 +2778,7 @@ static const lx_sockopt_map_t ltos_ipv6_sockopts[LX_IPV6_TCLASS + 1] = {
 	{ OPTNOTSUP, 0 },
 	{ OPTNOTSUP, 0 },
 	{ OPTNOTSUP, 0 },
-	{ OPTNOTSUP, 0 },			/* IPV6_RECVTCLASS	*/
+	{ IPV6_RECVTCLASS, sizeof (int) },	/* IPV6_RECVTCLASS	*/
 	{ IPV6_TCLASS, sizeof (int) }		/* IPV6_TCLASS		*/
 };
 
@@ -2810,7 +2827,7 @@ static const lx_sockopt_map_t ltos_tcp_sockopts[LX_TCP_NOTSENT_LOWAT + 1] = {
 	{ OPTNOTSUP, 0 },			/* TCP_WINDOW_CLAMP - in code */
 	{ OPTNOTSUP, 0 },			/* TCP_INFO		*/
 	{ OPTNOTSUP, 0 },			/* TCP_QUICKACK - in code */
-	{ OPTNOTSUP, 0 },			/* TCP_CONGESTION	*/
+	{ TCP_CONGESTION, CC_ALGO_NAME_MAX },	/* TCP_CONGESTION	*/
 	{ OPTNOTSUP, 0 },			/* TCP_MD5SIG		*/
 	{ OPTNOTSUP, 0 },
 	{ OPTNOTSUP, 0 },			/* TCP_THIN_LINEAR_TIMEOUTS */
@@ -3020,6 +3037,16 @@ lx_mcast_common(sonode_t *so, int level, int optname, void *optval,
 	    optlen, CRED());
 	return (error);
 }
+
+
+/*
+ * NOTE: For now, the following mess applies to TCP (i.e. AF_INET{,6} +
+ * SOCK_STREAM) only, until we enable SO_REUSEPORT for other socket/protocol
+ * types as well.  The lx_so_needs_reusehandling() macro indicates what
+ * socket(s) apply to the following mess.
+ */
+#define	lx_so_needs_reusehandling(so)	((so)->so_type == SOCK_STREAM && \
+	((so)->so_family == AF_INET || (so)->so_family == AF_INET6))
 
 /*
  * So in Linux, the SO_REUSEADDR includes, essentially, SO_REUSEPORT as part
@@ -3611,8 +3638,15 @@ lx_setsockopt_socket(sonode_t *so, int optname, void *optval, socklen_t optlen)
 
 	case LX_SO_REUSEADDR:
 	case LX_SO_REUSEPORT:
-		/* See the function called below for the oddness of REUSE*. */
-		return (lx_set_reuse_handler(so, optname, optval, optlen));
+		if (lx_so_needs_reusehandling(so)) {
+			/*
+			 * See lx_set_reuse_handler's comments for the oddness
+			 * of REUSE* in some cases.
+			 */
+			return (lx_set_reuse_handler(so, optname, optval,
+			    optlen));
+		}
+		break;
 
 	case LX_SO_PASSCRED:
 		/*
@@ -3806,6 +3840,16 @@ lx_getsockopt_icmpv6(sonode_t *so, int optname, void *optval,
 	return (error);
 }
 
+/*
+ * When attempting to get socket options on AF_UNIX sockets we need to be a bit
+ * careful with the returned errno values. It turns out different OSes return
+ * different errno values here:
+ *     - illumos: ENOPROTOOPT
+ *     - Linux: EOPNOTSUPP
+ *     - FreeBSD: EINVAL
+ * Therefore we remap ENOPROTOOPT to EOPNOTSUPP when a userland program attempts
+ * to get one of the various TCP_XXX options under this condition.
+ */
 static int
 lx_getsockopt_tcp(sonode_t *so, int optname, void *optval, socklen_t *optlen)
 {
@@ -3825,7 +3869,10 @@ lx_getsockopt_tcp(sonode_t *so, int optname, void *optval, socklen_t *optlen)
 		 * oath.
 		 */
 		if (*optlen < sizeof (int)) {
-			error = EINVAL;
+			return (EINVAL);
+		}
+		if (so->so_family == AF_UNIX) {
+			return (EOPNOTSUPP);
 		} else {
 			*intval = 0;
 		}
@@ -3847,12 +3894,12 @@ lx_getsockopt_tcp(sonode_t *so, int optname, void *optval, socklen_t *optlen)
 			    TCP_CONN_NOTIFY_THRESHOLD, &syn_backoff, &len, 0,
 			    cr);
 			if (error != 0)
-				return (error);
+				goto out;
 			error = socket_getsockopt(so, IPPROTO_TCP,
 			    TCP_CONN_ABORT_THRESHOLD, &syn_abortconn, &len, 0,
 			    cr);
 			if (error != 0)
-				return (error);
+				goto out;
 
 			syn_cnt = 0;
 			while (syn_backoff < syn_abortconn) {
@@ -3866,7 +3913,7 @@ lx_getsockopt_tcp(sonode_t *so, int optname, void *optval, socklen_t *optlen)
 			*optlen = sizeof (int);
 		}
 
-		return (error);
+		goto out;
 
 	case LX_TCP_DEFER_ACCEPT:
 		/*
@@ -3884,7 +3931,7 @@ lx_getsockopt_tcp(sonode_t *so, int optname, void *optval, socklen_t *optlen)
 			if ((error = socket_getsockopt(so, SOL_FILTER,
 			    FIL_LIST, fi, &len, 0, cr)) != 0) {
 				*optlen = sizeof (int);
-				return (error);
+				goto out;
 			}
 
 			*intval = 0;
@@ -3898,17 +3945,26 @@ lx_getsockopt_tcp(sonode_t *so, int optname, void *optval, socklen_t *optlen)
 			}
 		}
 		*optlen = sizeof (int);
-		return (error);
+		goto out;
 	default:
 		break;
 	}
 
 	if (!lx_sockopt_lookup(sockopts_tbl, &optname, optlen)) {
+		if (optname <= sockopts_tbl.lpo_max &&
+		    so->so_family == AF_UNIX) {
+			return (EOPNOTSUPP);
+		}
 		return (ENOPROTOOPT);
 	}
 
 	error = socket_getsockopt(so, IPPROTO_TCP, optname, optval, optlen, 0,
 	    cr);
+
+out:
+	if (error == ENOPROTOOPT && so->so_family == AF_UNIX) {
+		return (EOPNOTSUPP);
+	}
 	return (error);
 }
 
@@ -3922,6 +3978,20 @@ lx_getsockopt_socket(sonode_t *so, int optname, void *optval,
 	lx_socket_aux_data_t *sad;
 
 	switch (optname) {
+	case LX_SO_PROTOCOL:
+		/*
+		 * We need to special-case netlink and AF_UNIX too.
+		 */
+		if (so->so_family != AF_LX_NETLINK && so->so_family != AF_UNIX)
+			break;	/* Common-case it. */
+		if (*optlen < sizeof (int)) {
+			error = EINVAL;
+		} else {
+			*intval = so->so_protocol;
+		}
+		*optlen = sizeof (int);
+		return (error);
+
 	case LX_SO_TYPE:
 		/*
 		 * Special handling for connectionless AF_UNIX sockets.
@@ -3975,9 +4045,13 @@ lx_getsockopt_socket(sonode_t *so, int optname, void *optval,
 		break;
 
 	case LX_SO_REUSEPORT:
-		/* See lx_set_reuse_handler() for the sordid details. */
-		if (so->so_family != AF_INET && so->so_family != AF_INET6)
+		/*
+		 * See lx_so_needs_reusehandling() and lx_set_reuse_handler()
+		 * for the sordid details.
+		 */
+		if (!lx_so_needs_reusehandling(so))
 			break;
+
 		if (*optlen < sizeof (int))
 			return (EINVAL);
 		sad = lx_sad_acquire(SOTOV(so));

@@ -23,7 +23,7 @@
  * Copyright (c) 1989, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2011, 2017 by Delphix. All rights reserved.
  * Copyright 2011 Nexenta Systems, Inc. All rights reserved.
- * Copyright 2019, Joyent, Inc.
+ * Copyright 2020 Joyent, Inc.
  * Copyright (c) 2014, OmniTI Computer Consulting, Inc. All rights reserved.
  */
 
@@ -103,6 +103,7 @@
 #include <sys/usb/clients/hid/hid.h>
 #include <sys/pm.h>
 #include <sys/soundcard.h>
+#include <sys/cpuid_drv.h>
 
 #include "ramdata.h"
 #include "proto.h"
@@ -1300,6 +1301,10 @@ const struct ioc {
 		"zfs_cmd_t" },
 	{ (uint_t)ZFS_IOC_CHANGE_KEY,		"ZFS_IOC_CHANGE_KEY",
 		"zfs_cmd_t" },
+	{ (uint_t)ZFS_IOC_SET_BOOTENV,		"ZFS_IOC_SET_BOOTENV",
+		"zfs_cmd_t" },
+	{ (uint_t)ZFS_IOC_GET_BOOTENV,		"ZFS_IOC_GET_BOOTENV",
+		"zfs_cmd_t" },
 
 	/* kssl ioctls */
 	{ (uint_t)KSSL_ADD_ENTRY,		"KSSL_ADD_ENTRY",
@@ -1379,6 +1384,10 @@ const struct ioc {
 	{ (uint_t)DKIOCDUMPFINI,	"DKIOCDUMPFINI",
 		NULL},
 	{ (uint_t)DKIOCREADONLY,	"DKIOCREADONLY",
+		NULL},
+	{ (uint_t)DKIOCFREE,		"DKIOCFREE",
+		NULL},
+	{ (uint_t)DKIOC_CANFREE,	"DKIOC_CANFREE",
 		NULL},
 
 	/* disk ioctls - (0x04 << 8) - fdio.h */
@@ -1666,6 +1675,12 @@ const struct ioc {
 		"pm_searchargs_t" },
 #endif /* _SYSCALL */
 
+	/* cpuid ioctls */
+	{ (uint_t)CPUID_GET_HWCAP,		"CPUID_GET_HWCAP", NULL },
+#if defined(__i386) || defined(__amd64)
+	{ (uint_t)CPUID_RDMSR,			"CPUID_RDMSR", NULL },
+#endif
+
 	{ (uint_t)0, NULL, NULL	}
 };
 
@@ -1951,7 +1966,7 @@ pathconfname(int code)
 #define	ALL_O_FLAGS \
 	(O_NDELAY|O_APPEND|O_SYNC|O_DSYNC|O_NONBLOCK|O_CREAT|O_TRUNC\
 	|O_EXCL|O_NOCTTY|O_LARGEFILE|O_RSYNC|O_XATTR|O_NOFOLLOW|O_NOLINKS\
-	|O_CLOEXEC|FXATTRDIROPEN)
+	|O_CLOEXEC|O_DIRECTORY|O_DIRECT|FXATTRDIROPEN)
 
 const char *
 openarg(private_t *pri, int arg)
@@ -2011,6 +2026,10 @@ openarg(private_t *pri, int arg)
 		(void) strlcat(str, "|O_NOLINKS", sizeof (pri->code_buf));
 	if (arg & O_CLOEXEC)
 		(void) strlcat(str, "|O_CLOEXEC", sizeof (pri->code_buf));
+	if (arg & O_DIRECTORY)
+		(void) strlcat(str, "|O_DIRECTORY", sizeof (pri->code_buf));
+	if (arg & O_DIRECT)
+		(void) strlcat(str, "|O_DIRECT", sizeof (pri->code_buf));
 	if (arg & FXATTRDIROPEN)
 		(void) strlcat(str, "|FXATTRDIROPEN", sizeof (pri->code_buf));
 

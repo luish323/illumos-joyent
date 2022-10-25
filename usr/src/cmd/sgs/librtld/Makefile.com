@@ -38,19 +38,25 @@ OBJECTS=	$(BLTOBJ)  $(MACHOBJS)  $(COMOBJS)
 
 
 include		$(SRC)/lib/Makefile.lib
+include		$(SRC)/lib/Makefile.rootfs
 include		$(SRC)/cmd/sgs/Makefile.com
 
+LIBS =		$(DYNLIB)
+
+COMPATLINKS =	usr/lib/$(DYNLIB)
+COMPATLINKS64 = usr/lib/$(MACH64)/$(DYNLIB)
+
 SRCDIR =	../common
-CPPFLAGS +=	-I../../rtld/common -I$(SRCBASE)/lib/libc/inc \
-		-I$(SRCBASE)/uts/common/krtld -I$(SRC)/common/sgsrtcid \
-		-I$(SRCBASE)/uts/sparc
-DYNFLAGS +=	$(VERSREF) $(CC_USE_PROTO)  '-R$$ORIGIN'
-LDLIBS +=	$(CONVLIBDIR) $(CONV_LIB) $(ELFLIBDIR) -lelf -lc
+CPPFLAGS +=	-I../../rtld/common -I$(SRC)/lib/libc/inc \
+		-I$(SRC)/uts/common/krtld -I$(SRC)/common/sgsrtcid \
+		-I$(SRC)/uts/sparc
+DYNFLAGS +=	$(VERSREF) '-R$$ORIGIN'
+LDLIBS +=	$(CONVLIBDIR) -lconv $(ELFLIBDIR) -lelf -lc
 
 CERRWARN +=	-_gcc=-Wno-parentheses
 CERRWARN +=	-_gcc=-Wno-unused-value
 CERRWARN +=	-_gcc=-Wno-type-limits
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 
 BLTDEFS=	msg.h
 BLTDATA=	msg.c
@@ -68,5 +74,3 @@ MSGSRCS=	$(MACHOBJS:%.o=%.c)  $(COMOBJS:%.o=../common/%.c) \
 
 CLEANFILES +=	$(BLTFILES)
 CLOBBERFILES +=	$(DYNLIB) $(LIBLINKS)
-
-ROOTFS_DYNLIB=	$(DYNLIB:%=$(ROOTFS_LIBDIR)/%)
