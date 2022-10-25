@@ -24,6 +24,7 @@
  * Copyright 2020 Joyent, Inc.
  * Copyright (c) 2011, 2017 by Delphix. All rights reserved.
  * Copyright 2017 RackTop Systems.
+ * Copyright 2022 MNX Cloud, Inc.
  */
 
 /*	Copyright (c) 1983, 1984, 1985, 1986, 1987, 1988, 1989 AT&T	*/
@@ -215,11 +216,11 @@ struct vsd_node {
  *     v_lock
  *     v_flag
  *     v_count
- *     v_phantom_count
  *     v_data
  *     v_vfsp
  *     v_stream
  *     v_type
+ *     v_phantom_count
  *     v_rdev
  *
  * ALL OTHER FIELDS SHOULD BE ACCESSED ONLY BY THE OWNER OF THAT FIELD.
@@ -287,12 +288,12 @@ typedef struct vnode {
 	kmutex_t	v_lock;		/* protects vnode fields */
 	uint_t		v_flag;		/* vnode flags (see below) */
 	uint_t		v_count;	/* reference count */
-				/* non vn_count() ref count (see below) */
-	uint_t		v_phantom_count;
 	void		*v_data;	/* private data for fs */
 	struct vfs	*v_vfsp;	/* ptr to containing VFS */
 	struct stdata	*v_stream;	/* associated stream */
 	enum vtype	v_type;		/* vnode type */
+				/* non vn_count() ref count (see below) */
+	uint_t		v_phantom_count;
 	dev_t		v_rdev;		/* device (VCHR, VBLK) */
 
 	/* PRIVATE FIELDS BELOW - DO NOT USE */
