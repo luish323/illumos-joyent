@@ -183,6 +183,12 @@ case "$1" in
 	egrep -vs '^#|^global:' /etc/zones/index || exit 0  # no local zones
 
 	#
+	# XXX KEBE SAYS Configure the BHYVE reservoir here.
+	# We may need to set it up initially only, followed by per-BHYVE-zone
+	# allocation... up to a reasonable limit.
+	#
+
+	#
 	# Boot the installed zones for which the "autoboot" zone property is
 	# set and invoke the sysboot hook for all other installed zones.
 	#
@@ -192,6 +198,8 @@ case "$1" in
 				print $2
 			}
 		}'`; do
+		# XXX KEBE SAYS MODIFY THIS TO CHECK FOR BOTH BHYVE AND
+		# (possibly?) AUTOBOOT.
 		zonecfg -z $zone info autoboot | grep "true" >/dev/null 2>&1
 		if [ $? -eq 0 ]; then
 			[ -z "$ZONES" ] && echo "Booting zones:\c"
@@ -303,6 +311,12 @@ case "$1" in
 		fi
 	done
 	[ "`zoneadm list`" != "global" ] && exit 1   # zones still running
+
+	#
+	# XXX KEBE SAYS Verify the reservoir is all free and take it down
+	# to zero.
+	#
+
 	;;
 
 *)

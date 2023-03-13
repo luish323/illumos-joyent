@@ -11,6 +11,7 @@
 
 /*
  * Copyright (c) 2018, Joyent, Inc.
+ * Copyright 2023 MNX Cloud, Inc.
  */
 
 /*
@@ -149,16 +150,25 @@ main(int argc, char **argv)
 	}
 
 	/*
-	 * Annoyingly, we need a NULL at the end.
+	 * Annoyingly, we need a NULL at the end.  More annoyingly, we may
+	 * need to insert "-o" "memory.use_reservoir=true" depending on if
+	 * we judge the memory reservoir to be sufficiently available.
 	 */
 
-	if ((tmpargs = malloc(sizeof (*zargv) * (zargc + 1))) == NULL) {
+	if ((tmpargs = malloc(sizeof (*zargv) * (zargc + 3))) == NULL) {
 		perror("malloc failed");
 		return (EXIT_FAILURE);
 	}
 
 	memcpy(tmpargs, zargv, sizeof (*zargv) * zargc);
 	tmpargs[zargc] = NULL;
+	/* XXX KEBE SAYS FILL ME IN */
+	/*
+	 * XXX pass zargv up, and see if there's "-m" "amount", query
+	 * reservoir, and fill tmpargs[zargc{,+1,+2}] appropriately if the
+	 * query pans out.  This makes us dependent on bhyve(8)'s argument
+	 * syntax, and it'll need to change if we proceed further.
+	 */
 
 	(void) execv("/usr/sbin/bhyve", tmpargs);
 
