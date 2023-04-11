@@ -44,18 +44,17 @@ OBJECTS=	libnwam_audit.o \
 include ../../Makefile.lib
 include ../../Makefile.rootfs
 
-LIBS =		$(DYNLIB) $(LINTLIB)
+LIBS =		$(DYNLIB)
 LDLIBS +=	-lbsm -lc -ldladm -lnvpair -lscf -lsecdb -lsocket \
 		-lipadm
 
 SRCDIR =	../common
-$(LINTLIB) := SRCS=	$(SRCDIR)/$(LINTSRC)
 
 CFLAGS +=       $(CCVERBOSE)
 CPPFLAGS +=	-I$(SRCDIR) -D_REENTRANT
 
 CERRWARN +=	-_gcc=-Wno-switch
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 
 # not linted
 SMATCH=off
@@ -64,6 +63,5 @@ SMATCH=off
 
 all:	$(LIBS)
 
-lint:	lintcheck
 
 include  $(SRC)/lib/Makefile.targ

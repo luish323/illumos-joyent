@@ -23,6 +23,7 @@
  * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  * Copyright (c) 2016 by Delphix. All rights reserved.
+ * Copyright 2022 Oxide Computer Company
  */
 
 #include <sys/types.h>
@@ -34,6 +35,7 @@
 #include <sys/sysmacros.h>
 #include <sys/bootvfs.h>
 #include <sys/filep.h>
+#include <sys/kmem.h>
 
 #ifdef	_BOOT
 #include "../common/util.h"
@@ -69,15 +71,15 @@ static fileid_t *head;
 devid_t		*ufs_devp;
 
 struct dirinfo {
-	int 	loc;
+	int	loc;
 	fileid_t *fi;
 };
 
 static	int	bufs_close(int);
 static	void	bufs_closeall(int);
-static 	ino_t	find(fileid_t *filep, char *path);
+static	ino_t	find(fileid_t *filep, char *path);
 static	ino_t	dlook(fileid_t *filep, char *path);
-static 	daddr32_t	sbmap(fileid_t *filep, daddr32_t bn);
+static	daddr32_t	sbmap(fileid_t *filep, daddr32_t bn);
 static  struct direct *readdir(struct dirinfo *dstuff);
 static	void set_cache(int, void *, uint_t);
 static	void *get_cache(int);
@@ -151,9 +153,10 @@ find(fileid_t *filep, char *path)
 	int len, r;
 	devid_t	*devp;
 
+	inode = 0;
 	if (path == NULL || *path == '\0') {
 		printf("null path\n");
-		return ((ino_t)0);
+		return (inode);
 	}
 
 	dprintf("openi: %s\n", path);
@@ -509,8 +512,11 @@ bufs_read(int fd, caddr_t buf, size_t count)
 	n = buf;
 	while (i > 0) {
 		if (filep->fi_flags & FI_COMPRESSED) {
-			if ((j = cf_read(filep, buf, count)) < 0)
+			int rval;
+
+			if ((rval = cf_read(filep, buf, count)) < 0)
 				return (0); /* encountered an error */
+			j = (size_t)rval;
 			if (j < i)
 				i = j; /* short read, must have hit EOF */
 		} else {
@@ -756,6 +762,17 @@ bufs_close(int fd)
 		filep->fi_back->fi_forw = filep->fi_forw;
 		cf_close(filep);
 		bkmem_free((char *)filep, sizeof (fileid_t));
+
+		/*
+		 * Some files are opened and closed in early boot, for example
+		 * when doing a microcode update on the boot CPU. In that case
+		 * the inode cache will contain memory allocated from boot
+		 * pages, which will be invalid once kmem is initialised.
+		 * Until kmem is ready, clear the inode cache when closing a
+		 * file.
+		 */
+		if (kmem_ready == 0)
+			free_cache();
 
 		return (0);
 	} else {

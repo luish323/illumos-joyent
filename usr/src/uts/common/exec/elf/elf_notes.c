@@ -27,6 +27,8 @@
 /*
  * Copyright 2012 DEY Storage Systems, Inc.  All rights reserved.
  * Copyright 2018 Joyent, Inc.
+ * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2022 Oxide Computer Company
  */
 
 #include <sys/types.h>
@@ -65,7 +67,7 @@
 #include <sys/machelf.h>
 #include <sys/sunddi.h>
 #include "elf_impl.h"
-#if defined(__i386) || defined(__i386_COMPAT)
+#if defined(__i386_COMPAT)
 #include <sys/sysi86.h>
 #endif
 
@@ -108,7 +110,7 @@ setup_note_header(Phdr *v, proc_t *p)
 	    + (nlwp + nzomb) * roundup(sizeof (lwpsinfo_t), sizeof (Word))
 	    + nlwp * roundup(sizeof (lwpstatus_t), sizeof (Word))
 	    + nlwp * roundup(sizeof (prlwpname_t), sizeof (Word))
-	    + nfd * roundup(sizeof (prfdinfo_t), sizeof (Word));
+	    + nfd * roundup(sizeof (prfdinfo_core_t), sizeof (Word));
 
 	if (curproc->p_agenttp != NULL) {
 		v[0].p_filesz += sizeof (Note) +
@@ -128,13 +130,13 @@ setup_note_header(Phdr *v, proc_t *p)
 	kmem_free(pcrp, size);
 
 
-#if defined(__i386) || defined(__i386_COMPAT)
+#if defined(__i386_COMPAT)
 	mutex_enter(&p->p_ldtlock);
 	size = prnldt(p) * sizeof (struct ssd);
 	mutex_exit(&p->p_ldtlock);
 	if (size != 0)
 		v[0].p_filesz += sizeof (Note) + roundup(size, sizeof (Word));
-#endif	/* __i386 || __i386_COMPAT */
+#endif	/* __i386_COMPAT */
 
 	if ((size = prhasx(p)? prgetprxregsize(p) : 0) != 0)
 		v[0].p_filesz += nlwp * sizeof (Note)
@@ -163,6 +165,13 @@ setup_note_header(Phdr *v, proc_t *p)
 		v[0].p_filesz += nlwp * sizeof (Note)
 		    + nlwp * roundup(sizeof (asrset_t), sizeof (Word));
 #endif /* __sparc */
+
+	mutex_enter(&p->p_lock);
+	if ((p->p_upanicflag & P_UPF_PANICKED) != 0) {
+		v[0].p_filesz += sizeof (Note) +
+		    roundup(sizeof (prupanic_t), sizeof (Word));
+	}
+	mutex_exit(&p->p_lock);
 }
 
 int
@@ -185,6 +194,7 @@ write_elfnotes(proc_t *p, int sig, vnode_t *vp, offset_t offset,
 		priv_impl_info_t prinfo;
 		struct utsname	uts;
 		prsecflags_t	psecflags;
+		prupanic_t	upanic;
 	} *bigwad;
 
 	size_t xregsize = prhasx(p)? prgetprxregsize(p) : 0;
@@ -209,10 +219,10 @@ write_elfnotes(proc_t *p, int sig, vnode_t *vp, offset_t offset,
 	int fd;
 	vnode_t *vroot;
 
-#if defined(__i386) || defined(__i386_COMPAT)
+#if defined(__i386_COMPAT)
 	struct ssd *ssd;
 	size_t ssdsize;
-#endif	/* __i386 || __i386_COMPAT */
+#endif	/* __i386_COMPAT */
 
 	bigsize = MAX(bigsize, priv_get_implinfo_size());
 
@@ -352,7 +362,7 @@ write_elfnotes(proc_t *p, int sig, vnode_t *vp, offset_t offset,
 		vnode_t *fvp;
 		struct file *fp;
 		vattr_t vattr;
-		prfdinfo_t fdinfo;
+		prfdinfo_core_t fdinfo;
 
 		bzero(&fdinfo, sizeof (fdinfo));
 
@@ -440,7 +450,7 @@ write_elfnotes(proc_t *p, int sig, vnode_t *vp, offset_t offset,
 
 	VN_RELE(vroot);
 
-#if defined(__i386) || defined(__i386_COMPAT)
+#if defined(__i386_COMPAT)
 	mutex_enter(&p->p_ldtlock);
 	ssdsize = prnldt(p) * sizeof (struct ssd);
 	if (ssdsize != 0) {
@@ -453,7 +463,7 @@ write_elfnotes(proc_t *p, int sig, vnode_t *vp, offset_t offset,
 	mutex_exit(&p->p_ldtlock);
 	if (error)
 		goto done;
-#endif	/* __i386 || defined(__i386_COMPAT) */
+#endif	/* defined(__i386_COMPAT) */
 
 	nlwp = p->p_lwpcnt;
 	nzomb = p->p_zombcnt;
@@ -597,6 +607,37 @@ write_elfnotes(proc_t *p, int sig, vnode_t *vp, offset_t offset,
 		}
 	}
 	ASSERT(nlwp == 0);
+
+	/*
+	 * If a upanic occurred, add a note for it.
+	 */
+	mutex_enter(&p->p_lock);
+	if ((p->p_upanicflag & P_UPF_PANICKED) != 0) {
+		bzero(&bigwad->upanic, sizeof (prupanic_t));
+		bigwad->upanic.pru_version = PRUPANIC_VERSION_1;
+		if ((p->p_upanicflag & P_UPF_INVALMSG) != 0) {
+			bigwad->upanic.pru_flags |= PRUPANIC_FLAG_MSG_ERROR;
+		}
+
+		if ((p->p_upanicflag & P_UPF_TRUNCMSG) != 0) {
+			bigwad->upanic.pru_flags |= PRUPANIC_FLAG_MSG_TRUNC;
+		}
+
+		if ((p->p_upanicflag & P_UPF_HAVEMSG) != 0) {
+			bigwad->upanic.pru_flags |= PRUPANIC_FLAG_MSG_VALID;
+			bcopy(p->p_upanic, bigwad->upanic.pru_data,
+			    PRUPANIC_BUFLEN);
+		}
+
+		mutex_exit(&p->p_lock);
+		error = elfnote(vp, &offset, NT_UPANIC, sizeof (prupanic_t),
+		    &bigwad->upanic, rlimit, credp);
+		if (error != 0) {
+			goto done;
+		}
+	} else {
+		mutex_exit(&p->p_lock);
+	}
 
 done:
 	kmem_free(bigwad, bigsize);

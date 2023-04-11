@@ -21,7 +21,7 @@
 #
 # Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
-# Copyright 2019 Joyent, Inc.
+# Copyright 2020 Joyent, Inc.
 #
 
 LX_CMN  =	$(SRC)/common/brand/lx
@@ -69,13 +69,17 @@ SRCDIR =	../common
 UTSBASE	=	../../../../../uts
 
 LIBS =		$(DYNLIB)
-LDLIBS +=	-lc -lsocket -lmapmalloc -lproc -lrtld_db -lrpcsvc -lnsl
+LDLIBS +=	-lmapmalloc -lsocket -lproc -lrtld_db -lrpcsvc -lnsl -lc
 DYNFLAGS +=	$(DYNFLAGS_$(CLASS))
-DYNFLAGS +=	$(BLOCAL) $(ZNOVERSION) -Wl,-e_start -M../common/mapfile
+DYNFLAGS +=	$(BLOCAL) $(ZNOVERSION) -Wl,-e_start
 CFLAGS +=	$(CCVERBOSE)
 CPPFLAGS +=	-D_REENTRANT -I. -I../ -I$(UTSBASE)/common/brand/lx -I$(LX_CMN)
-ASFLAGS =	-P $(ASFLAGS_$(CURTYPE)) -D_ASM -I../	\
+ASFLAGS +=	$(ASFLAGS_$(CURTYPE)) -D_ASM -I../	\
 			-I$(UTSBASE)/common/brand/lx
+ASFLAGS64 +=	$(ASFLAGS_$(CURTYPE)) -D_ASM -I../	\
+			-I$(UTSBASE)/common/brand/lx
+
+ZGUIDANCE =	-Wl,-zguidance=nounused
 
 # not linted
 SMATCH=off
@@ -92,7 +96,7 @@ lint: lintcheck
 include ../../../../Makefile.targ
 include ../../../../Makefile.usdt
 
-pics/%.o: $(ISASRCDIR)/%.s
+pics/%.o: $(ISASRCDIR)/%.S
 	$(COMPILE.s) -o $@ $<
 	$(POST_PROCESS_S_O)
 

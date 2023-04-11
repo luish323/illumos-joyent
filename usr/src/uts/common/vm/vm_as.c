@@ -56,7 +56,6 @@
 #include <sys/vmsystm.h>
 #include <sys/cmn_err.h>
 #include <sys/debug.h>
-#include <sys/tnf_probe.h>
 #include <sys/vtrace.h>
 #include <sys/ddi.h>
 
@@ -455,7 +454,6 @@ as_addseg(struct as  *as, struct seg *newseg)
 
 	addr = newseg->s_base;
 	eaddr = addr + newseg->s_size;
-again:
 
 	seg = avl_find(&as->a_segtree, &addr, &where);
 
@@ -476,19 +474,6 @@ again:
 		 */
 		if (base + seg->s_size > addr) {
 			if (addr >= base || eaddr > base) {
-#ifdef __sparc
-				extern struct seg_ops segnf_ops;
-
-				/*
-				 * no-fault segs must disappear if overlaid.
-				 * XXX need new segment type so
-				 * we don't have to check s_ops
-				 */
-				if (seg->s_ops == &segnf_ops) {
-					seg_unmap(seg);
-					goto again;
-				}
-#endif
 				return (-1);	/* overlapping segment */
 			}
 		}
@@ -892,12 +877,6 @@ retry:
 		CPU_STATS_EXIT_K();
 		break;
 	}
-
-	/* Kernel probe */
-	TNF_PROBE_3(address_fault, "vm pagefault", /* CSTYLED */,
-	    tnf_opaque,	address,	addr,
-	    tnf_fault_type,	fault_type,	type,
-	    tnf_seg_access,	access,		rw);
 
 	raddr = (caddr_t)((uintptr_t)addr & (uintptr_t)PAGEMASK);
 	rsize = (((size_t)(addr + size) + PAGEOFFSET) & PAGEMASK) -
@@ -1439,7 +1418,7 @@ as_map_segvn_segs(struct as *as, caddr_t addr, size_t size, uint_t szcvec,
 	uint_t szc, nszc, save_szcvec;
 	int error;
 	caddr_t a, eaddr;
-	size_t pgsz;
+	size_t pgsz = 0;
 	const boolean_t do_off = (vn_a->vp != NULL || vn_a->amp != NULL);
 
 	ASSERT(AS_WRITE_HELD(as));
@@ -1643,7 +1622,7 @@ as_map_ansegs(struct as *as, caddr_t addr, size_t size,
     segcreate_func_t crfp, struct segvn_crargs *vn_a, boolean_t *segcreated)
 {
 	uint_t szcvec;
-	uchar_t type;
+	uchar_t type = 0;
 
 	ASSERT(vn_a->type == MAP_SHARED || vn_a->type == MAP_PRIVATE);
 	if (vn_a->type == MAP_SHARED) {
@@ -2295,6 +2274,9 @@ as_ctl(struct as *as, caddr_t addr, size_t size, int func, int attr,
 	ulong_t *mlock_map;	/* pointer to bitmap used */
 				/* to represent the locked */
 				/* pages. */
+
+	mlock_size = 0;
+	mlock_map = NULL;
 retry:
 	if (error == IE_RETRY)
 		AS_LOCK_ENTER(as, RW_WRITER);

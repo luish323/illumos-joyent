@@ -10,7 +10,7 @@
 #
 
 #
-# Copyright (c) 2018, Joyent, Inc.
+# Copyright 2019 Joyent, Inc.
 #
 
 UTSBASE = ../..
@@ -47,6 +47,7 @@ CPPFLAGS	+= -I$(UTSBASE)/common/io/qede/579xx/hsi/mcp
 #
 CERRWARN	+= -_gcc=-Wno-unused-variable
 CERRWARN	+= -_gcc=-Wno-unused-function
+CCWARNINLINE	=
 
 # 3rd party module
 SMOFF += all_func_returns,indenting,no_if_block,deref_check,testing_index_after_use
@@ -54,10 +55,17 @@ SMOFF += all_func_returns,indenting,no_if_block,deref_check,testing_index_after_
 # real bug in qede_multicast()
 $(OBJS_DIR)/qede_gld.o := SMOFF += assign_vs_compare
 
+#
+# Unfortunately the default use of -fstack-protector-strong breaks the
+# qede module. For the time being limit its use of stack-protector to
+# the basic form (-fstack-protector).
+#
+STACKPROTECT=basic
+
 ALL_TARGET	= $(BINARY) $(CONFMOD)
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE) $(ROOT_CONFFILE)
 
-LDFLAGS		+= -dy -N misc/mac
+LDFLAGS		+= -N misc/mac
 
 .KEEP_STATE:
 
@@ -68,10 +76,6 @@ all:		$(ALL_DEPS)
 clean:		$(CLEAN_DEPS)
 
 clobber:	$(CLOBBER_DEPS)
-
-lint:
-modlintlib:
-clean.lint:
 
 install:	$(INSTALL_DEPS)
 

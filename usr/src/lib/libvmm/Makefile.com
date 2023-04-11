@@ -27,17 +27,15 @@ LIBS		= $(DYNLIB)
 # The FreeBSD compat and contrib headers need to be first in the search
 # path, hence we can't just append them to CPPFLAGS. So we assign CPPFLAGS
 # directly and pull in CPPFLAGS.master at the appropriate place.
-CPPFLAGS =	-I$(COMPAT)/freebsd -I$(CONTRIB)/freebsd \
-		-I$(COMPAT)/freebsd/amd64 -I$(CONTRIB)/freebsd/amd64 \
-		$(CPPFLAGS.master) -I$(SRC)/uts/i86pc
+CPPFLAGS =	-I$(COMPAT)/bhyve -I$(CONTRIB)/bhyve \
+		-I$(COMPAT)/bhyve/amd64 -I$(CONTRIB)/bhyve/amd64 \
+		$(CPPFLAGS.master) -I$(SRC)/uts/intel
 
 LDLIBS +=	-lc -lvmmapi
 
 .KEEP_STATE:
 
 all: $(LIBS)
-
-lint: lintcheck
 
 pics/%.o: $(SRC)/common/list/%.c
 	$(COMPILE.c) -o $@ $<

@@ -54,7 +54,7 @@ INSTALL_TARGET	= $(BINARY) $(ROOTMODULE) $(ROOT_CONFFILE)
 #
 # Define dependencies on iommulib and acpica
 #
-LDFLAGS		+= -dy -N misc/iommulib -N misc/acpica
+LDFLAGS		+= -N misc/iommulib -N misc/acpica
 
 #
 # For now, disable these checks; maintainers should endeavor
@@ -64,7 +64,7 @@ LDFLAGS		+= -dy -N misc/iommulib -N misc/acpica
 CERRWARN	+= -_gcc=-Wno-unused-label
 CERRWARN	+= -_gcc=-Wno-parentheses
 CERRWARN	+= -_gcc=-Wno-unused-function
-CERRWARN	+= -_gcc=-Wno-uninitialized
+CERRWARN	+= $(CNOWARN_UNINIT)
 
 # needs work
 $(OBJS_DIR)/immu_qinv.o := SMOFF += index_overflow

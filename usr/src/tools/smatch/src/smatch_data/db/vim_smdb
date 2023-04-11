@@ -25,8 +25,22 @@ fi
 next=$(($i + 1))
 
 rm -f $DIR/$next
-rm $DIR/.${i}.swp
-smdb $* > $DIR/$i
+rm -f $DIR/.${i}.swp
+
+func=""
+if [[ "$3" != "" ]] ; then
+	func="$3"
+elif [[ "$2" != "" ]] ; then
+	func="$2"
+elif [[ "$1" != "" ]] ; then
+	func="$1"
+fi
+
+echo "$func" >> $DIR/history
+tail -n 7 $DIR/history | tac | perl -ne 's/\n/ /; print' | perl -ne 's/ $//; print' > $DIR/$i
+echo "" >> $DIR/$i
+echo "==========================" >> $DIR/$i
+smdb $* >> $DIR/$i
 
 echo "$DIR/$i" > $DIR/cur
 

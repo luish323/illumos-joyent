@@ -139,6 +139,16 @@ void return_implies_state(const char *look_for, long long start, long long end,
 	add_callback(func_hash, look_for, cb);
 }
 
+void return_implies_state_sval(const char *look_for, sval_t start, sval_t end,
+			 implication_hook *call_back, void *info)
+{
+	struct fcall_back *cb;
+
+	cb = alloc_fcall_back(RANGED_CALL, call_back, info);
+	cb->range = alloc_range_perm(start, end);
+	add_callback(func_hash, look_for, cb);
+}
+
 void select_return_states_hook(int type, return_implies_hook *callback)
 {
 	struct return_implies_callback *cb = __alloc_return_implies_callback(0);
@@ -246,6 +256,7 @@ static int assign_ranged_funcs(const char *fn, struct expression *expr,
 	struct stree *final_states = NULL;
 	struct range_list *handled_ranges = NULL;
 	struct call_back_list *same_range_call_backs = NULL;
+	struct range_list *rl;
 	int handled = 0;
 
 	if (!call_backs)
@@ -268,7 +279,9 @@ static int assign_ranged_funcs(const char *fn, struct expression *expr,
 		call_ranged_call_backs(same_range_call_backs, fn, expr->right, expr);
 		__free_ptr_list((struct ptr_list **)&same_range_call_backs);
 
-		estate = alloc_estate_range(tmp->range->min, tmp->range->max);
+		rl = alloc_rl(tmp->range->min, tmp->range->max);
+		rl = cast_rl(get_type(expr->left), rl);
+		estate = alloc_estate_rl(rl);
 		set_extra_mod(var_name, sym, expr->left, estate);
 
 		tmp_stree = __pop_fake_cur_stree();
@@ -344,6 +357,7 @@ struct db_callback_info {
 	struct range_list *rl;
 	int left;
 	struct stree *stree;
+	struct stree *implied;
 	struct db_implies_list *callbacks;
 	int prev_return_id;
 	int cull;
@@ -354,15 +368,26 @@ struct db_callback_info {
 	int handled;
 };
 
+static void set_implied_states(struct db_callback_info *db_info)
+{
+	struct sm_state *sm;
+
+	FOR_EACH_SM(db_info->implied, sm) {
+		__set_sm(sm);
+	} END_FOR_EACH_SM(sm);
+
+	free_stree(&db_info->implied);
+}
+
 static void store_return_state(struct db_callback_info *db_info, const char *ret_str, struct smatch_state *state)
 {
 	db_info->ret_str = alloc_sname(ret_str),
 	db_info->ret_state = state;
 }
 
-static bool fake_a_param_assignment(struct expression *expr, const char *return_str)
+static bool fake_a_param_assignment(struct expression *expr, const char *return_str, struct smatch_state *orig)
 {
-	struct expression *arg, *left, *right, *fake_assign;
+	struct expression *arg, *left, *right, *tmp, *fake_assign;
 	char *p;
 	int param;
 	char buf[256];
@@ -402,6 +427,12 @@ static bool fake_a_param_assignment(struct expression *expr, const char *return_
 	arg = get_argument_from_call_expr(right->args, param);
 	if (!arg)
 		return false;
+
+	/* There should be a get_other_name() function which returns an expr */
+	tmp = get_assigned_expr(arg);
+	if (tmp)
+		arg = tmp;
+
 	/*
 	 * This is a sanity check to prevent side effects from evaluating stuff
 	 * twice.
@@ -418,20 +449,76 @@ static bool fake_a_param_assignment(struct expression *expr, const char *return_
 	__in_fake_parameter_assign++;
 	__split_expr(fake_assign);
 	__in_fake_parameter_assign--;
+
+	/*
+	 * If the return is "0-65531[$0->nla_len - 4]" the faked expression
+	 * is maybe (-4)-65531 but we know it is in the 0-65531 range so both
+	 * parts have to be considered.  We use _nomod() because it's not really
+	 * another modification, it's just a clarification.
+	 *
+	 */
+	if (estate_rl(orig)) {
+		struct smatch_state *faked;
+		struct range_list *rl;
+
+		faked = get_extra_state(left);
+		if (estate_rl(faked)) {
+			rl = rl_intersection(estate_rl(faked), estate_rl(orig));
+			if (rl)
+				set_extra_expr_nomod(expr, alloc_estate_rl(rl));
+		}
+	}
+
 	return true;
 }
 
-static void set_return_state(struct expression *expr, struct db_callback_info *db_info)
+static void set_fresh_mtag_returns(struct db_callback_info *db_info)
 {
+	struct expression *expr = db_info->expr->left;
 	struct smatch_state *state;
 
 	if (!db_info->ret_state)
 		return;
 
 	state = alloc_estate_rl(cast_rl(get_type(expr), clone_rl(estate_rl(db_info->ret_state))));
+	state = get_mtag_return(db_info->expr, state);
+	if (!state)
+		return;
+
+	set_real_absolute(expr, state);
 	set_extra_expr_mod(expr, state);
+
 	db_info->ret_state = NULL;
-	fake_a_param_assignment(db_info->expr, db_info->ret_str);
+	db_info->ret_str = NULL;
+}
+
+static void set_return_assign_state(struct db_callback_info *db_info)
+{
+	struct expression *expr = db_info->expr->left;
+	struct smatch_state *state;
+
+	if (!db_info->ret_state)
+		return;
+
+	state = alloc_estate_rl(cast_rl(get_type(expr), clone_rl(estate_rl(db_info->ret_state))));
+	if (!fake_a_param_assignment(db_info->expr, db_info->ret_str, state))
+		set_extra_expr_mod(expr, state);
+
+	db_info->ret_state = NULL;
+	db_info->ret_str = NULL;
+}
+
+static void set_other_side_state(struct db_callback_info *db_info)
+{
+	struct expression *expr = db_info->var_expr;
+	struct smatch_state *state;
+
+	if (!db_info->ret_state)
+		return;
+
+	state = alloc_estate_rl(cast_rl(get_type(expr), clone_rl(estate_rl(db_info->ret_state))));
+	set_extra_expr_nomod(expr, state);
+	db_info->ret_state = NULL;
 	db_info->ret_str = NULL;
 }
 
@@ -561,7 +648,7 @@ static int db_compare_callback(void *_info, int argc, char **argv, char **azColN
 	struct range_list *var_rl = db_info->rl;
 	struct range_list *ret_range;
 	int type, param;
-	char *key, *value;
+	char *ret_str, *key, *value;
 	struct return_implies_callback *tmp;
 	struct stree *stree;
 	int return_id;
@@ -571,6 +658,7 @@ static int db_compare_callback(void *_info, int argc, char **argv, char **azColN
 		return 0;
 
 	return_id = atoi(argv[0]);
+	ret_str = argv[1];
 	type = atoi(argv[2]);
 	param = atoi(argv[3]);
 	key = argv[4];
@@ -578,9 +666,9 @@ static int db_compare_callback(void *_info, int argc, char **argv, char **azColN
 
 	db_info->has_states = 1;
 	if (db_info->prev_return_id != -1 && type == INTERNAL) {
-		set_return_state(db_info->var_expr, db_info);
+		set_other_side_state(db_info);
+		set_implied_states(db_info);
 		stree = __pop_fake_cur_stree();
-
 		if (!db_info->cull)
 			merge_fake_stree(&db_info->stree, stree);
 		free_stree(&stree);
@@ -603,7 +691,7 @@ static int db_compare_callback(void *_info, int argc, char **argv, char **azColN
 		return 0;
 	}
 
-	call_results_to_rl(db_info->expr, get_type(strip_expr(db_info->expr)), argv[1], &ret_range);
+	call_results_to_rl(db_info->expr, get_type(strip_expr(db_info->expr)), ret_str, &ret_range);
 	ret_range = cast_rl(get_type(db_info->expr), ret_range);
 	if (!ret_range)
 		ret_range = alloc_whole_rl(get_type(db_info->expr));
@@ -616,25 +704,25 @@ static int db_compare_callback(void *_info, int argc, char **argv, char **azColN
 		if (!possibly_true_rl(var_rl, comparison, ret_range))
 			return 0;
 		if (type == PARAM_LIMIT)
-			param_limit_implications(db_info->expr, param, key, value);
+			param_limit_implications(db_info->expr, param, key, value, &db_info->implied);
 		filter_by_comparison(&var_rl, comparison, ret_range);
 		filter_by_comparison(&ret_range, flip_comparison(comparison), var_rl);
 	} else {
 		if (!possibly_false_rl(var_rl, comparison, ret_range))
 			return 0;
 		if (type == PARAM_LIMIT)
-			param_limit_implications(db_info->expr, param, key, value);
+			param_limit_implications(db_info->expr, param, key, value, &db_info->implied);
 		filter_by_comparison(&var_rl, negate_comparison(comparison), ret_range);
 		filter_by_comparison(&ret_range, flip_comparison(negate_comparison(comparison)), var_rl);
 	}
 
-	handle_ret_equals_param(argv[1], ret_range, db_info->expr);
+	handle_ret_equals_param(ret_str, ret_range, db_info->expr);
 
 	if (type == INTERNAL) {
 		set_state(-1, "unnull_path", NULL, &true_state);
-		__add_return_comparison(strip_expr(db_info->expr), argv[1]);
-		__add_return_to_param_mapping(db_info->expr, argv[1]);
-		store_return_state(db_info, argv[1], alloc_estate_rl(clone_rl(var_rl)));
+		__add_return_comparison(strip_expr(db_info->expr), ret_str);
+		__add_return_to_param_mapping(db_info->expr, ret_str);
+		store_return_state(db_info, ret_str, alloc_estate_rl(clone_rl(var_rl)));
 	}
 
 	FOR_EACH_PTR(db_info->callbacks, tmp) {
@@ -687,12 +775,11 @@ static void compare_db_return_states_callbacks(struct expression *left, int comp
 	__push_fake_cur_stree();
 	sql_select_return_states("return_id, return, type, parameter, key, value",
 				 call_expr, db_compare_callback, &db_info);
-	set_return_state(db_info.var_expr, &db_info);
+	set_other_side_state(&db_info);
+	set_implied_states(&db_info);
 	stree = __pop_fake_cur_stree();
-	if (!db_info.cull) {
-		set_return_state(db_info.var_expr, &db_info);
+	if (!db_info.cull)
 		merge_fake_stree(&db_info.stree, stree);
-	}
 	free_stree(&stree);
 	true_states = db_info.stree;
 	if (!true_states && db_info.has_states) {
@@ -714,11 +801,11 @@ static void compare_db_return_states_callbacks(struct expression *left, int comp
 	__push_fake_cur_stree();
 	sql_select_return_states("return_id, return, type, parameter, key, value", call_expr,
 			db_compare_callback, &db_info);
+	set_other_side_state(&db_info);
+	set_implied_states(&db_info);
 	stree = __pop_fake_cur_stree();
-	if (!db_info.cull) {
-		set_return_state(db_info.var_expr, &db_info);
+	if (!db_info.cull)
 		merge_fake_stree(&db_info.stree, stree);
-	}
 	free_stree(&stree);
 	false_states = db_info.stree;
 	if (!false_states && db_info.has_states) {
@@ -806,18 +893,14 @@ static void call_ranged_return_hooks(struct db_callback_info *db_info)
 
 	call_backs = search_callback(func_hash, fn);
 	FOR_EACH_PTR(call_backs, tmp) {
-		struct range_list *range_rl = NULL;
+		struct range_list *range_rl;
 
 		if (tmp->type != RANGED_CALL)
 			continue;
-		add_range(&range_rl, tmp->range->min, tmp->range->max);
+		range_rl = alloc_rl(tmp->range->min, tmp->range->max);
 		range_rl = cast_rl(estate_type(db_info->ret_state), range_rl);
-		if (possibly_true_rl(range_rl, SPECIAL_EQUAL, estate_rl(db_info->ret_state))) {
-			if (!possibly_true_rl(rl_invert(range_rl), SPECIAL_EQUAL, estate_rl(db_info->ret_state)))
-				(tmp->u.ranged)(fn, expr, db_info->expr, tmp->info);
-			else
-				db_info->handled = -1;
-		}
+		if (possibly_true_rl(range_rl, SPECIAL_EQUAL, estate_rl(db_info->ret_state)))
+			(tmp->u.ranged)(fn, expr, db_info->expr, tmp->info);
 	} END_FOR_EACH_PTR(tmp);
 }
 
@@ -826,7 +909,7 @@ static int db_assign_return_states_callback(void *_info, int argc, char **argv, 
 	struct db_callback_info *db_info = _info;
 	struct range_list *ret_range;
 	int type, param;
-	char *key, *value;
+	char *ret_str, *key, *value;
 	struct return_implies_callback *tmp;
 	struct stree *stree;
 	int return_id;
@@ -835,6 +918,7 @@ static int db_assign_return_states_callback(void *_info, int argc, char **argv, 
 		return 0;
 
 	return_id = atoi(argv[0]);
+	ret_str = argv[1];
 	type = atoi(argv[2]);
 	param = atoi(argv[3]);
 	key = argv[4];
@@ -842,7 +926,8 @@ static int db_assign_return_states_callback(void *_info, int argc, char **argv, 
 
 	if (db_info->prev_return_id != -1 && type == INTERNAL) {
 		call_ranged_return_hooks(db_info);
-		set_return_state(db_info->expr->left, db_info);
+		set_return_assign_state(db_info);
+		set_implied_states(db_info);
 		stree = __pop_fake_cur_stree();
 		if (!db_info->cull)
 			merge_fake_stree(&db_info->stree, stree);
@@ -866,20 +951,21 @@ static int db_assign_return_states_callback(void *_info, int argc, char **argv, 
 	}
 
 	if (type == PARAM_LIMIT)
-		param_limit_implications(db_info->expr, param, key, value);
+		param_limit_implications(db_info->expr, param, key, value, &db_info->implied);
 
 	db_info->handled = 1;
-	call_results_to_rl(db_info->expr->right, get_type(strip_expr(db_info->expr->right)), argv[1], &ret_range);
+	call_results_to_rl(db_info->expr->right, get_type(strip_expr(db_info->expr->right)), ret_str, &ret_range);
 	if (!ret_range)
 		ret_range = alloc_whole_rl(get_type(strip_expr(db_info->expr->right)));
 	ret_range = cast_rl(get_type(db_info->expr->right), ret_range);
 
 	if (type == INTERNAL) {
 		set_state(-1, "unnull_path", NULL, &true_state);
-		__add_return_comparison(strip_expr(db_info->expr->right), argv[1]);
-		__add_comparison_info(db_info->expr->left, strip_expr(db_info->expr->right), argv[1]);
-		__add_return_to_param_mapping(db_info->expr, argv[1]);
-		store_return_state(db_info, argv[1], alloc_estate_rl(ret_range));
+		__add_return_comparison(strip_expr(db_info->expr->right), ret_str);
+		__add_comparison_info(db_info->expr->left, strip_expr(db_info->expr->right), ret_str);
+		__add_return_to_param_mapping(db_info->expr, ret_str);
+		store_return_state(db_info, ret_str, alloc_estate_rl(ret_range));
+		set_fresh_mtag_returns(db_info);
 	}
 
 	FOR_EACH_PTR(db_return_states_list, tmp) {
@@ -917,7 +1003,8 @@ static int db_return_states_assign(struct expression *expr)
 	}
 	if (db_info.handled)
 		call_ranged_return_hooks(&db_info);
-	set_return_state(db_info.expr->left, &db_info);
+	set_return_assign_state(&db_info);
+	set_implied_states(&db_info);
 	stree = __pop_fake_cur_stree();
 	if (!db_info.cull)
 		merge_fake_stree(&db_info.stree, stree);
@@ -1011,7 +1098,7 @@ static int db_return_states_callback(void *_info, int argc, char **argv, char **
 	struct db_callback_info *db_info = _info;
 	struct range_list *ret_range;
 	int type, param;
-	char *key, *value;
+	char *ret_str, *key, *value;
 	struct return_implies_callback *tmp;
 	struct stree *stree;
 	int return_id;
@@ -1021,12 +1108,15 @@ static int db_return_states_callback(void *_info, int argc, char **argv, char **
 		return 0;
 
 	return_id = atoi(argv[0]);
+	ret_str = argv[1];
 	type = atoi(argv[2]);
 	param = atoi(argv[3]);
 	key = argv[4];
 	value = argv[5];
 
 	if (db_info->prev_return_id != -1 && type == INTERNAL) {
+		call_ranged_return_hooks(db_info);
+		set_implied_states(db_info);
 		stree = __pop_fake_cur_stree();
 		if (!db_info->cull)
 			merge_fake_stree(&db_info->stree, stree);
@@ -1051,30 +1141,33 @@ static int db_return_states_callback(void *_info, int argc, char **argv, char **
 	}
 
 	if (type == PARAM_LIMIT)
-		param_limit_implications(db_info->expr, param, key, value);
+		param_limit_implications(db_info->expr, param, key, value, &db_info->implied);
 
-	call_results_to_rl(db_info->expr, get_type(strip_expr(db_info->expr)), argv[1], &ret_range);
+	call_results_to_rl(db_info->expr, get_type(strip_expr(db_info->expr)), ret_str, &ret_range);
 	ret_range = cast_rl(get_type(db_info->expr), ret_range);
 
 	if (type == INTERNAL) {
-		set_state(-1, "unnull_path", NULL, &true_state);
-		__add_return_comparison(strip_expr(db_info->expr), argv[1]);
-		__add_return_to_param_mapping(db_info->expr, argv[1]);
-	}
+		struct smatch_state *state;
 
+		set_state(-1, "unnull_path", NULL, &true_state);
+		__add_return_comparison(strip_expr(db_info->expr), ret_str);
+		__add_return_to_param_mapping(db_info->expr, ret_str);
+		/*
+		 * We want to store the return values so that we can split the strees
+		 * in smatch_db.c.  This uses set_state() directly because it's not a
+		 * real smatch_extra state.
+		 */
+		snprintf(buf, sizeof(buf), "return %p", db_info->expr);
+		state = alloc_estate_rl(ret_range);
+		set_state(SMATCH_EXTRA, buf, NULL, state);
+		store_return_state(db_info, ret_str, state);
+	}
 
 	FOR_EACH_PTR(db_return_states_list, tmp) {
 		if (tmp->type == type)
 			tmp->callback(db_info->expr, param, key, value);
 	} END_FOR_EACH_PTR(tmp);
 
-	/*
-	 * We want to store the return values so that we can split the strees
-	 * in smatch_db.c.  This uses set_state() directly because it's not a
-	 * real smatch_extra state.
-	 */
-	snprintf(buf, sizeof(buf), "return %p", db_info->expr);
-	set_state(SMATCH_EXTRA, buf, NULL, alloc_estate_rl(ret_range));
 
 	return 0;
 }
@@ -1098,6 +1191,8 @@ static void db_return_states(struct expression *expr)
 	__unnullify_path();
 	sql_select_return_states("return_id, return, type, parameter, key, value",
 			expr, db_return_states_callback, &db_info);
+	call_ranged_return_hooks(&db_info);
+	set_implied_states(&db_info);
 	stree = __pop_fake_cur_stree();
 	if (!db_info.cull)
 		merge_fake_stree(&db_info.stree, stree);
@@ -1140,12 +1235,14 @@ static void db_return_states_call(struct expression *expr)
 static void match_function_call(struct expression *expr)
 {
 	struct call_back_list *call_backs;
+	struct expression *fn;
 
-	if (expr->fn->type == EXPR_SYMBOL && expr->fn->symbol) {
-		call_backs = search_callback(func_hash, (char *)expr->fn->symbol->ident->name);
+	fn = strip_expr(expr->fn);
+	if (fn->type == EXPR_SYMBOL && fn->symbol) {
+		call_backs = search_callback(func_hash, (char *)fn->symbol->ident->name);
 		if (call_backs)
 			call_call_backs(call_backs, REGULAR_CALL,
-					expr->fn->symbol->ident->name, expr);
+					fn->symbol->ident->name, expr);
 	}
 	db_return_states_call(expr);
 }

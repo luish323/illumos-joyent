@@ -21,7 +21,8 @@
 
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2016 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2020 Tintri by DDN, Inc.  All rights reserved.
+ * Copyright 2022 RackTop Systems, Inc.
  */
 
 /*
@@ -97,8 +98,8 @@
  * smb_notify_act1:
  *	Validate parameters, setup ofile buffer.
  *	If data already available, return it, all done.
- * 	(In the "all done" case, skip act2 & act3.)
- * 	If no data available, return a special error
+ *	(In the "all done" case, skip act2 & act3.)
+ *	If no data available, return a special error
  *	("STATUS_PENDING") to tell the caller they must
  *	proceed with calls to act2 & act3.
  *
@@ -198,7 +199,19 @@ smb_notify_act1(smb_request_t *sr, uint32_t buflen, uint32_t filter)
 		return (NT_STATUS_INVALID_PARAMETER);
 	}
 
+	if ((of->f_granted_access & FILE_LIST_DIRECTORY) == 0)
+		return (NT_STATUS_ACCESS_DENIED);
+
 	mutex_enter(&of->f_mutex);
+
+	/*
+	 * It's possible this ofile has started closing, in which case
+	 * we must not subscribe it for events etc.
+	 */
+	if (of->f_state != SMB_OFILE_STATE_OPEN) {
+		mutex_exit(&of->f_mutex);
+		return (NT_STATUS_FILE_CLOSED);
+	}
 
 	/*
 	 * On the first FCN call with this ofile, subscribe to
@@ -396,7 +409,7 @@ smb_notify_get_events(smb_request_t *sr)
 	nc = &of->f_notify;
 
 	DTRACE_PROBE2(notify__get__events,
-	    smb_request_t, sr,
+	    smb_request_t *, sr,
 	    uint32_t, nc->nc_events);
 
 	/*

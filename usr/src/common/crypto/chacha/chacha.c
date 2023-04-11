@@ -1,13 +1,25 @@
 /*
+ * This implementation of ChaCha20 comes from the initial Dan Bernstein
+ * implementation, including a 256-bit key, a 64-bit nonce and a 64-bit
+ * counter.  This is in contrast to ChaCha20 as defined in RFC 7539, which
+ * defines a 256-bit key, a 96-bit nonce and a 32-bit counter. In particular,
+ * kernel crash dump encryption relies on the fact that our larger counter
+ * allows for the encryption of very large messages (many gigabytes in
+ * length); any change to this implementation that reduces the size of the
+ * counter should be mindful of this use case.
+ */
+
+/*
 chacha-merged.c version 20080118
 D. J. Bernstein
 Public domain.
 */
 
-/* $OpenBSD: chacha_private.h,v 1.2 2013/10/04 07:02:27 djm Exp $ */
+/* $OpenBSD: chacha.c,v 1.1 2013/11/21 00:45:44 djm Exp $ */
 
-#include <chacha.h>
-#include <stddef.h>
+#include "chacha.h"
+#include <sys/stddef.h>
+#include <sys/null.h>
 
 typedef unsigned char u8;
 typedef unsigned int u32;
@@ -51,7 +63,7 @@ static const char sigma[16] = "expand 32-byte k";
 static const char tau[16] = "expand 16-byte k";
 
 void
-chacha_keysetup(chacha_ctx_t *x,const u8 *k,u32 kbits,u32 ivbits)
+chacha_keysetup(chacha_ctx_t *x, const u8 *k, u32 kbits, u32 ivbits __unused)
 {
   const char *constants;
 
@@ -76,16 +88,16 @@ chacha_keysetup(chacha_ctx_t *x,const u8 *k,u32 kbits,u32 ivbits)
 }
 
 void
-chacha_ivsetup(chacha_ctx_t *x,const u8 *iv)
+chacha_ivsetup(chacha_ctx_t *x,const u8 *iv, const u8 *counter)
 {
-  x->chacha_input[12] = 0;
-  x->chacha_input[13] = 0;
+  x->chacha_input[12] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 0);
+  x->chacha_input[13] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 4);
   x->chacha_input[14] = U8TO32_LITTLE(iv + 0);
   x->chacha_input[15] = U8TO32_LITTLE(iv + 4);
 }
 
 void
-chacha_encrypt_bytes(chacha_ctx_t *x,const u8 *m,u8 *c,u32 bytes)
+chacha_encrypt_bytes(chacha_ctx_t *x, const u8 *m, u8 *c, u32 bytes)
 {
   u32 x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15;
   u32 j0, j1, j2, j3, j4, j5, j6, j7, j8, j9, j10, j11, j12, j13, j14, j15;

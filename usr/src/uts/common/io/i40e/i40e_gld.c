@@ -11,8 +11,11 @@
 
 /*
  * Copyright 2015 OmniTI Computer Consulting, Inc. All rights reserved.
- * Copyright 2019 Joyent, Inc.
+ * Copyright 2022 Joyent, Inc.
  * Copyright 2017 Tegile Systems, Inc.  All rights reserved.
+ * Copyright 2020 Ryan Zezeski
+ * Copyright 2020 RackTop Systems, Inc.
+ * Copyright 2023 Oxide Computer Company
  */
 
 /*
@@ -82,8 +85,8 @@ i40e_group_remove_macvlan(mac_group_driver_t gdriver, const uint8_t *mac_addr,
 
 	if (i40e_aq_remove_macvlan(hw, iua->iua_vsi, &filt, 1, NULL) !=
 	    I40E_SUCCESS) {
-		i40e_error(i40e, "failed to remove {MAC,VLAN} filter "
-		    "{%2x:%2x:%2x:%2x:%2x:%2x,%u}: %d",
+		i40e_error(i40e, "failed to remove mac address "
+		    "%02x:%02x:%02x:%02x:%02x:%02x from unicast filter: %d",
 		    mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3],
 		    mac_addr[4], mac_addr[5], vid, filt.error_code);
 		ret = EIO;
@@ -154,8 +157,8 @@ i40e_group_add_macvlan(mac_group_driver_t gdriver, const uint8_t *mac_addr,
 
 	if ((ret = i40e_aq_add_macvlan(hw, rxg->irg_vsi_seid, &filt, 1,
 	    NULL)) != I40E_SUCCESS) {
-		i40e_error(i40e, "failed to add {MAC,VLAN} filter "
-		    "{%2x:%2x:%2x:%2x:%2x:%2x,%u}: %d",
+		i40e_error(i40e, "failed to add mac address "
+		    "%02x:%02x:%02x:%02x:%02x:%02x to unicast filter: %d",
 		    mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3],
 		    mac_addr[4], mac_addr[5], vid, ret);
 		ret = EIO;
@@ -187,7 +190,7 @@ i40e_m_start(void *arg)
 		goto done;
 	}
 
-	if (!i40e_start(i40e, B_TRUE)) {
+	if (!i40e_start(i40e)) {
 		rc = EIO;
 		goto done;
 	}
@@ -210,7 +213,7 @@ i40e_m_stop(void *arg)
 		goto done;
 
 	atomic_and_32(&i40e->i40e_state, ~I40E_STARTED);
-	i40e_stop(i40e, B_TRUE);
+	i40e_stop(i40e);
 done:
 	mutex_exit(&i40e->i40e_general_lock);
 }
@@ -323,7 +326,7 @@ i40e_multicast_add(i40e_t *i40e, const uint8_t *multicast_address)
 	if ((ret = i40e_aq_add_macvlan(hw, I40E_DEF_VSI_SEID(i40e), &filt, 1,
 	    NULL)) != I40E_SUCCESS) {
 		i40e_error(i40e, "failed to add mac address "
-		    "%2x:%2x:%2x:%2x:%2x:%2x to multicast filter: %d",
+		    "%02x:%02x:%02x:%02x:%02x:%02x to multicast filter: %d",
 		    multicast_address[0], multicast_address[1],
 		    multicast_address[2], multicast_address[3],
 		    multicast_address[4], multicast_address[5],
@@ -364,7 +367,7 @@ i40e_multicast_remove(i40e_t *i40e, const uint8_t *multicast_address)
 		if (i40e_aq_remove_macvlan(hw, I40E_DEF_VSI_SEID(i40e), &filt,
 		    1, NULL) != I40E_SUCCESS) {
 			i40e_error(i40e, "failed to remove mac address "
-			    "%2x:%2x:%2x:%2x:%2x:%2x from multicast "
+			    "%02x:%02x:%02x:%02x:%02x:%02x from multicast "
 			    "filter: %d",
 			    multicast_address[0], multicast_address[1],
 			    multicast_address[2], multicast_address[3],
@@ -444,6 +447,10 @@ static int
 i40e_ring_start(mac_ring_driver_t rh, uint64_t gen_num)
 {
 	i40e_trqpair_t *itrq = (i40e_trqpair_t *)rh;
+	int rv;
+
+	if ((rv = i40e_setup_ring(itrq)) != 0)
+		return (rv);
 
 	/*
 	 * GLDv3 requires we keep track of a generation number, as it uses
@@ -453,6 +460,19 @@ i40e_ring_start(mac_ring_driver_t rh, uint64_t gen_num)
 	itrq->itrq_rxgen = gen_num;
 	mutex_exit(&itrq->itrq_rx_lock);
 	return (0);
+}
+
+static void
+i40e_ring_stop(mac_ring_driver_t rh)
+{
+	i40e_trqpair_t *itrq = (i40e_trqpair_t *)rh;
+
+	if (!i40e_shutdown_ring(itrq)) {
+		i40e_t *i40e = itrq->itrq_i40e;
+
+		ddi_fm_service_impact(i40e->i40e_dip, DDI_SERVICE_LOST);
+		i40e_error(i40e, "Failed to stop ring %u", itrq->itrq_index);
+	}
 }
 
 /* ARGSUSED */
@@ -538,7 +558,7 @@ i40e_fill_rx_ring(void *arg, mac_ring_type_t rtype, const int group_index,
 	itrq->itrq_macrxring = rh;
 	infop->mri_driver = (mac_ring_driver_t)itrq;
 	infop->mri_start = i40e_ring_start;
-	infop->mri_stop = NULL;
+	infop->mri_stop = i40e_ring_stop;
 	infop->mri_poll = i40e_ring_rx_poll;
 	infop->mri_stat = i40e_rx_ring_stat;
 	mintr->mi_handle = (mac_intr_handle_t)itrq;
@@ -579,7 +599,7 @@ i40e_fill_rx_group(void *arg, mac_ring_type_t rtype, const int index,
 	infop->mgi_add_macvlan = i40e_group_add_macvlan;
 	infop->mgi_rem_macvlan = i40e_group_remove_macvlan;
 
-	ASSERT(i40e->i40e_num_rx_groups <= I40E_GROUP_MAX);
+	ASSERT3U(i40e->i40e_num_rx_groups, <=, I40E_MAX_NUM_RX_GROUPS);
 	infop->mgi_count = i40e->i40e_num_trqpairs_per_vsi;
 }
 
@@ -665,7 +685,7 @@ i40e_transceiver_read(void *arg, uint_t id, uint_t page, void *buf,
 		uint32_t val;
 
 		status = i40e_aq_get_phy_register(hw,
-		    I40E_AQ_PHY_REG_ACCESS_EXTERNAL_MODULE, page, offset,
+		    I40E_AQ_PHY_REG_ACCESS_EXTERNAL_MODULE, page, TRUE, offset,
 		    &val, NULL);
 		if (status != I40E_SUCCESS) {
 			mutex_exit(&i40e->i40e_general_lock);
@@ -747,8 +767,10 @@ i40e_m_getcapab(void *arg, mac_capab_t cap, void *cap_data)
 		mac_capab_lso_t *cap_lso = cap_data;
 
 		if (i40e->i40e_tx_lso_enable == B_TRUE) {
-			cap_lso->lso_flags = LSO_TX_BASIC_TCP_IPV4;
+			cap_lso->lso_flags = LSO_TX_BASIC_TCP_IPV4 |
+			    LSO_TX_BASIC_TCP_IPV6;
 			cap_lso->lso_basic_tcp_ipv4.lso_max = I40E_LSO_MAXLEN;
+			cap_lso->lso_basic_tcp_ipv6.lso_max = I40E_LSO_MAXLEN;
 		} else {
 			return (B_FALSE);
 		}
@@ -958,10 +980,80 @@ i40e_m_propinfo_private(i40e_t *i40e, const char *pr_name,
 }
 
 static int
+i40e_update_fec(i40e_t *i40e, link_fec_t fec)
+{
+	struct i40e_hw *hw = &i40e->i40e_hw_space;
+	struct i40e_aq_get_phy_abilities_resp abilities;
+	struct i40e_aq_set_phy_config config;
+	link_fec_t fec_requested;
+	int req_fec;
+
+	ASSERT(MUTEX_HELD(&i40e->i40e_general_lock));
+
+	if (fec == i40e->i40e_fec_requested)
+		return (0);
+
+	fec_requested = fec;
+	if ((fec & LINK_FEC_AUTO) != 0) {
+		req_fec = I40E_AQ_SET_FEC_AUTO;
+		fec &= ~LINK_FEC_AUTO;
+	} else if ((fec & LINK_FEC_NONE) != 0) {
+		req_fec = 0;
+		fec &= ~LINK_FEC_NONE;
+	} else {
+		req_fec = 0;
+		if ((fec & LINK_FEC_BASE_R) != 0) {
+			req_fec |= I40E_AQ_SET_FEC_ABILITY_KR |
+			    I40E_AQ_SET_FEC_REQUEST_KR;
+			fec &= ~LINK_FEC_BASE_R;
+		}
+		if ((fec & LINK_FEC_RS) != 0) {
+			req_fec |= I40E_AQ_SET_FEC_ABILITY_RS |
+			    I40E_AQ_SET_FEC_REQUEST_RS;
+			fec &= ~LINK_FEC_RS;
+		}
+		if (req_fec == 0)
+			return (EINVAL);
+	}
+
+	/*
+	 * if fec is not zero now, then there is an invalid fec or
+	 * combination of settings.
+	 */
+	if (fec != 0)
+		return (EINVAL);
+
+	if (i40e_aq_get_phy_capabilities(hw, B_FALSE, B_FALSE, &abilities,
+	    NULL) != I40E_SUCCESS)
+		return (EIO);
+
+	bzero(&config, sizeof (config));
+	config.abilities = abilities.abilities;
+	/* Restart the link */
+	config.abilities |= I40E_AQ_PHY_ENABLE_ATOMIC_LINK;
+	config.phy_type = abilities.phy_type;
+	config.phy_type_ext = abilities.phy_type_ext;
+	config.link_speed = abilities.link_speed;
+	config.eee_capability = abilities.eee_capability;
+	config.eeer = abilities.eeer_val;
+	config.low_power_ctrl = abilities.d3_lpan;
+	config.fec_config = req_fec & I40E_AQ_PHY_FEC_CONFIG_MASK;
+	if (i40e_aq_set_phy_config(hw, &config, NULL) != I40E_SUCCESS)
+		return (EIO);
+
+	if (i40e_update_link_info(hw) != I40E_SUCCESS)
+		return (EIO);
+
+	i40e->i40e_fec_requested = fec_requested;
+
+	return (0);
+}
+static int
 i40e_m_setprop(void *arg, const char *pr_name, mac_prop_id_t pr_num,
     uint_t pr_valsize, const void *pr_val)
 {
 	uint32_t new_mtu;
+	link_fec_t fec;
 	i40e_t *i40e = arg;
 	int ret = 0;
 
@@ -978,8 +1070,11 @@ i40e_m_setprop(void *arg, const char *pr_name, mac_prop_id_t pr_num,
 	case MAC_PROP_DUPLEX:
 	case MAC_PROP_SPEED:
 	case MAC_PROP_STATUS:
+	case MAC_PROP_MEDIA:
 	case MAC_PROP_ADV_100FDX_CAP:
 	case MAC_PROP_ADV_1000FDX_CAP:
+	case MAC_PROP_ADV_2500FDX_CAP:
+	case MAC_PROP_ADV_5000FDX_CAP:
 	case MAC_PROP_ADV_10GFDX_CAP:
 	case MAC_PROP_ADV_25GFDX_CAP:
 	case MAC_PROP_ADV_40GFDX_CAP:
@@ -991,6 +1086,8 @@ i40e_m_setprop(void *arg, const char *pr_name, mac_prop_id_t pr_num,
 	 */
 	case MAC_PROP_EN_100FDX_CAP:
 	case MAC_PROP_EN_1000FDX_CAP:
+	case MAC_PROP_EN_2500FDX_CAP:
+	case MAC_PROP_EN_5000FDX_CAP:
 	case MAC_PROP_EN_10GFDX_CAP:
 	case MAC_PROP_EN_25GFDX_CAP:
 	case MAC_PROP_EN_40GFDX_CAP:
@@ -1022,6 +1119,12 @@ i40e_m_setprop(void *arg, const char *pr_name, mac_prop_id_t pr_num,
 		}
 		break;
 
+	case MAC_PROP_EN_FEC_CAP:
+		bcopy(pr_val, &fec, sizeof (fec));
+
+		ret = i40e_update_fec(i40e, fec);
+		break;
+
 	case MAC_PROP_PRIVATE:
 		ret = i40e_m_setprop_private(i40e, pr_name, pr_valsize, pr_val);
 		break;
@@ -1032,6 +1135,119 @@ i40e_m_setprop(void *arg, const char *pr_name, mac_prop_id_t pr_num,
 
 	mutex_exit(&i40e->i40e_general_lock);
 	return (ret);
+}
+
+static link_fec_t
+i40e_fec_to_linkfec(struct i40e_hw *hw)
+{
+	struct i40e_link_status *ls = &hw->phy.link_info;
+
+	if ((ls->fec_info & I40E_AQ_CONFIG_FEC_KR_ENA) != 0)
+		return (LINK_FEC_BASE_R);
+
+	if ((ls->fec_info & I40E_AQ_CONFIG_FEC_RS_ENA) != 0)
+		return (LINK_FEC_RS);
+
+	return (LINK_FEC_NONE);
+}
+
+mac_ether_media_t
+i40e_link_to_media(i40e_t *i40e)
+{
+	switch (i40e->i40e_link_state) {
+	case LINK_STATE_UP:
+		break;
+	case LINK_STATE_DOWN:
+		return (ETHER_MEDIA_NONE);
+	default:
+		return (ETHER_MEDIA_UNKNOWN);
+	}
+
+	switch (i40e->i40e_hw_space.phy.link_info.phy_type) {
+	case I40E_PHY_TYPE_SGMII:
+		return (ETHER_MEDIA_1000_SGMII);
+	case I40E_PHY_TYPE_1000BASE_KX:
+		return (ETHER_MEDIA_1000BASE_KX);
+	case I40E_PHY_TYPE_10GBASE_KX4:
+		return (ETHER_MEDIA_10GBASE_KX4);
+	case I40E_PHY_TYPE_10GBASE_KR:
+		return (ETHER_MEDIA_10GBASE_KR);
+	case I40E_PHY_TYPE_40GBASE_KR4:
+		return (ETHER_MEDIA_40GBASE_KR4);
+	case I40E_PHY_TYPE_XAUI:
+		return (ETHER_MEDIA_10G_XAUI);
+	case I40E_PHY_TYPE_XFI:
+		return (ETHER_MEDIA_10G_XFI);
+	case I40E_PHY_TYPE_SFI:
+		return (ETHER_MEDIA_10G_SFI);
+	case I40E_PHY_TYPE_XLAUI:
+		return (ETHER_MEDIA_40G_XLAUI);
+	case I40E_PHY_TYPE_XLPPI:
+		return (ETHER_MEDIA_40G_XLPPI);
+	case I40E_PHY_TYPE_40GBASE_CR4_CU:
+		return (ETHER_MEDIA_40GBASE_CR4);
+	case I40E_PHY_TYPE_10GBASE_CR1_CU:
+		return (ETHER_MEDIA_10GBASE_CR);
+	case I40E_PHY_TYPE_10GBASE_AOC:
+		return (ETHER_MEDIA_10GBASE_AOC);
+	case I40E_PHY_TYPE_40GBASE_AOC:
+		return (ETHER_MEDIA_40GBASE_AOC4);
+	case I40E_PHY_TYPE_100BASE_TX:
+		return (ETHER_MEDIA_100BASE_TX);
+	case I40E_PHY_TYPE_1000BASE_T:
+		return (ETHER_MEDIA_1000BASE_T);
+	case I40E_PHY_TYPE_10GBASE_T:
+		return (ETHER_MEDIA_10GBASE_T);
+	case I40E_PHY_TYPE_10GBASE_SR:
+		return (ETHER_MEDIA_10GBASE_SR);
+	case I40E_PHY_TYPE_10GBASE_LR:
+		return (ETHER_MEDIA_10GBASE_LR);
+	case I40E_PHY_TYPE_10GBASE_SFPP_CU:
+		return (ETHER_MEDIA_10GBASE_CR);
+	case I40E_PHY_TYPE_10GBASE_CR1:
+		return (ETHER_MEDIA_10GBASE_CR);
+	case I40E_PHY_TYPE_40GBASE_CR4:
+		return (ETHER_MEDIA_40GBASE_CR4);
+	case I40E_PHY_TYPE_40GBASE_SR4:
+		return (ETHER_MEDIA_40GBASE_SR4);
+	case I40E_PHY_TYPE_40GBASE_LR4:
+		return (ETHER_MEDIA_40GBASE_LR4);
+	case I40E_PHY_TYPE_1000BASE_SX:
+		return (ETHER_MEDIA_1000BASE_SX);
+	case I40E_PHY_TYPE_1000BASE_LX:
+		return (ETHER_MEDIA_1000BASE_LX);
+	case I40E_PHY_TYPE_1000BASE_T_OPTICAL:
+		return (ETHER_MEDIA_1000BASE_T);
+	case I40E_PHY_TYPE_25GBASE_KR:
+		return (ETHER_MEDIA_25GBASE_KR);
+	case I40E_PHY_TYPE_25GBASE_CR:
+		return (ETHER_MEDIA_25GBASE_CR);
+	case I40E_PHY_TYPE_25GBASE_SR:
+		return (ETHER_MEDIA_25GBASE_SR);
+	case I40E_PHY_TYPE_25GBASE_LR:
+		return (ETHER_MEDIA_25GBASE_LR);
+	case I40E_PHY_TYPE_25GBASE_AOC:
+		return (ETHER_MEDIA_25GBASE_AOC);
+	case I40E_PHY_TYPE_25GBASE_ACC:
+		return (ETHER_MEDIA_25GBASE_ACC);
+	case I40E_PHY_TYPE_2_5GBASE_T:
+		return (ETHER_MEDIA_2500BASE_T);
+	case I40E_PHY_TYPE_5GBASE_T:
+		return (ETHER_MEDIA_5000BASE_T);
+	case I40E_PHY_TYPE_EMPTY:
+		return (ETHER_MEDIA_NONE);
+	/*
+	 * We don't currently support 20GBASE-KR2 in any way in the GLD. If
+	 * someone actually can generate this, then we should do this.
+	 */
+	case I40E_PHY_TYPE_20GBASE_KR2:
+	case I40E_PHY_TYPE_DEFAULT:
+	case I40E_PHY_TYPE_UNRECOGNIZED:
+	case I40E_PHY_TYPE_UNSUPPORTED:
+	case I40E_PHY_TYPE_NOT_SUPPORTED_HIGH_TEMP:
+	default:
+		return (ETHER_MEDIA_UNKNOWN);
+	}
 }
 
 static int
@@ -1069,6 +1285,9 @@ i40e_m_getprop(void *arg, const char *pr_name, mac_prop_id_t pr_num,
 		}
 		bcopy(&i40e->i40e_link_state, pr_val, sizeof (link_state_t));
 		break;
+	case MAC_PROP_MEDIA:
+		*(mac_ether_media_t *)pr_val = i40e_link_to_media(i40e);
+		break;
 	case MAC_PROP_AUTONEG:
 		if (pr_valsize < sizeof (uint8_t)) {
 			ret = EOVERFLOW;
@@ -1096,6 +1315,21 @@ i40e_m_getprop(void *arg, const char *pr_name, mac_prop_id_t pr_num,
 		}
 		bcopy(&i40e->i40e_sdu, pr_val, sizeof (uint32_t));
 		break;
+	case MAC_PROP_ADV_FEC_CAP:
+		if (pr_valsize < sizeof (link_fec_t)) {
+			ret = EOVERFLOW;
+			break;
+		}
+		*(link_fec_t *)pr_val =
+		    i40e_fec_to_linkfec(&i40e->i40e_hw_space);
+		break;
+	case MAC_PROP_EN_FEC_CAP:
+		if (pr_valsize < sizeof (link_fec_t)) {
+			ret = EOVERFLOW;
+			break;
+		}
+		*(link_fec_t *)pr_val = i40e->i40e_fec_requested;
+		break;
 
 	/*
 	 * Because we don't let users control the speeds we may auto-negotiate
@@ -1118,6 +1352,24 @@ i40e_m_getprop(void *arg, const char *pr_name, mac_prop_id_t pr_num,
 		}
 		u8 = pr_val;
 		*u8 = (i40e->i40e_phy.link_speed & I40E_LINK_SPEED_1GB) != 0;
+		break;
+	case MAC_PROP_ADV_2500FDX_CAP:
+	case MAC_PROP_EN_2500FDX_CAP:
+		if (pr_valsize < sizeof (uint8_t)) {
+			ret = EOVERFLOW;
+			break;
+		}
+		u8 = pr_val;
+		*u8 = (i40e->i40e_phy.link_speed & I40E_LINK_SPEED_2_5GB) != 0;
+		break;
+	case MAC_PROP_ADV_5000FDX_CAP:
+	case MAC_PROP_EN_5000FDX_CAP:
+		if (pr_valsize < sizeof (uint8_t)) {
+			ret = EOVERFLOW;
+			break;
+		}
+		u8 = pr_val;
+		*u8 = (i40e->i40e_phy.link_speed & I40E_LINK_SPEED_5GB) != 0;
 		break;
 	case MAC_PROP_ADV_10GFDX_CAP:
 	case MAC_PROP_EN_10GFDX_CAP:
@@ -1183,6 +1435,19 @@ i40e_m_propinfo(void *arg, const char *pr_name, mac_prop_id_t pr_num,
 		break;
 	case MAC_PROP_MTU:
 		mac_prop_info_set_range_uint32(prh, I40E_MIN_MTU, I40E_MAX_MTU);
+		break;
+	case MAC_PROP_ADV_FEC_CAP:
+		mac_prop_info_set_perm(prh, MAC_PROP_PERM_READ);
+		if (i40e_is_25G_device(i40e->i40e_hw_space.device_id))
+			mac_prop_info_set_default_fec(prh, LINK_FEC_AUTO);
+		break;
+	case MAC_PROP_EN_FEC_CAP:
+		if (i40e_is_25G_device(i40e->i40e_hw_space.device_id)) {
+			mac_prop_info_set_perm(prh, MAC_PROP_PERM_RW);
+			mac_prop_info_set_default_fec(prh, LINK_FEC_AUTO);
+		} else {
+			mac_prop_info_set_perm(prh, MAC_PROP_PERM_READ);
+		}
 		break;
 
 	/*

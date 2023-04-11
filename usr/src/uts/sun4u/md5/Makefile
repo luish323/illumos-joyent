@@ -39,7 +39,6 @@ UTSBASE	= ../..
 #
 MODULE		= md5
 OBJECTS		= $(MD5_OBJS:%=$(OBJS_DIR)/%)
-LINTS		= $(MD5_OBJS:%.o=$(LINTS_DIR)/%.ln)
 ROOTMODULE	= $(ROOT_PSM_CRYPTO_DIR)/$(MODULE)
 ROOTLINK	= $(ROOT_PSM_MISC_DIR)/$(MODULE)
 
@@ -52,23 +51,14 @@ include $(UTSBASE)/sun4u/Makefile.sun4u
 #	Define targets
 #
 ALL_TARGET	= $(BINARY)
-LINT_TARGET	= $(MODULE).lint
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE) $(ROOTLINK)
 
-# 
-# lint pass one enforcement 
-# 
-CFLAGS += $(CCVERBOSE) 
+CFLAGS += $(CCVERBOSE)
 
 #
 # md5 depends on the kcf framework
 #
-LDFLAGS		+= -dy -Nmisc/kcf
-
-#
-# need extra inline file for here.
-#
-INLINES += $(SRC)/common/crypto/md5/sparc/sun4u/byteswap.il
+LDFLAGS		+= -Nmisc/kcf
 
 #
 #	Default build targets.
@@ -82,12 +72,6 @@ all:		$(ALL_DEPS)
 clean:		$(CLEAN_DEPS)
 
 clobber:	$(CLOBBER_DEPS)
-
-lint:		$(LINT_DEPS)
-
-modlintlib:	$(MODLINTLIB_DEPS)
-
-clean.lint:	$(CLEAN_LINT_DEPS)
 
 install:	$(INSTALL_DEPS)
 

@@ -240,7 +240,7 @@ name_to_type(mdb_tgt_t *t, const char *cname, ctf_id_t *idp)
 {
 	const char *object = MDB_TGT_OBJ_EXEC;
 	ctf_file_t *fp = NULL;
-	ctf_id_t id;
+	ctf_id_t id = CTF_ERR;
 	tnarg_t arg;
 	char *p, *s;
 	char buf[MDB_SYM_NAMLEN];
@@ -2271,4 +2271,36 @@ mdb_ctf_synthetics_to_file(const char *file)
 	}
 
 	return (err);
+}
+
+static int
+cmd_typelist_type(mdb_ctf_id_t id, void *arg)
+{
+	char buf[1024];
+
+	if (mdb_ctf_type_name(id, buf, sizeof (buf)) != NULL) {
+		mdb_printf("%s\n", buf);
+	}
+	return (0);
+}
+
+static int
+cmd_typelist_module(void *data, const mdb_map_t *mp, const char *name)
+{
+	(void) mdb_ctf_type_iter(name, cmd_typelist_type, data);
+	return (0);
+}
+
+int
+cmd_typelist(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
+{
+	if ((flags & DCMD_ADDRSPEC) != 0) {
+		return (DCMD_USAGE);
+	}
+
+	(void) mdb_tgt_object_iter(mdb.m_target, cmd_typelist_module, NULL);
+	(void) mdb_ctf_type_iter(MDB_CTF_SYNTHETIC_ITER, cmd_typelist_type,
+	    NULL);
+
+	return (DCMD_OK);
 }

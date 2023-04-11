@@ -10,7 +10,8 @@
  */
 
 /*
- * Copyright 2014 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2019 Nexenta by DDN, Inc. All rights reserved.
+ * Copyright 2022 RackTop Systems, Inc.
  */
 
 /*
@@ -43,6 +44,21 @@ smb2_setinfo_file(smb_request_t *sr, smb_setinfo_t *si, int InfoClass)
 	uint32_t status;
 
 	si->si_node = of->f_node;
+
+	/* Most info levels need a disk file */
+	switch (of->f_ftype) {
+	case SMB_FTYPE_DISK:
+	case SMB_FTYPE_PRINTER:
+		break;
+	case SMB_FTYPE_BYTE_PIPE:
+	case SMB_FTYPE_MESG_PIPE:
+		if (InfoClass != FilePipeInformation)
+			return (NT_STATUS_INVALID_PARAMETER);
+		break;
+	default:
+		return (NT_STATUS_INTERNAL_ERROR);
+		break;
+	}
 
 	switch (InfoClass) {
 	case FileBasicInformation:		/* 4 */
@@ -164,7 +180,7 @@ smb2_setf_seek(smb_request_t *sr, smb_setinfo_t *si)
 	uint64_t newoff;
 
 	if (smb_mbc_decodef(&si->si_data, "q", &newoff) != 0)
-		return (NT_STATUS_INVALID_PARAMETER);
+		return (NT_STATUS_INFO_LENGTH_MISMATCH);
 
 	ASSERT(of->f_magic == SMB_OFILE_MAGIC);
 	mutex_enter(&of->f_mutex);
@@ -199,7 +215,7 @@ smb2_setf_mode(smb_request_t *sr, smb_setinfo_t *si)
 	uint32_t	Mode;
 
 	if (smb_mbc_decodef(&si->si_data, "l", &Mode) != 0)
-		return (NT_STATUS_INVALID_PARAMETER);
+		return (NT_STATUS_INFO_LENGTH_MISMATCH);
 
 #if 0	/* XXX - todo */
 	if (Mode & FILE_WRITE_THROUGH) {
@@ -263,7 +279,11 @@ smb2_setf_valid_len(smb_request_t *sr, smb_setinfo_t *si)
 	if (smb_mbc_decodef(&si->si_data, "q", &eod) != 0)
 		return (NT_STATUS_INFO_LENGTH_MISMATCH);
 
-	rc = smb_fsop_set_data_length(sr, of->f_cr, of->f_node, eod);
+	/*
+	 * Zero out data from EoD to end of file.
+	 * (Passing len=0 covers to end of file)
+	 */
+	rc = smb_fsop_freesp(sr, of->f_cr, of, eod, 0);
 	if (rc != 0)
 		return (smb_errno2status(rc));
 

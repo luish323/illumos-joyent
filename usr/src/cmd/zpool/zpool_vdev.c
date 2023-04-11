@@ -30,15 +30,15 @@
  * Functions to convert between a list of vdevs and an nvlist representing the
  * configuration.  Each entry in the list can be one of:
  *
- * 	Device vdevs
- * 		disk=(path=..., devid=...)
- * 		file=(path=...)
+ *	Device vdevs
+ *		disk=(path=..., devid=...)
+ *		file=(path=...)
  *
- * 	Group vdevs
- * 		raidz[1|2]=(...)
- * 		mirror=(...)
+ *	Group vdevs
+ *		raidz[1|2]=(...)
+ *		mirror=(...)
  *
- * 	Hot spares
+ *	Hot spares
  *
  * While the underlying implementation supports it, group vdevs cannot contain
  * other group vdevs.  All userland verification of devices is contained within
@@ -51,15 +51,15 @@
  * The only function exported by this file is 'make_root_vdev'.  The
  * function performs several passes:
  *
- * 	1. Construct the vdev specification.  Performs syntax validation and
+ *	1. Construct the vdev specification.  Performs syntax validation and
  *         makes sure each device is valid.
- * 	2. Check for devices in use.  Using libdiskmgt, makes sure that no
+ *	2. Check for devices in use.  Using libdiskmgt, makes sure that no
  *         devices are also in use.  Some can be overridden using the 'force'
  *         flag, others cannot.
- * 	3. Check for replication errors if the 'force' flag is not specified.
+ *	3. Check for replication errors if the 'force' flag is not specified.
  *         validates that the replication level is consistent across the
  *         entire pool.
- * 	4. Call libzfs to label any whole disks with an EFI label.
+ *	4. Call libzfs to label any whole disks with an EFI label.
  */
 
 #include <assert.h>
@@ -69,7 +69,9 @@
 #include <libdiskmgt.h>
 #include <libintl.h>
 #include <libnvpair.h>
+#include <libzutil.h>
 #include <limits.h>
+#include <sys/spa.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -194,7 +196,7 @@ check_disk(const char *name, dm_descriptor_t disk, int force, int isspare)
 	 * because we already have an alias handle open for the device.
 	 */
 	if ((drive = dm_get_associated_descriptors(disk, DM_DRIVE,
-	    &err)) == NULL || *drive == NULL) {
+	    &err)) == NULL || *drive == 0) {
 		if (err)
 			libdiskmgt_error(err);
 		return (0);
@@ -214,7 +216,7 @@ check_disk(const char *name, dm_descriptor_t disk, int force, int isspare)
 	 * It is possible that the user has specified a removable media drive,
 	 * and the media is not present.
 	 */
-	if (*media == NULL) {
+	if (*media == 0) {
 		dm_free_descriptors(media);
 		vdev_error(gettext("'%s' has no media in drive\n"), name);
 		return (-1);
@@ -236,7 +238,7 @@ check_disk(const char *name, dm_descriptor_t disk, int force, int isspare)
 	 * Iterate over all slices and report any errors.  We don't care about
 	 * overlapping slices because we are using the whole disk.
 	 */
-	for (i = 0; slice[i] != NULL; i++) {
+	for (i = 0; slice[i] != 0; i++) {
 		char *name = dm_get_name(slice[i], &err);
 
 		if (check_slice(name, force, B_TRUE, isspare) != 0)
@@ -265,7 +267,7 @@ check_device(const char *path, boolean_t force, boolean_t isspare)
 	dev = strrchr(path, '/');
 	assert(dev != NULL);
 	dev++;
-	if ((desc = dm_get_descriptor_by_name(DM_ALIAS, dev, &err)) != NULL) {
+	if ((desc = dm_get_descriptor_by_name(DM_ALIAS, dev, &err)) != 0) {
 		err = check_disk(path, desc, force, isspare);
 		dm_free_descriptor(desc);
 		return (err);
@@ -293,7 +295,7 @@ check_file(const char *file, boolean_t force, boolean_t isspare)
 			libdiskmgt_error(err);
 		else
 			vdev_error(gettext("%s is currently used by swap. "
-			    "Please see swap(1M).\n"), file);
+			    "Please see swap(8).\n"), file);
 		return (-1);
 	}
 
@@ -383,18 +385,19 @@ is_whole_disk(const char *arg)
  * device, fill in the device id to make a complete nvlist.  Valid forms for a
  * leaf vdev are:
  *
- * 	/dev/dsk/xxx	Complete disk path
- * 	/xxx		Full path to file
- * 	xxx		Shorthand for /dev/dsk/xxx
+ *	/dev/dsk/xxx	Complete disk path
+ *	/xxx		Full path to file
+ *	xxx		Shorthand for /dev/dsk/xxx
  */
 static nvlist_t *
-make_leaf_vdev(const char *arg, uint64_t is_log)
+make_leaf_vdev(nvlist_t *props, const char *arg, uint64_t is_log)
 {
 	char path[MAXPATHLEN];
 	struct stat64 statbuf;
 	nvlist_t *vdev = NULL;
 	char *type = NULL;
 	boolean_t wholedisk = B_FALSE;
+	uint64_t ashift = 0;
 
 	/*
 	 * Determine what type of vdev this is, and put the full path into
@@ -479,6 +482,28 @@ make_leaf_vdev(const char *arg, uint64_t is_log)
 		verify(nvlist_add_uint64(vdev, ZPOOL_CONFIG_WHOLE_DISK,
 		    (uint64_t)wholedisk) == 0);
 
+	if (props != NULL) {
+		char *value = NULL;
+
+		if (nvlist_lookup_string(props,
+		    zpool_prop_to_name(ZPOOL_PROP_ASHIFT), &value) == 0) {
+			if (zfs_nicestrtonum(NULL, value, &ashift) != 0) {
+				(void) fprintf(stderr,
+				    gettext("ashift must be a number.\n"));
+				return (NULL);
+			}
+			if (ashift != 0 &&
+			    (ashift < ASHIFT_MIN || ashift > ASHIFT_MAX)) {
+				(void) fprintf(stderr,
+				    gettext("invalid 'ashift=%" PRIu64 "' "
+				    "property: only values between %" PRId32 " "
+				    "and %" PRId32 " are allowed.\n"),
+				    ashift, ASHIFT_MIN, ASHIFT_MAX);
+				return (NULL);
+			}
+		}
+	}
+
 	/*
 	 * For a whole disk, defer getting its devid until after labeling it.
 	 */
@@ -514,6 +539,9 @@ make_leaf_vdev(const char *arg, uint64_t is_log)
 		(void) close(fd);
 	}
 
+	if (ashift > 0)
+		(void) nvlist_add_uint64(vdev, ZPOOL_CONFIG_ASHIFT, ashift);
+
 	return (vdev);
 }
 
@@ -521,14 +549,14 @@ make_leaf_vdev(const char *arg, uint64_t is_log)
  * Go through and verify the replication level of the pool is consistent.
  * Performs the following checks:
  *
- * 	For the new spec, verifies that devices in mirrors and raidz are the
- * 	same size.
+ *	For the new spec, verifies that devices in mirrors and raidz are the
+ *	same size.
  *
- * 	If the current configuration already has inconsistent replication
- * 	levels, ignore any other potential problems in the new spec.
+ *	If the current configuration already has inconsistent replication
+ *	levels, ignore any other potential problems in the new spec.
  *
- * 	Otherwise, make sure that the current spec (if there is one) and the new
- * 	spec have consistent replication levels.
+ *	Otherwise, make sure that the current spec (if there is one) and the new
+ *	spec have consistent replication levels.
  *
  *	If there is no current spec (create), make sure new spec has at least
  *	one general purpose vdev.
@@ -1097,7 +1125,7 @@ is_spare(nvlist_t *config, const char *path)
 	if (zpool_in_use(g_zfs, fd, &state, &name, &inuse) != 0 ||
 	    !inuse ||
 	    state != POOL_STATE_SPARE ||
-	    zpool_read_label(fd, &label) != 0) {
+	    zpool_read_label(fd, &label, NULL) != 0) {
 		free(name);
 		(void) close(fd);
 		return (B_FALSE);
@@ -1264,7 +1292,7 @@ is_grouping(const char *type, int *mindev, int *maxdev)
  * because the program is just going to exit anyway.
  */
 nvlist_t *
-construct_spec(int argc, char **argv)
+construct_spec(nvlist_t *props, int argc, char **argv)
 {
 	nvlist_t *nvroot, *nv, **top, **spares, **l2cache;
 	int t, toplevels, mindev, maxdev, nspares, nlogs, nl2cache;
@@ -1374,8 +1402,8 @@ construct_spec(int argc, char **argv)
 				    children * sizeof (nvlist_t *));
 				if (child == NULL)
 					zpool_no_memory();
-				if ((nv = make_leaf_vdev(argv[c], B_FALSE))
-				    == NULL)
+				if ((nv = make_leaf_vdev(props, argv[c],
+				    B_FALSE)) == NULL)
 					return (NULL);
 				child[children - 1] = nv;
 			}
@@ -1445,7 +1473,8 @@ construct_spec(int argc, char **argv)
 			 * We have a device.  Pass off to make_leaf_vdev() to
 			 * construct the appropriate nvlist describing the vdev.
 			 */
-			if ((nv = make_leaf_vdev(argv[0], is_log)) == NULL)
+			if ((nv = make_leaf_vdev(props, argv[0], is_log))
+			    == NULL)
 				return (NULL);
 			if (is_log)
 				nlogs++;
@@ -1522,7 +1551,7 @@ split_mirror_vdev(zpool_handle_t *zhp, char *newname, nvlist_t *props,
 	zpool_boot_label_t boot_type;
 
 	if (argc > 0) {
-		if ((newroot = construct_spec(argc, argv)) == NULL) {
+		if ((newroot = construct_spec(props, argc, argv)) == NULL) {
 			(void) fprintf(stderr, gettext("Unable to build a "
 			    "pool from the specified devices\n"));
 			return (NULL);
@@ -1601,7 +1630,7 @@ num_normal_vdevs(nvlist_t *nvroot)
  * added, even if they appear in use.
  */
 nvlist_t *
-make_root_vdev(zpool_handle_t *zhp, int force, int check_rep,
+make_root_vdev(zpool_handle_t *zhp, nvlist_t *props, int force, int check_rep,
     boolean_t replacing, boolean_t dryrun, zpool_boot_label_t boot_type,
     uint64_t boot_size, int argc, char **argv)
 {
@@ -1614,7 +1643,7 @@ make_root_vdev(zpool_handle_t *zhp, int force, int check_rep,
 	 * that we have a valid specification, and that all devices can be
 	 * opened.
 	 */
-	if ((newroot = construct_spec(argc, argv)) == NULL)
+	if ((newroot = construct_spec(props, argc, argv)) == NULL)
 		return (NULL);
 
 	if (zhp && ((poolconfig = zpool_get_config(zhp, NULL)) == NULL))

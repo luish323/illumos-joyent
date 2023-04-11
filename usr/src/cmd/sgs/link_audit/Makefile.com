@@ -62,7 +62,7 @@ BINDPICS=	$(BINDSRC:%.c=$(PICDIR)/%.o) $(PICDIR)/env.o
 
 $(WHOPICS):=	SEMANTICCHK=
 
-LDLIBS +=	$(CONVLIBDIR) $(CONV_LIB)
+LDLIBS +=	$(CONVLIBDIR) -lconv
 
 $(TRUSSLIB):=	PICS = $(TRUSSPICS)
 $(PERFLIB):=	PICS = $(PERFPICS)
@@ -88,10 +88,11 @@ $(WHOLIB):=	MAPFILES = ../common/mapfile-vers-who
 $(SYMBINDREP):=	MAPFILES = ../common/mapfile-vers-symbindrep
 $(BINDLIB):=	MAPFILES = ../common/mapfile-vers-bindings
 
+$(ONPROGS):=	LDFLAGS += $(LDLIBS.cmd) $(BDIRECT)
+
 $(ROOTCCSLIB) :=	DIRMODE =	755
 
 CPPFLAGS +=	-D_REENTRANT
-LDFLAGS +=	$(CC_USE_PROTO)
 DYNFLAGS +=	$(VERSREF)
 
 CLEANFILES +=	$(OBJDIR)/* $(PICDIR)/*

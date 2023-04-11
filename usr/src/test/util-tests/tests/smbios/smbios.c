@@ -11,6 +11,7 @@
 
 /*
  * Copyright (c) 2018, Joyent, Inc.
+ * Copyright 2022 Oxide Computer Company
  */
 
 /*
@@ -19,33 +20,15 @@
  * This should be evolved into a much fuller test suite.
  */
 
-#include <smbios.h>
 #include <umem.h>
-#include <stdint.h>
-#include <endian.h>
-#include <stdio.h>
-#include <err.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <unistd.h>
+#include "smbios_test.h"
 
-#include <sys/smbios.h>
-#include <sys/smbios_impl.h>
-
-static const char *smbios_test_name = "The One Slot";
-
-/*
- * Number of bytes we allocate at a given time for an SMBIOS table.
- */
-#define	SMBIOS_TEST_ALLOC_SIZE	1024
-
-typedef struct smbios_test_table {
-	smbios_entry_point_t	stt_type;
-	void			*stt_data;
-	size_t			stt_buflen;
-	size_t			stt_offset;
-	uint_t			stt_nents;
-	uint_t			stt_version;
-	uint_t			stt_nextid;
-	smbios_entry_t		stt_entry;
-} smbios_test_table_t;
+static int test_dirfd = -1;
 
 const char *
 _umem_debug_init(void)
@@ -59,7 +42,7 @@ _umem_logging_init(void)
 	return ("fail,contents");
 }
 
-static smbios_test_table_t *
+smbios_test_table_t *
 smbios_test_table_init(smbios_entry_point_t type, uint_t version)
 {
 	smbios_test_table_t *table;
@@ -122,21 +105,29 @@ smbios_test_table_append_common(smbios_test_table_t *table, const void *buf,
 	return (start);
 }
 
-static void
+void
 smbios_test_table_append_raw(smbios_test_table_t *table, const void *buf,
     size_t len)
 {
 	(void) smbios_test_table_append_common(table, buf, len);
 }
 
-static void
+void
 smbios_test_table_append_string(smbios_test_table_t *table, const char *str)
 {
 	size_t len = strlen(str) + 1;
 	(void) smbios_test_table_append_common(table, str, len);
 }
 
-static uint16_t
+void
+smbios_test_table_str_fini(smbios_test_table_t *table)
+{
+	const uint8_t endstring = 0;
+
+	smbios_test_table_append_raw(table, &endstring, sizeof (endstring));
+}
+
+uint16_t
 smbios_test_table_append(smbios_test_table_t *table, const void *buf,
     size_t len)
 {
@@ -151,6 +142,25 @@ smbios_test_table_append(smbios_test_table_t *table, const void *buf,
 	table->stt_nextid++;
 
 	return (id);
+}
+
+void
+smbios_test_table_append_eot(smbios_test_table_t *table)
+{
+	smb_header_t eot;
+	uint8_t endstring = 0;
+
+	bzero(&eot, sizeof (eot));
+	eot.smbh_type = SMB_TYPE_EOT;
+	eot.smbh_len = 4;
+	(void) smbios_test_table_append(table, &eot, sizeof (eot));
+	(void) smbios_test_table_append_raw(table, &endstring,
+	    sizeof (endstring));
+	smbios_test_table_append_raw(table, &endstring,
+	    sizeof (endstring));
+	smbios_test_table_append_raw(table, &endstring,
+	    sizeof (endstring));
+
 }
 
 static uint8_t
@@ -217,195 +227,437 @@ smbios_test_table_fini(smbios_test_table_t *table)
 	umem_free(table, sizeof (smbios_test_table_t));
 }
 
-static void
-smbios_test_mktable(smbios_test_table_t *table)
+static const smbios_test_t smbios_tests[] = {
+	{
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = 0xffff,
+	    .st_mktable = smbios_test_badvers_mktable,
+	    .st_desc = "bad library version"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = 0,
+	    .st_mktable = smbios_test_badvers_mktable,
+	    .st_desc = "bad library version (zeros)"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_slot_mktable,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_verify_badids,
+	    .st_desc = "smbios_info_* with bad id"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_slot_mktable,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_verify_strings,
+	    .st_desc = "smbios string functions"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION_32,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_slot_mktable,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_slot_verify,
+	    .st_desc = "slot 3.2"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION_34,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_slot_mktable_34_nopeers,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_slot_verify_34_nopeers,
+	    .st_desc = "slot 3.4 without peers"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION_34,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_slot_mktable_34_peers,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_slot_verify_34_peers,
+	    .st_desc = "slot 3.4 with peers"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION_35,
+	    .st_libvers = SMB_VERSION_34,
+	    .st_mktable = smbios_test_slot_mktable_35,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_slot_verify_34_overrun,
+	    .st_desc = "slot 3.5 against 3.4 lib"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION_35,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_slot_mktable_35,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_slot_verify_35,
+	    .st_desc = "slot 3.5"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION_32,
+	    .st_libvers = SMB_VERSION_32,
+	    .st_mktable = smbios_test_memdevice_mktable_32,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_memdevice_verify_32,
+	    .st_desc = "memory device 3.2 % 3.2"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION_32,
+	    .st_libvers = SMB_VERSION_33,
+	    .st_mktable = smbios_test_memdevice_mktable_32,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_memdevice_verify_32_33,
+	    .st_desc = "memory device 3.2 % 3.3"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION_33,
+	    .st_libvers = SMB_VERSION_33,
+	    .st_mktable = smbios_test_memdevice_mktable_33,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_memdevice_verify_33,
+	    .st_desc = "memory device 3.3"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION_33,
+	    .st_libvers = SMB_VERSION_33,
+	    .st_mktable = smbios_test_memdevice_mktable_33ext,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_memdevice_verify_33ext,
+	    .st_desc = "memory device 3.3"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_pinfo_mktable_amd64,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_pinfo_verify_amd64,
+	    .st_desc = "processor additional information - amd64"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_pinfo_mktable_riscv,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_pinfo_verify_riscv,
+	    .st_desc = "processor additional information - riscv"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_pinfo_mktable_invlen1,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_pinfo_verify_invlen1,
+	    .st_desc = "processor additional information - bad table length 1"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_pinfo_mktable_invlen2,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_pinfo_verify_invlen2,
+	    .st_desc = "processor additional information - bad table length 2"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_pinfo_mktable_invlen3,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_pinfo_verify_invlen3,
+	    .st_desc = "processor additional information - bad table length 3"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_pinfo_mktable_invlen4,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_pinfo_verify_invlen4,
+	    .st_desc = "processor additional information - bad table length 4"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_memdevice_mktable_32,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_pinfo_verify_badtype,
+	    .st_desc = "processor additional information - bad type"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_strprop_mktable_invlen1,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_strprop_verify_invlen1,
+	    .st_desc = "string property - bad table length 1"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_strprop_mktable_invlen2,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_strprop_verify_invlen2,
+	    .st_desc = "string property - bad table length 2"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_memdevice_mktable_32,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_strprop_verify_badtype,
+	    .st_desc = "string property - bad type"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_strprop_mktable_basic,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_strprop_verify_basic,
+	    .st_desc = "string property - basic"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_strprop_mktable_badstr,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_strprop_verify_badstr,
+	    .st_desc = "string property - bad string"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_fwinfo_mktable_invlen_base,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_fwinfo_verify_invlen_base,
+	    .st_desc = "firmware inventory - bad base length"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_fwinfo_mktable_invlen_comps,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_fwinfo_verify_invlen_comps,
+	    .st_desc = "firmware inventory - bad comp length"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_memdevice_mktable_32,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_fwinfo_verify_badtype,
+	    .st_desc = "firmware inventory - bad type"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_fwinfo_mktable_nocomps,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_fwinfo_verify_nocomps,
+	    .st_desc = "firmware inventory - no components"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_fwinfo_mktable_comps,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_fwinfo_verify_comps,
+	    .st_desc = "firmware inventory - components"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION_24,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_chassis_mktable_invlen_base,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_chassis_verify_invlen,
+	    .st_desc = "chassis - bad length (2.4 table)"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_chassis_mktable_invlen_base,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_chassis_verify_invlen,
+	    .st_desc = "chassis - bad length (latest version)"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_chassis_mktable_base,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_chassis_verify_invlen,
+	    .st_desc = "chassis - bad length, expect sku"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION_24,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_chassis_mktable_base,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_chassis_verify_base,
+	    .st_desc = "chassis - basic 2.4 version"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_chassis_mktable_sku_nocomps,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_chassis_verify_sku_nocomps,
+	    .st_desc = "chassis - sku, but no components"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION_24,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_chassis_mktable_comps,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_chassis_verify_comps,
+	    .st_desc = "chassis - 2.4 version with comps"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_chassis_mktable_sku_nocomps,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_chassis_verify_sku_nocomps,
+	    .st_desc = "chassis - sku + comps"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION_25,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_proc_mktable_25,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_proc_verify_25,
+	    .st_desc = "SMBIOS 2.5 processor"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION_36,
+	    .st_libvers = SMB_VERSION,
+	    .st_mktable = smbios_test_proc_mktable_36,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_proc_verify_36,
+	    .st_desc = "SMBIOS 3.6 processor"
+	}, {
+	    .st_entry = SMBIOS_ENTRY_POINT_30,
+	    .st_tvers = SMB_VERSION_36,
+	    .st_libvers = SMB_VERSION_25,
+	    .st_mktable = smbios_test_proc_mktable_36,
+	    .st_canopen = B_TRUE,
+	    .st_verify = smbios_test_proc_verify_36_25,
+	    .st_desc = "SMBIOS 3.6 processor, 2.5 client"
+	}
+};
+
+static boolean_t
+smbios_test_run_one(const smbios_test_t *test)
 {
-	smb_slot_t slot;
-	smb_slot_peer_t peers[2];
-	smb_header_t eot;
-	uint8_t endstring = 0;
+	smbios_test_table_t *table = NULL;
+	smbios_hdl_t *hdl = NULL;
+	void *buf;
+	size_t len;
+	smbios_entry_t *entry;
+	int err = 0;
+	boolean_t ret = B_FALSE;
 
-	slot.smbsl_hdr.smbh_type = SMB_TYPE_SLOT;
-	slot.smbsl_hdr.smbh_len = sizeof (smb_slot_t) + sizeof (peers);
-
-	slot.smbsl_name = 1;
-	slot.smbsl_type = SMB_SLT_PCIE3G16;
-	slot.smbsl_width = SMB_SLW_16X;
-	slot.smbsl_length = SMB_SLL_SHORT;
-	slot.smbsl_id = htole16(1);
-	slot.smbsl_ch1 = SMB_SLCH1_33V;
-	slot.smbsl_ch2 = SMB_SLCH2_PME;
-	slot.smbsl_sg = htole16(1);
-	slot.smbsl_bus = 0x42;
-	slot.smbsl_df = 0x23;
-	slot.smbsl_dbw = SMB_SLW_16X;
-	slot.smbsl_npeers = 2;
-	peers[0].smbspb_group_no = htole16(1);
-	peers[0].smbspb_bus = 0x42;
-	peers[0].smbspb_df = 0x42;
-	peers[0].smbspb_width = SMB_SLW_8X;
-
-	peers[1].smbspb_group_no = htole16(1);
-	peers[1].smbspb_bus = 0x23;
-	peers[1].smbspb_df = 0x31;
-	peers[1].smbspb_width = SMB_SLW_8X;
-
-	(void) smbios_test_table_append(table, &slot, sizeof (slot));
-	(void) smbios_test_table_append_raw(table, peers, sizeof (peers));
-	(void) smbios_test_table_append_string(table, smbios_test_name);
-	(void) smbios_test_table_append_raw(table, &endstring,
-	    sizeof (endstring));
-
-	bzero(&eot, sizeof (eot));
-	eot.smbh_type = SMB_TYPE_EOT;
-	eot.smbh_len = 4;
-	(void) smbios_test_table_append(table, &eot, sizeof (eot));
-	(void) smbios_test_table_append_raw(table, &endstring,
-	    sizeof (endstring));
-	(void) smbios_test_table_append_raw(table, &endstring,
-	    sizeof (endstring));
-}
-
-static void
-smbios_test_verify_table(smbios_hdl_t *hdl)
-{
-	smbios_struct_t sp;
-	smbios_slot_t slot;
-	uint_t npeers;
-	smbios_slot_peer_t *peers;
-	uint_t errs = 0;
-
-	if (smbios_lookup_type(hdl, SMB_TYPE_SLOT, &sp) == -1) {
-		errx(EXIT_FAILURE, "failed to lookup SMBIOS slot: %s",
-		    smbios_errmsg(smbios_errno(hdl)));
+	table = smbios_test_table_init(test->st_entry, test->st_tvers);
+	if (!test->st_mktable(table)) {
+		goto out;
 	}
 
-	if (smbios_info_slot(hdl, sp.smbstr_id, &slot) != 0) {
-		errx(EXIT_FAILURE, "failed to get SMBIOS slot info: %s",
-		    smbios_errmsg(smbios_errno(hdl)));
+	smbios_test_table_snapshot(table, &entry, &buf, &len);
+	hdl = smbios_bufopen(entry, buf, len, test->st_libvers, SMB_FL_DEBUG,
+	    &err);
+	if (test->st_canopen) {
+		if (hdl == NULL) {
+			warnx("failed to create table for test %s: %s",
+			    test->st_desc, smbios_errmsg(err));
+			goto out;
+		}
+	} else {
+		if (hdl != NULL) {
+			warnx("accidentally created table for test %s, "
+			    "expected failure", test->st_desc);
+		} else {
+			ret = B_TRUE;
+		}
+		goto out;
 	}
 
-	/*
-	 * Verify everything we'd expect about the slot.
-	 */
-	if (strcmp(slot.smbl_name, smbios_test_name) != 0) {
-		warnx("slot name mismatch, expected %s, found %s",
-		    smbios_test_name, slot.smbl_name);
-		errs++;
+	if (test->st_verify(hdl)) {
+		ret = B_TRUE;
 	}
 
-	if (slot.smbl_type != SMB_SLT_PCIE3G16) {
-		warnx("incorrect slot type, found %u", slot.smbl_type);
-		errs++;
+	if (hdl != NULL && test_dirfd > -1) {
+		int fd;
+		char fname[PATH_MAX];
+
+		(void) snprintf(fname, sizeof (fname), "%s.smbios",
+		    test->st_desc);
+		fd = openat(test_dirfd, fname, O_RDWR | O_CREAT, 0644);
+		if (fd < 0) {
+			warn("failed to dump test %s, failed to open output "
+			    "file", test->st_desc);
+		} else {
+			if (smbios_write(hdl, fd) != 0) {
+				warnx("failed to dump test %s: %s",
+				    test->st_desc,
+				    smbios_errmsg(smbios_errno(hdl)));
+			} else {
+				(void) close(fd);
+			}
+		}
+	}
+out:
+	if (hdl != NULL) {
+		smbios_close(hdl);
 	}
 
-	if (slot.smbl_width != SMB_SLW_16X) {
-		warnx("incorrect slot type, found %u", slot.smbl_type);
-		errs++;
+	if (table != NULL) {
+		smbios_test_table_fini(table);
 	}
 
-	if (slot.smbl_length != SMB_SLL_SHORT) {
-		warnx("incorrect slot length, found %u", slot.smbl_length);
-		errs++;
+	if (ret) {
+		(void) printf("TEST PASSED: %s\n", test->st_desc);
+	} else {
+		(void) printf("TEST FAILED: %s\n", test->st_desc);
 	}
 
-	if (slot.smbl_dbw != SMB_SLW_16X) {
-		warnx("incorrect slot width, found %u", slot.smbl_dbw);
-		errs++;
-	}
-
-	if (slot.smbl_npeers != 2) {
-		warnx("incorrect number of slot peers, found %u",
-		    slot.smbl_npeers);
-		errs++;
-	}
-
-	if (smbios_info_slot_peers(hdl, sp.smbstr_id, &npeers, &peers) != 0) {
-		errx(EXIT_FAILURE, "failed to get SMBIOS peer info: %s",
-		    smbios_errmsg(smbios_errno(hdl)));
-	}
-
-	if (npeers != 2) {
-		errx(EXIT_FAILURE, "got wrong number of slot peers: %u\n",
-		    npeers);
-	}
-
-	if (peers[0].smblp_group != 1) {
-		warnx("incorect group for peer 0: %u", peers[0].smblp_group);
-		errs++;
-	}
-
-	if (peers[0].smblp_data_width != SMB_SLW_8X) {
-		warnx("incorrect data width for peer 0: %u",
-		    peers[0].smblp_data_width);
-		errs++;
-	}
-
-	if (peers[0].smblp_device != (0x42 >> 3)) {
-		warnx("incorrect PCI device for peer 0: %u",
-		    peers[0].smblp_device);
-		errs++;
-	}
-
-	if (peers[0].smblp_function != (0x42 & 0x7)) {
-		warnx("incorrect PCI function for peer 0: %u",
-		    peers[0].smblp_function);
-		errs++;
-	}
-
-	if (peers[1].smblp_group != 1) {
-		warnx("incorect group for peer 1: %u", peers[1].smblp_group);
-		errs++;
-	}
-
-	if (peers[1].smblp_device != (0x31 >> 3)) {
-		warnx("incorrect PCI device for peer 1: %u",
-		    peers[1].smblp_device);
-		errs++;
-	}
-
-	if (peers[1].smblp_function != (0x31 & 0x7)) {
-		warnx("incorrect PCI function for peer 1: %u",
-		    peers[1].smblp_function);
-		errs++;
-	}
-
-	if (peers[1].smblp_data_width != SMB_SLW_8X) {
-		warnx("incorrect data width for peer 1: %u",
-		    peers[1].smblp_data_width);
-		errs++;
-	}
-
-	smbios_info_slot_peers_free(hdl, npeers, peers);
-
-	if (errs > 0) {
-		errx(EXIT_FAILURE, "encountered fatal erros");
-	}
+	return (ret);
 }
 
 int
-main(void)
+main(int argc, char *argv[])
 {
-	void *buf;
-	size_t len;
-	smbios_test_table_t *table;
-	smbios_entry_t *entry;
-	smbios_hdl_t *hdl;
-	int err = 0;
+	int ret = 0, c;
+	size_t i;
+	const char *outdir = NULL;
 
-	table = smbios_test_table_init(SMBIOS_ENTRY_POINT_30, SMB_VERSION_32);
-	smbios_test_mktable(table);
-	smbios_test_table_snapshot(table, &entry, &buf, &len);
-
-	hdl = smbios_bufopen(entry, buf, len, SMB_VERSION_32, SMB_FL_DEBUG,
-	    &err);
-	if (hdl == NULL) {
-		errx(EXIT_FAILURE, "failed to create fake smbios table: %s",
-		    smbios_errmsg(err));
+	while ((c = getopt(argc, argv, ":d:")) != -1) {
+		switch (c) {
+		case 'd':
+			outdir = optarg;
+			break;
+		case '?':
+			errx(EXIT_FAILURE, "unknown option: -%c", optopt);
+		case ':':
+			errx(EXIT_FAILURE, "-%c requires an operand", optopt);
+		}
 	}
-	smbios_test_verify_table(hdl);
-	smbios_close(hdl);
-	smbios_test_table_fini(table);
 
-	return (0);
+	if (outdir != NULL) {
+		if ((test_dirfd = open(outdir, O_RDONLY)) < 0) {
+			err(EXIT_FAILURE, "failed to open %s", outdir);
+		}
+	}
+
+	for (i = 0; i < ARRAY_SIZE(smbios_tests); i++) {
+		if (!smbios_test_run_one(&smbios_tests[i])) {
+			ret = 1;
+		}
+	}
+
+	if (ret == 0) {
+		(void) printf("All tests passed successfully\n");
+	}
+
+	return (ret);
 }

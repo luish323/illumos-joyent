@@ -45,7 +45,6 @@
 #include	"_rtld.h"
 #include	"_audit.h"
 #include	"_elf.h"
-#include	"_a.out.h"
 #include	"_inline_gen.h"
 #include	"msg.h"
 
@@ -712,9 +711,9 @@ _is_so_matched(const char *name, const char *str, int path)
  *	path names can be supplied as dependencies, e.g. dlopen("../libx.so.1").
  *
  *  -	a PATHNAME() - this is the fully resolved path name of the object.  This
- * 	name will differ from NAME() for all dynamic executables, and may differ
+ *	name will differ from NAME() for all dynamic executables, and may differ
  *	from the NAME() of dependencies, if the dependency is not a full path
- * 	name, or the dependency resolves to a symbolic link.
+ *	name, or the dependency resolves to a symbolic link.
  *
  *  -	an ALIAS() name - these are alternative names by which the object has
  *	been found, ie. when dependencies are loaded through a variety of
@@ -1544,7 +1543,7 @@ find_file(Lm_list *lml, Rt_map *clmp, uint_t flags, Fdesc *fdp, Rej_desc *rej,
 		 * If we found a directory search for the file.
 		 */
 		if (dobj->co_id != 0) {
-			if (*strhash == NULL)
+			if (*strhash == 0)
 				*strhash = (Word)elf_hash(oname);
 			fobj = elf_config_ent(oname, *strhash,
 			    dobj->co_id, &aname);
@@ -1595,7 +1594,7 @@ find_file(Lm_list *lml, Rt_map *clmp, uint_t flags, Fdesc *fdp, Rej_desc *rej,
 	if ((olen + pdp->pd_plen + 1) >= PATH_MAX) {
 		eprintf(lml, ERR_FATAL, MSG_INTL(MSG_SYS_OPEN), oname,
 		    strerror(ENAMETOOLONG));
-			return (0);
+		return (0);
 	}
 	if ((fdp->fd_nname = (LM_GET_SO(clmp)(pdp->pd_pname, oname,
 	    pdp->pd_plen, olen))) == NULL)
@@ -1606,9 +1605,6 @@ find_file(Lm_list *lml, Rt_map *clmp, uint_t flags, Fdesc *fdp, Rej_desc *rej,
 
 static Fct	*Vector[] = {
 	&elf_fct,
-#ifdef	A_OUT
-	&aout_fct,
-#endif
 	0
 };
 
@@ -1781,12 +1777,6 @@ map_obj(Lm_list *lml, Fdesc *fdp, size_t fsize, const char *name, int fd,
 			fptr = elf_verify((mpp->mr_addr + mpp->mr_offset),
 			    mpp->mr_fsize, fdp, name, rej);
 		}
-#ifdef	A_OUT
-		if (flags == MR_HDR_AOUT) {
-			fptr = aout_verify((mpp->mr_addr + mpp->mr_offset),
-			    mpp->mr_fsize, fdp, name, rej);
-		}
-#endif
 		if (fptr) {
 			fdp->fd_mapn = mapnum;
 			fdp->fd_mapp = smpp;
@@ -1850,8 +1840,7 @@ load_file(Lm_list *lml, Aliste lmco, Rt_map *clmp, Fdesc *fdp, int *in_nfavl)
 			/* LINTED */
 			ehdr = (Ehdr *)(mpp->mr_addr + mpp->mr_offset);
 			hmpp = mpp;
-		} else if (flags == MR_HDR_AOUT)
-			hmpp = mpp;
+		}
 	}
 
 	/*
@@ -2432,7 +2421,7 @@ load_finish(Lm_list *lml, const char *name, Rt_map *clmp, int nmode,
 
 		for (APLIST_TRAVERSE(lmalp, idx2, dlmp1)) {
 			Aliste		idx3;
-			Bnd_desc 	*bdp;
+			Bnd_desc	*bdp;
 
 			/*
 			 * Add any dependencies of this dependency to the
@@ -2608,7 +2597,7 @@ load_one(Lm_list *lml, Aliste lmco, Alist *palp, Rt_map *clmp, int mode,
 {
 	Rej_desc	rej = { 0 };
 	Aliste		idx;
-	Pdesc   	*pdp;
+	Pdesc		*pdp;
 	const char	*name;
 
 	for (ALIST_TRAVERSE(palp, idx, pdp)) {
@@ -2779,7 +2768,7 @@ lookup_sym_interpose(Slookup *slp, Sresult *srp, uint_t *binfo, int *in_nfavl)
 	}
 
 	if ((lml->lm_flags & LML_FLG_INTRPOSE) == 0)
-		return (NULL);
+		return (0);
 
 	/*
 	 * Traverse the list of known interposers to determine whether any
@@ -3191,7 +3180,7 @@ _lookup_sym(Slookup *slp, Sresult *srp, uint_t *binfo, int *in_nfavl)
 
 		lml = LIST(lmp);
 		if ((sl.sl_flags & LKUP_WEAK) || (lml->lm_lazy == 0))
-			return (NULL);
+			return (0);
 
 		DBG_CALL(Dbg_syms_lazy_rescan(lml, name));
 
@@ -3223,10 +3212,6 @@ _lookup_sym(Slookup *slp, Sresult *srp, uint_t *binfo, int *in_nfavl)
  * search.  If successful, return a pointer to the symbol table entry, a
  * pointer to the link map of the enclosing object, and information relating
  * to the type of binding.  Else return a null pointer.
- *
- * To improve ELF performance, we first compute the ELF hash value and pass
- * it to each _lookup_sym() routine.  The ELF function will use this value to
- * locate the symbol, the a.out function will simply ignore it.
  */
 int
 lookup_sym(Slookup *slp, Sresult *srp, uint_t *binfo, int *in_nfavl)

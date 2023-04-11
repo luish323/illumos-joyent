@@ -79,11 +79,7 @@ $(IMPLEMENTATIONS):     FRC
 	@cd $@; pwd; THISIMPL=$@ $(MAKE) $(NO_STATE) $(TARGET)
 
 $(XMODS):	FRC
-	@if [ -f $@/Makefile  ]; then \
-		cd $@; pwd; $(MAKE) $(NO_STATE) $(TARGET); \
-	else \
-		true; \
-	fi
+	cd $@; pwd; $(MAKE) $(NO_STATE) $(TARGET)
 
 install_h check:	$(IMPLEMENTATIONS) FRC
 	@cd sys; pwd; $(MAKE) $(TARGET)
@@ -114,5 +110,4 @@ XRDIRS	= ../i86pc ../intel ../common
 
 XRPRUNE	= sun4u sun4
 
-cscope.out tags: FRC
-	$(XREF) -x $@
+include ../../Makefile.xref

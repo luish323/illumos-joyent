@@ -57,9 +57,9 @@ ALL_TARGET	= $(BINARY) $(CONFMOD)
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE) $(ROOT_CONFFILE)
 
 CPPFLAGS	+= -DHVMPV_XPVD_VERS=1
-LDFLAGS		+= -dy -Ndrv/xpv
+LDFLAGS		+= -Ndrv/xpv
 
-CERRWARN	+= -_gcc=-Wno-uninitialized
+CERRWARN	+= $(CNOWARN_UNINIT)
 
 #
 #	Default build targets.

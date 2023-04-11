@@ -42,7 +42,6 @@ COM_DIR = $(COMMONBASE)/crypto
 #
 MODULE		= sha1
 OBJECTS		= $(SHA1_OBJS:%=$(OBJS_DIR)/%)
-LINTS		= $(SHA1_OBJS:%.o=$(LINTS_DIR)/%.ln)
 ROOTMODULE	= $(ROOT_CRYPTO_DIR)/$(MODULE)
 ROOTLINK	= $(ROOT_MISC_DIR)/$(MODULE)
 
@@ -60,19 +59,14 @@ include $(UTSBASE)/sparc/Makefile.sparc
 #	Define targets
 #
 ALL_TARGET	= $(BINARY)
-LINT_TARGET	= $(MODULE).lint
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE) $(ROOTLINK)
 
 #
 # Linkage dependencies
 #
-LDFLAGS += -dy -Nmisc/kcf
+LDFLAGS += -Nmisc/kcf
 
-#
-# lint pass one enforcement
-#
 CFLAGS += $(CCVERBOSE) -I$(COM_DIR)
-LINTFLAGS	+= -I$(COM_DIR)
 
 #
 #	Default build targets.
@@ -86,12 +80,6 @@ all:		$(ALL_DEPS)
 clean:		$(CLEAN_DEPS)
 
 clobber:	$(CLOBBER_DEPS)
-
-lint:		$(LINT_DEPS)
-
-modlintlib:	$(MODLINTLIB_DEPS)
-
-clean.lint:	$(CLEAN_LINT_DEPS)
 
 install:	$(INSTALL_DEPS)
 

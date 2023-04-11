@@ -14,7 +14,7 @@
  */
 
 /*
- * Copyright 2019 Joyent, Inc.
+ * Copyright 2020 Joyent, Inc.
  */
 
 #include <stdlib.h>
@@ -85,6 +85,81 @@ custr_reset(custr_t *cus)
 	cus->cus_data[0] = '\0';
 }
 
+int
+custr_remove(custr_t *cus, size_t idx, size_t len)
+{
+	size_t endidx = idx + len;
+
+	/*
+	 * Once gcc4 is dropped as a shadow compiler, we can migrate to
+	 * using builtins for the overflow check.
+	 */
+	if (endidx < idx || endidx < len) {
+		errno = EINVAL;
+		return (-1);
+	}
+
+	if (idx >= cus->cus_strlen || endidx > cus->cus_strlen) {
+		errno = EINVAL;
+		return (-1);
+	}
+
+	if (len == 0)
+		return (0);
+
+	/* The +1 will include the terminating NUL in the move */
+	(void) memmove(cus->cus_data + idx, cus->cus_data + endidx,
+	    cus->cus_strlen - endidx + 1);
+	cus->cus_strlen -= len;
+
+	/* The result should be NUL */
+	VERIFY0(cus->cus_data[cus->cus_strlen]);
+	return (0);
+}
+
+int
+custr_rremove(custr_t *cus, size_t ridx, size_t len)
+{
+	size_t idx;
+
+	if (ridx >= cus->cus_strlen) {
+		errno = EINVAL;
+		return (-1);
+	}
+
+	idx = cus->cus_strlen - ridx - 1;
+	return (custr_remove(cus, idx, len));
+}
+
+int
+custr_trunc(custr_t *cus, size_t idx)
+{
+	if (idx >= cus->cus_strlen) {
+		errno = EINVAL;
+		return (-1);
+	}
+
+	cus->cus_data[idx] = '\0';
+	cus->cus_strlen = idx;
+	return (0);
+}
+
+int
+custr_rtrunc(custr_t *cus, size_t ridx)
+{
+	size_t idx;
+
+	if (ridx >= cus->cus_strlen) {
+		errno = EINVAL;
+		return (-1);
+	}
+
+	idx = cus->cus_strlen - ridx - 1;
+	cus->cus_data[idx] = '\0';
+	cus->cus_strlen = idx;
+	return (0);
+}
+
 size_t
 custr_len(custr_t *cus)
 {
@@ -113,8 +188,9 @@ custr_append_vprintf(custr_t *cus, const char *fmt, va_list ap)
 	int len = vsnprintf(NULL, 0, fmt, ap);
 	size_t chunksz = STRING_CHUNK_SIZE;
 
-	if (len == -1)
+	if (len < 0) {
 		return (len);
+	}
 
 	while (chunksz < len) {
 		chunksz *= 2;
@@ -155,10 +231,10 @@ custr_append_vprintf(custr_t *cus, const char *fmt, va_list ap)
 	/*
 	 * Append new string to existing string:
 	 */
-	len = vsnprintf(cus->cus_data + cus->cus_strlen,
-	    (uintptr_t)cus->cus_data - (uintptr_t)cus->cus_strlen, fmt, ap);
-	if (len == -1)
+	if ((len = vsnprintf(cus->cus_data + cus->cus_strlen,
+	    cus->cus_datalen - cus->cus_strlen, fmt, ap)) < 0) {
 		return (len);
+	}
 	cus->cus_strlen += len;
 
 	return (0);

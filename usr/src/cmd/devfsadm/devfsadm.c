@@ -378,7 +378,7 @@ main(int argc, char *argv[])
 			detachfromtty();
 			(void) cond_init(&cv, USYNC_THREAD, 0);
 			(void) mutex_init(&count_lock, USYNC_THREAD, 0);
-			if (thr_create(NULL, NULL,
+			if (thr_create(NULL, 0,
 			    (void *(*)(void *))instance_flush_thread,
 			    NULL, THR_DETACHED, NULL) != 0) {
 				err_print(CANT_CREATE_THREAD, "daemon",
@@ -390,8 +390,7 @@ main(int argc, char *argv[])
 			/* start the minor_fini_thread */
 			(void) mutex_init(&minor_fini_mutex, USYNC_THREAD, 0);
 			(void) cond_init(&minor_fini_cv, USYNC_THREAD, 0);
-			if (thr_create(NULL, NULL,
-			    (void *(*)(void *))minor_fini_thread,
+			if (thr_create(NULL, 0, minor_fini_thread,
 			    NULL, THR_DETACHED, NULL)) {
 				err_print(CANT_CREATE_THREAD, "minor_fini",
 				    strerror(errno));
@@ -678,7 +677,7 @@ parse_args(int argc, char *argv[])
 				break;
 			case 'u':
 				/*
-				 * Invoked via update_drv(1m) to update
+				 * Invoked via update_drv(8) to update
 				 * the kernel's driver/alias binding
 				 * when removing one or more aliases.
 				 */
@@ -705,7 +704,7 @@ parse_args(int argc, char *argv[])
 		}
 
 		if (bind == TRUE) {
-			if ((mc.major == -1) || (mc.drvname[0] == NULL)) {
+			if ((mc.major == -1) || (mc.drvname[0] == '\0')) {
 				err_print(MAJOR_AND_B_FLAG);
 				devfsadm_exit(1);
 				/*NOTREACHED*/
@@ -2409,9 +2408,8 @@ load_module(char *mname, char *cdir)
  * within 'timeout' secs the minor_fini_thread needs to do a SYNC_STATE
  * so that we still call the minor_fini routines.
  */
-/*ARGSUSED*/
-static void
-minor_fini_thread(void *arg)
+static void *
+minor_fini_thread(void *arg __unused)
 {
 	timestruc_t	abstime;
 
@@ -2444,6 +2442,7 @@ minor_fini_thread(void *arg)
 
 		(void) mutex_lock(&minor_fini_mutex);
 	}
+	return (NULL);
 }
 
 
@@ -4319,11 +4318,11 @@ hot_cleanup(char *node_path, char *minor_name, char *ev_subclass,
 				(void) snprintf(rmlink, sizeof (rmlink),
 				    "%s", link->devlink);
 				if (rm->remove->flags & RM_NOINTERPOSE) {
-					((void (*)(char *))
-					    (rm->remove->callback_fcn))(rmlink);
+					(void)
+					    (rm->remove->callback_fcn)(rmlink);
 				} else {
-					ret = ((int (*)(char *))
-					    (rm->remove->callback_fcn))(rmlink);
+					ret =
+					    (rm->remove->callback_fcn)(rmlink);
 					if (ret == DEVFSADM_TERMINATE)
 						nfphash_insert(rmlink);
 				}
@@ -4463,11 +4462,11 @@ matching_dev(char *devpath, void *data)
 
 		vprint(RECURSEDEV_MID, "%scalling callback %s\n", fcn, devpath);
 		if (cleanup_data->rm->remove->flags & RM_NOINTERPOSE)
-			((void (*)(char *))
-			    (cleanup_data->rm->remove->callback_fcn))(devpath);
+			(void)
+			    (cleanup_data->rm->remove->callback_fcn)(devpath);
 		else {
-			ret = ((int (*)(char *))
-			    (cleanup_data->rm->remove->callback_fcn))(devpath);
+			ret =
+			    (cleanup_data->rm->remove->callback_fcn)(devpath);
 			if (ret == DEVFSADM_TERMINATE) {
 				/*
 				 * We want no further remove processing for
@@ -4827,7 +4826,7 @@ get_component(char *str, const char *comp_str)
  * rules[] is an array of  devfsadm_enumerate_t structures which defines
  * the enumeration rules to be used for a specified set of links in /dev.
  * The set of links is specified through regular expressions (of the flavor
- * described in regex(5)). These regular expressions are used to determine
+ * described in regex(7)). These regular expressions are used to determine
  * the set of links in /dev to examine. The last path component in these
  * regular expressions MUST contain a parenthesized subexpression surrounding
  * the RE which is to be considered the enumerating component. The subexp
@@ -6354,7 +6353,7 @@ create_selector_list(char *selector)
 	selector_list_t *selector_list;
 
 	/* parse_devfs_spec splits the next field into keyword & value */
-	while ((*selector != NULL) && (error == FALSE)) {
+	while ((*selector != '\0') && (error == FALSE)) {
 		if (parse_selector(&selector, &key, &val) == DEVFSADM_FAILURE) {
 			error = TRUE;
 			break;
@@ -7042,7 +7041,7 @@ devfsadm_free_dev_names(char **dev_names, int len)
  * devfsadm_free_dev_names() is used to free the returned array.
  * NULL is returned on failure or when there are no matching devlinks.
  *
- * re is an extended regular expression in regex(5) format used to further
+ * re is an extended regular expression in regex(7) format used to further
  * match devlinks pointing to phys_path; it may be NULL to match all
  */
 char **
@@ -7557,7 +7556,7 @@ getnexttoken(char *next, char **nextp, char **tokenpp, char *tchar)
 			;
 		if (*cp1 == '=' || *cp1 == ':' || *cp1 == '&' || *cp1 == '|' ||
 		    *cp1 == ';' || *cp1 == '\n' || *cp1 == '\0') {
-			*cp = NULL;	/* terminate token */
+			*cp = '\0';	/* terminate token */
 			cp = cp1;
 		}
 	}

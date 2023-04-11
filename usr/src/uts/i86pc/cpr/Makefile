@@ -57,7 +57,7 @@ include $(UTSBASE)/i86pc/Makefile.i86pc
 #	i_devname_to_promname(), which may only be necessary on SPARC. Removing
 #	this symbol may be sufficient to remove depedency.
 #
-LDFLAGS		+= -dy -N misc/acpica -N misc/bootdev
+LDFLAGS		+= -N misc/acpica -N misc/bootdev
 
 #
 #	Define targets
@@ -69,7 +69,7 @@ CFLAGS += $(CCVERBOSE)
 
 CERRWARN	+= -_gcc=-Wno-unused-variable
 CERRWARN	+= -_gcc=-Wno-unused-label
-CERRWARN	+= -_gcc=-Wno-uninitialized
+CERRWARN	+= $(CNOWARN_UNINIT)
 CERRWARN	+= -_gcc=-Wno-parentheses
 $(OBJS_DIR)/cpr_impl.o :=	CERRWARN	+= -_gcc=-Wno-unused-function
 

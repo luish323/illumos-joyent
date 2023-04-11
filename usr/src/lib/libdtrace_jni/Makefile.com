@@ -50,13 +50,11 @@ CPPFLAGS += -I../java/native
 CFLAGS += $(CCVERBOSE) $(C_BIGPICFLAGS)
 CFLAGS64 += $(CCVERBOSE) $(C_BIGPICFLAGS64)
 
-CERRWARN += -_gcc=-Wno-uninitialized
+CERRWARN += $(CNOWARN_UNINIT)
 
 SMOFF += all_func_returns
 
 LDLIBS += -lc -luutil -ldtrace -lproc
-
-LINTLIB =
 
 LFLAGS = -t -v
 
@@ -69,7 +67,6 @@ ROOTDLIBS = $(DLIBSRCS:%=$(ROOTDLIBDIR)/%)
 
 all: $(DYNLIB)
 
-lint: lintcheck
 
 %.o: ../common/%.c
 	$(COMPILE.c) -o $@ $<

@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright (c) 2018, Joyent, Inc.
+ * Copyright 2020 Joyent, Inc.
  */
 
 /*
@@ -23,9 +23,11 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <libnvpair.h>
+#include <libcustr.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/debug.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/utsname.h>
@@ -223,10 +225,17 @@ add_disk(char *disk, char *path, char *slotconf, size_t slotconf_len)
 	static char *boot = NULL;
 	static int next_cd = 0;
 	static int next_other = 0;
+	custr_t *sconfstr = NULL;
 	const char *model = "virtio-blk";
 	uint_t pcibus = 0, pcidev = 0, pcifn = 0;
 	const char *slotstr;
+	const char *guest_block_size = NULL;
 	boolean_t isboot;
+	boolean_t nodelete = B_FALSE;
+
+	if (custr_alloc_buf(&sconfstr, slotconf, slotconf_len) == -1) {
+		return (-1);
+	}
 
 	isboot = is_env_true("device", disk, "boot");
 	if (isboot) {
@@ -234,14 +243,14 @@ add_disk(char *disk, char *path, char *slotconf, size_t slotconf_len)
 		if (boot != NULL) {
 			(void) printf("Error: multiple boot disks: %s %s\n",
 			    boot, path);
-			return (-1);
+			goto fail;
 		}
 		boot = path;
 	}
 
 	if ((slotstr = get_zcfg_var("device", disk, "pci_slot")) != NULL) {
 		if (parse_pcislot(slotstr, &pcibus, &pcidev, &pcifn) != 0) {
-			return (-1);
+			goto fail;
 		}
 	} else {
 		if (isboot) {
@@ -260,6 +269,25 @@ add_disk(char *disk, char *path, char *slotconf, size_t slotconf_len)
 
 	if (is_env_string("device", disk, "model", "virtio")) {
 		model = "virtio-blk";
+		/*
+		 * bhyve's blockif code refers to the UNMAP/DISCARD/TRIM
+		 * feature as 'delete' and so 'nodelete' is used by
+		 * bhyve to disable the feature. We use 'trim' for
+		 * interfaces we expose to the operator as that seems to
+		 * be the most familiar name for the operation (and less
+		 * likely to cause confusion).
+		 */
+		nodelete = is_env_true("device", disk, "notrim");
+		guest_block_size = get_zcfg_var("device", disk,
+		    "guest_block_size");
+
+		/* Treat a 0 size to mean the whatever the volume advertises */
+		if (guest_block_size != NULL &&
+		    strcmp(guest_block_size, "0") == 0) {
+			guest_block_size = NULL;
+		}
+	} else if (is_env_string("device", disk, "model", "nvme")) {
+		model = "nvme";
 	} else if (is_env_string("device", disk, "model", "ahci")) {
 		if (is_env_string("device", disk, "media", "cdrom")) {
 			model = "ahci-cd";
@@ -268,16 +296,32 @@ add_disk(char *disk, char *path, char *slotconf, size_t slotconf_len)
 		}
 	} else {
 		(void) printf("Error: unknown disk model '%s'\n", model);
-		return (-1);
+		goto fail;
 	}
 
-	if (snprintf(slotconf, slotconf_len, "%u:%u:%u,%s,%s",
-	    pcibus, pcidev, pcifn, model, path) >= slotconf_len) {
+	if (custr_append_printf(sconfstr, "%u:%u:%u,%s,%s",
+	    pcibus, pcidev, pcifn, model, path) == -1) {
 		(void) printf("Error: disk path '%s' too long\n", path);
-		return (-1);
+		goto fail;
 	}
 
+	if (nodelete && custr_append(sconfstr, ",nodelete") == -1) {
+		(void) printf("Error: too many disk options\n");
+		goto fail;
+	}
+
+	if (guest_block_size != NULL && custr_append_printf(sconfstr,
+	    ",sectorsize=%s", guest_block_size) == -1) {
+		(void) printf("Error: too many disk options\n");
+		goto fail;
+	}
+
+	custr_free(sconfstr);
 	return (0);
+
+fail:
+	custr_free(sconfstr);
+	return (-1);
 }
 
 static int
@@ -382,7 +426,8 @@ add_nets(int *argc, char **argv)
 	char slotconf[MAXNAMELEN];
 	char *primary = NULL;
 
-	if ((nets = get_zcfg_var("net", "resources", NULL)) == NULL) {
+	if ((nets = get_zcfg_var("net", "resources", NULL)) == NULL ||
+	    strcmp(nets, "") == 0) {
 		return (0);
 	}
 
@@ -421,6 +466,12 @@ add_nets(int *argc, char **argv)
 		    add_arg(argc, argv, slotconf) != 0) {
 			return (-1);
 		}
+	}
+
+	/* Make sure there is a "primary" net */
+	if (primary == NULL) {
+		(void) printf("Error: no primary net has been specified\n");
+		return (-1);
 	}
 
 	return (0);
@@ -546,6 +597,88 @@ add_bhyve_extra_opts(int *argc, char **argv)
 	return (0);
 }
 
+#define	INVALID_CHAR	(char)(255)
+
+static char
+decode_char(char encoded)
+{
+	if (encoded >= 'A' && encoded <= 'Z')
+		return (encoded - 'A');
+	if (encoded >= 'a' && encoded <= 'z')
+		return (encoded - 'a' + 26);
+	if (encoded >= '0' && encoded <= '9')
+		return (encoded - '0' + 52);
+	if (encoded == '+')
+		return (62);
+	if (encoded == '/')
+		return (63);
+	if (encoded == '=')
+		return (0);
+	return (INVALID_CHAR);
+}
+
+static int
+add_base64(custr_t *cus, const char *b64)
+{
+	size_t b64len = strlen(b64);
+
+	if (b64len == 0 || b64len % 4 != 0)
+		return (-1);
+
+	while (b64len > 0) {
+		uint_t padding = 0;
+		char c0 = decode_char(b64[0]);
+		char c1 = decode_char(b64[1]);
+		char c2 = decode_char(b64[2]);
+		char c3 = decode_char(b64[3]);
+
+		if (c0 == INVALID_CHAR || c1 == INVALID_CHAR ||
+		    c2 == INVALID_CHAR || c3 == INVALID_CHAR) {
+			(void) printf("Error: base64 value contains invalid "
+			    "character(s)\n");
+			return (-1);
+		}
+
+		/*
+		 * For each block of 4 input characters, an '=' should
+		 * only appear as the last two characters.
+		 */
+		if (b64[0] == '=' || b64[1] == '=') {
+			(void) printf("Error: base64 value contains invalid "
+			    "padding\n");
+			return (-1);
+		}
+
+		if (b64len == 4) {
+			/*
+			 * We can end with '==' or '=', but never '='
+			 * followed by something else.
+			 */
+			if (b64[2] == '=') {
+				if (b64[3] != '=') {
+					(void) printf("Error: base64 value "
+					    "contains invalid padding\n");
+					return (-1);
+				}
+				padding = 2;
+			} else if (b64[3] == '=') {
+				padding = 1;
+			}
+		}
+
+		VERIFY0(custr_appendc(cus, c0 << 2 | c1 >> 4));
+		if (padding < 2)
+			VERIFY0(custr_appendc(cus, c1 << 4 | c2 >> 2));
+		if (padding < 1)
+			VERIFY0(custr_appendc(cus, c2 << 6 | c3));
+
+		b64len -= 4;
+		b64 += 4;
+	}
+
+	return (0);
+}
+
 /*
  * Adds the frame buffer and an xhci tablet to help with the pointer.
  */
@@ -553,7 +686,8 @@ static int
 add_fbuf(int *argc, char **argv)
 {
 	char conf[MAXPATHLEN];
-	int len;
+	custr_t *cconf = NULL;
+	char *password = NULL;
 
 	/*
 	 * Do not add a frame buffer or tablet if VNC is disabled.
@@ -562,31 +696,56 @@ add_fbuf(int *argc, char **argv)
 		return (0);
 	}
 
-	len = snprintf(conf, sizeof (conf),
-	    "%d:0,fbuf,vga=off,unix=/tmp/vm.vnc", PCI_SLOT_FBUF);
-	assert(len < sizeof (conf));
-
-	if (add_arg(argc, argv, "-s") != 0 ||
-	    add_arg(argc, argv, conf) != 0) {
+	if (custr_alloc_buf(&cconf, conf, sizeof (conf)) != 0) {
 		return (-1);
 	}
 
-	len = snprintf(conf, sizeof (conf), "%d:1,xhci,tablet", PCI_SLOT_FBUF);
-	assert(len < sizeof (conf));
+	VERIFY0(custr_append_printf(cconf, "%d:0,fbuf,vga=off,unix=/tmp/vm.vnc",
+	    PCI_SLOT_FBUF));
+
+	password = get_zcfg_var("attr", "vnc_password", NULL);
+	if (password != NULL) {
+		VERIFY0(custr_append(cconf, ",password="));
+
+		if (add_base64(cconf, password) != 0) {
+			goto fail;
+		}
+	}
 
 	if (add_arg(argc, argv, "-s") != 0 ||
 	    add_arg(argc, argv, conf) != 0) {
-		return (-1);
+		goto fail;
 	}
 
+	custr_reset(cconf);
+	VERIFY0(custr_append_printf(cconf, "%d:1,xhci,tablet", PCI_SLOT_FBUF));
+
+	if (add_arg(argc, argv, "-s") != 0 ||
+	    add_arg(argc, argv, conf) != 0) {
+		goto fail;
+	}
+
+	/*
+	 * Since cconf was allocated using custr_alloc_buf() where 'conf'
+	 * is the underlying fixed buffer for cconf, we can free cconf
+	 * which in this instance will just free cconf, but _not_ the
+	 * underlying fixed buffer (conf) which is left unchanged by
+	 * custr_free().
+	 */
+
+	custr_free(cconf);
 	return (0);
+
+fail:
+	custr_free(cconf);
+	return (-1);
 }
 
 /* Must be called last */
 static int
 add_vmname(int *argc, char **argv)
 {
-	char buf[32];				/* VM_MAX_NAMELEN */
+	char buf[229];				/* VM_MAX_NAMELEN */
 	char *val = getenv("_ZONECFG_did");
 
 	if (val == NULL || val[0] == '\0') {

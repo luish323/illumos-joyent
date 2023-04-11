@@ -21,7 +21,7 @@
 #
 # Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
 #
-# Copyright (c) 2019, Joyent, Inc. All rights reserved.
+# Copyright 2019 Joyent, Inc.
 #
 
 PROG =		svcs
@@ -39,7 +39,7 @@ CPPFLAGS += -I ../common
 
 lint := LINTFLAGS = -mux
 CERRWARN += -_gcc=-Wno-unused-label
-CERRWARN += -_gcc=-Wno-uninitialized
+CERRWARN += $(CNOWARN_UNINIT)
 CERRWARN += -_gcc=-Wno-parentheses
 
 .KEEP_STATE:

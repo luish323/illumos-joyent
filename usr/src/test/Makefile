@@ -13,17 +13,23 @@
 # Copyright (c) 2012 by Delphix. All rights reserved.
 # Copyright 2014 Garrett D'Amore <garrett@damore.org>
 # Copyright 2019 Joyent, Inc.
+# Copyright 2021 Tintri by DDN, Inc. All rights reserved.
+# Copyright 2022 Oxide Computer Company
 #
 
 .PARALLEL: $(SUBDIRS)
 
 SUBDIRS = \
+	bhyve-tests \
 	crypto-tests \
 	elf-tests \
 	libc-tests \
+	libmlrpc-tests \
 	net-tests \
 	os-tests \
+	smartos-test \
 	smbclient-tests \
+	smbsrv-tests \
 	test-runner \
 	util-tests \
 	zfs-tests

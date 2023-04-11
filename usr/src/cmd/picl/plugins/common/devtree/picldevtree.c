@@ -37,7 +37,6 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <assert.h>
-#include <alloca.h>
 #include <unistd.h>
 #include <stropts.h>
 #include <syslog.h>
@@ -102,7 +101,7 @@ static picld_plugin_reg_t  my_reg_info = {
 #define	SUNW_PICLDEVTREE_PLUGIN_DEBUG	"SUNW_PICLDEVTREE_PLUGIN_DEBUG"
 static	int		picldevtree_debug = 0;
 
-static	conf_entries_t 	*conf_name_class_map = NULL;
+static	conf_entries_t	*conf_name_class_map = NULL;
 static	builtin_map_t	sun4u_map[] = {
 	/* MAX_NAMEVAL_SIZE */
 	{ "SUNW,bpp", PICL_CLASS_PARALLEL},
@@ -285,11 +284,11 @@ mc_completion_handler(char *ename, void *earg, size_t size)
 	nvlist_t	*unpack_nvl;
 
 	if (strcmp(ename, PICLEVENT_MC_REMOVED) == 0 &&
-	    nvlist_unpack(earg, size, &unpack_nvl, NULL) == 0) {
-		mch = NULL;
+	    nvlist_unpack(earg, size, &unpack_nvl, 0) == 0) {
+		mch = 0;
 		(void) nvlist_lookup_uint64(unpack_nvl,
 		    PICLEVENTARG_NODEHANDLE, &mch);
-		if (mch != NULL) {
+		if (mch != 0) {
 			if (picldevtree_debug)
 				syslog(LOG_INFO,
 				    "picldevtree: destroying_node:%llx\n",
@@ -318,14 +317,14 @@ post_mc_event(char *ename, picl_nodehdl_t mch)
 	if (ev_name == NULL)
 		return (-1);
 
-	if (nvlist_alloc(&nvl, NV_UNIQUE_NAME_TYPE, NULL)) {
+	if (nvlist_alloc(&nvl, NV_UNIQUE_NAME_TYPE, 0)) {
 		free(ev_name);
 		return (-1);
 	}
 
 	pack_buf = NULL;
 	if (nvlist_add_uint64(nvl, PICLEVENTARG_NODEHANDLE, mch) ||
-	    nvlist_pack(nvl, &pack_buf, &nvl_size, NV_ENCODE_NATIVE, NULL)) {
+	    nvlist_pack(nvl, &pack_buf, &nvl_size, NV_ENCODE_NATIVE, 0)) {
 		free(ev_name);
 		nvlist_free(nvl);
 		return (-1);
@@ -668,7 +667,7 @@ add_string_list_prop(picl_nodehdl_t nodeh, char *name, char *strlist,
 	if (err != PICL_SUCCESS)
 		return (err);
 
-	proprow = alloca(sizeof (picl_prophdl_t) * nrows);
+	proprow = calloc(nrows, sizeof (picl_prophdl_t));
 	if (proprow == NULL) {
 		(void) ptree_destroy_prop(proph);
 		return (PICL_FAILURE);
@@ -696,10 +695,10 @@ add_string_list_prop(picl_nodehdl_t nodeh, char *name, char *strlist,
 			(void) ptree_destroy_prop(proprow[i]);
 		(void) ptree_delete_prop(proph);
 		(void) ptree_destroy_prop(proph);
-		return (err);
 	}
 
-	return (PICL_SUCCESS);
+	free(proprow);
+	return (err);
 }
 
 /*
@@ -714,6 +713,7 @@ compare_string_propval(picl_nodehdl_t nodeh, const char *pname,
 	int			len;
 	ptree_propinfo_t	pinfo;
 	picl_prophdl_t		proph;
+	int			rv;
 
 	err = ptree_get_prop_by_name(nodeh, pname, &proph);
 	if (err != PICL_SUCCESS)	/* prop doesn't exist */
@@ -725,15 +725,18 @@ compare_string_propval(picl_nodehdl_t nodeh, const char *pname,
 
 	len = strlen(pval) + 1;
 
-	pvalbuf = alloca(len);
+	pvalbuf = malloc(len);
 	if (pvalbuf == NULL)
 		return (0);
 
 	err = ptree_get_propval(proph, pvalbuf, len);
 	if ((err == PICL_SUCCESS) && (strcmp(pvalbuf, pval) == 0))
-		return (1);	/* prop match */
+		rv = 1;	/* prop match */
+	else
+		rv = 0;
 
-	return (0);
+	free(pvalbuf);
+	return (rv);
 }
 
 /*
@@ -846,14 +849,19 @@ process_charstring_data(picl_nodehdl_t nodeh, char *pname, unsigned char *pdata,
 	 * no null terminator
 	 */
 	if (pdata[retval - 1] != '\0') {
-		strdat = alloca(retval + 1);
-		(void) memcpy(strdat, pdata, retval);
-		strdat[retval] = '\0';
-		retval++;
+		strdat = malloc(retval + 1);
+		if (strdat != NULL) {
+			(void) memcpy(strdat, pdata, retval);
+			strdat[retval] = '\0';
+			retval++;
+		}
 	} else {
-		strdat = alloca(retval);
-		(void) memcpy(strdat, pdata, retval);
+		strdat = malloc(retval);
+		if (strdat != NULL)
+			(void) memcpy(strdat, pdata, retval);
 	}
+	if (strdat == NULL)
+		return (PICL_FAILURE);
 
 	/*
 	 * If it's a string list, create a table prop
@@ -862,18 +870,24 @@ process_charstring_data(picl_nodehdl_t nodeh, char *pname, unsigned char *pdata,
 	if (strcount > 1) {
 		err = add_string_list_prop(nodeh, pname,
 		    strdat, strcount);
-		if (err != PICL_SUCCESS)
+		if (err != PICL_SUCCESS) {
+			free(strdat);
 			return (err);
+		}
 	} else {
 		err = ptree_init_propinfo(&propinfo, PTREE_PROPINFO_VERSION,
 		    PICL_PTYPE_CHARSTRING, PICL_READ,
 		    strlen(strdat) + 1, pname, NULL,
 		    NULL);
-		if (err != PICL_SUCCESS)
+		if (err != PICL_SUCCESS) {
+			free(strdat);
 			return (err);
+		}
 		(void) ptree_create_and_add_prop(nodeh, &propinfo,
 		    strdat, NULL);
 	}
+
+	free(strdat);
 	return (PICL_SUCCESS);
 }
 
@@ -1200,11 +1214,11 @@ add_di_path_prop(picl_nodehdl_t nodeh, di_path_prop_t di_path_prop)
 static void
 construct_mpath_node(picl_nodehdl_t parh, di_node_t di_node)
 {
-	di_path_t 		pi = DI_PATH_NIL;
+	di_path_t		pi = DI_PATH_NIL;
 
 	while ((pi = di_path_next_phci(di_node, pi)) != DI_PATH_NIL) {
-		di_node_t 		phci_node = di_path_phci_node(pi);
-		di_path_prop_t 		di_path_prop;
+		di_node_t		phci_node = di_path_phci_node(pi);
+		di_path_prop_t		di_path_prop;
 		picl_nodehdl_t		nodeh;
 		ptree_propinfo_t	propinfo;
 		int			err;
@@ -1750,7 +1764,7 @@ update_subtree(picl_nodehdl_t nodeh, di_node_t dinode)
 }
 
 /*
- * Check for a stale OBP node. EINVAL is returned from the openprom(7D) driver
+ * Check for a stale OBP node. EINVAL is returned from the openprom(4D) driver
  * if the nodeid stored in the snapshot is not valid.
  */
 static int
@@ -1974,7 +1988,7 @@ get_fputypes(ptree_rarg_t *rarg, void *vbuf)
 static int
 get_pi_state_begin(ptree_rarg_t *rarg, void *vbuf)
 {
-	int 			err;
+	int			err;
 	int			cpu_id;
 	static kstat_ctl_t	*kc = NULL;
 	static pthread_mutex_t	kc_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -2023,7 +2037,7 @@ get_pi_state_begin(ptree_rarg_t *rarg, void *vbuf)
 static int
 add_processor_info(picl_nodehdl_t cpuh, void *args)
 {
-	int 			err;
+	int			err;
 	int			cpu_id;
 	ptree_propinfo_t	propinfo;
 	ptree_propinfo_t	pinfo;
@@ -2084,7 +2098,7 @@ add_processor_info(picl_nodehdl_t cpuh, void *args)
 static int
 setup_cpus(picl_nodehdl_t plafh)
 {
-	int 			err;
+	int			err;
 
 	err = ptree_walk_tree_by_class(plafh, PICL_CLASS_CPU, NULL,
 	    add_processor_info);
@@ -2128,11 +2142,11 @@ fmt_manf_id(manuf_t manufid, int bufsz, char *outbuf)
 static int
 open_ffb_device(picl_nodehdl_t ffbh, int *fd)
 {
-	DIR 			*dirp;
-	char 			devfs_path[PATH_MAX];
-	char 			dev_path[PATH_MAX];
-	char 			*devp;
-	struct dirent 		*direntp;
+	DIR			*dirp;
+	char			devfs_path[PATH_MAX];
+	char			dev_path[PATH_MAX];
+	char			*devp;
+	struct dirent		*direntp;
 	int			err;
 	int			tmpfd;
 
@@ -2196,9 +2210,9 @@ add_ffb_config_info(picl_nodehdl_t rooth)
 {
 	picl_nodehdl_t		nodeh;
 	int			err;
-	char 			piclclass[PICL_CLASSNAMELEN_MAX];
-	char 			manfidbuf[FFB_MANUF_BUFSIZE];
-	int 			fd;
+	char			piclclass[PICL_CLASSNAMELEN_MAX];
+	char			manfidbuf[FFB_MANUF_BUFSIZE];
+	int			fd;
 	int			board_rev;
 	ffb_sys_info_t		fsi;
 	ptree_propinfo_t	pinfo;
@@ -2948,25 +2962,25 @@ get_first_reg_word(picl_nodehdl_t nodeh, uint32_t *regval)
 {
 	int			err;
 	uint32_t		*regbuf;
-	picl_prophdl_t  	regh;
+	picl_prophdl_t		regh;
 	ptree_propinfo_t	pinfo;
 
 	err = ptree_get_prop_by_name(nodeh, OBP_REG, &regh);
-	if (err != PICL_SUCCESS) 	/* no reg property */
+	if (err != PICL_SUCCESS)	/* no reg property */
 		return (err);
 	err = ptree_get_propinfo(regh, &pinfo);
 	if (err != PICL_SUCCESS)
 		return (err);
 	if (pinfo.piclinfo.size < sizeof (uint32_t)) /* too small */
 		return (PICL_FAILURE);
-	regbuf = alloca(pinfo.piclinfo.size);
+	regbuf = malloc(pinfo.piclinfo.size);
 	if (regbuf == NULL)
 		return (PICL_FAILURE);
 	err = ptree_get_propval(regh, regbuf, pinfo.piclinfo.size);
-	if (err != PICL_SUCCESS)
-		return (err);
-	*regval = *regbuf;	/* get first 32-bit value */
-	return (PICL_SUCCESS);
+	if (err == PICL_SUCCESS)
+		*regval = *regbuf;	/* get first 32-bit value */
+	free(regbuf);
+	return (err);
 }
 
 /*
@@ -3324,7 +3338,7 @@ add_unitaddr_prop(picl_nodehdl_t nodeh, unitaddr_map_t *uamap, uint_t addrcells)
 		return (PICL_FAILURE);
 
 	regproplen = pinfo.piclinfo.size;
-	regbuf = alloca(regproplen);
+	regbuf = malloc(regproplen);
 	if (regbuf == NULL)
 		return (PICL_FAILURE);
 
@@ -3333,6 +3347,7 @@ add_unitaddr_prop(picl_nodehdl_t nodeh, unitaddr_map_t *uamap, uint_t addrcells)
 	    (uamap->addrcellcnt && uamap->addrcellcnt != addrcells) ||
 	    (uamap->func)(unitaddr, sizeof (unitaddr), regbuf,
 	    addrcells) != 0) {
+		free(regbuf);
 		return (PICL_FAILURE);
 	}
 
@@ -3342,6 +3357,7 @@ add_unitaddr_prop(picl_nodehdl_t nodeh, unitaddr_map_t *uamap, uint_t addrcells)
 	if (err == PICL_SUCCESS)
 		err = ptree_create_and_add_prop(nodeh, &pinfo, unitaddr, NULL);
 
+	free(regbuf);
 	return (err);
 }
 
@@ -3374,7 +3390,7 @@ get_unitaddr(picl_nodehdl_t parh, picl_nodehdl_t nodeh, char *unitaddr,
 		return (PICL_FAILURE);
 
 	regproplen = pinfo.piclinfo.size;
-	regbuf = alloca(regproplen);
+	regbuf = malloc(regproplen);
 	if (regbuf == NULL)
 		return (PICL_FAILURE);
 
@@ -3382,8 +3398,10 @@ get_unitaddr(picl_nodehdl_t parh, picl_nodehdl_t nodeh, char *unitaddr,
 	if (err != PICL_SUCCESS || uamap->func == NULL ||
 	    (uamap->addrcellcnt && uamap->addrcellcnt != addrcells) ||
 	    (uamap->func)(unitaddr, ualen, regbuf, addrcells) != 0) {
+		free(regbuf);
 		return (PICL_FAILURE);
 	}
+	free(regbuf);
 	return (PICL_SUCCESS);
 }
 
@@ -3465,13 +3483,15 @@ update_memory_size_prop(picl_nodehdl_t plafh)
 	if (err != PICL_SUCCESS)
 		return (err);
 
-	regbuf = alloca(pinfo.piclinfo.size);
+	regbuf = malloc(pinfo.piclinfo.size);
 	if (regbuf == NULL)
 		return (PICL_FAILURE);
 
 	err = ptree_get_propval(proph, regbuf, pinfo.piclinfo.size);
-	if (err != PICL_SUCCESS)
+	if (err != PICL_SUCCESS) {
+		free(regbuf);
 		return (err);
+	}
 
 	mspecs = (memspecs_t *)regbuf;
 	nspecs = pinfo.piclinfo.size / sizeof (memspecs_t);
@@ -3483,6 +3503,7 @@ update_memory_size_prop(picl_nodehdl_t plafh)
 	err = ptree_get_prop_by_name(memh, PICL_PROP_SIZE, &proph);
 	if (err == PICL_SUCCESS) {
 		err = ptree_update_propval(proph, &memsize, sizeof (memsize));
+		free(regbuf);
 		return (err);
 	}
 
@@ -3493,6 +3514,7 @@ update_memory_size_prop(picl_nodehdl_t plafh)
 	    PICL_PTYPE_UNSIGNED_INT, PICL_READ, sizeof (memsize),
 	    PICL_PROP_SIZE, NULL, NULL);
 	err = ptree_create_and_add_prop(memh, &pinfo, &memsize, NULL);
+	free(regbuf);
 	return (err);
 }
 
@@ -3635,7 +3657,7 @@ picldevtree_evhandler(const char *ename, const void *earg, size_t size,
 	}
 
 	nvlp = NULL;
-	if (nvlist_unpack((char *)earg, size, &nvlp, NULL) ||
+	if (nvlist_unpack((char *)earg, size, &nvlp, 0) ||
 	    nvlist_lookup_string(nvlp, PICLEVENTARG_DEVFS_PATH, &devfs_path) ||
 	    strlen(devfs_path) > (PATH_MAX - sizeof (PLATFORM_PATH))) {
 		syslog(LOG_INFO, PICL_EVENT_DROPPED, ename);

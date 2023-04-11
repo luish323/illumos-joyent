@@ -23,6 +23,10 @@
  * Use is subject to license terms.
  */
 
+/*
+ * Copyright 2019 Joyent, Inc.
+ */
+
 #ifndef	_INET_IP_NDP_H
 #define	_INET_IP_NDP_H
 
@@ -83,7 +87,7 @@ struct ncec_s {
 	timeout_id_t	ncec_timeout_id;
 	uchar_t		ncec_ipversion;	/* IPv4(ARP)/IPv6(NDP) version */
 	uint_t		ncec_defense_count;	/* number of NDP conflicts */
-	uint_t		ncec_last_time_defended; /* last time defended (secs) */
+	clock_t		ncec_last_time_defended; /* defended last (ticks) */
 	uint64_t	ncec_init_time; /* time when it was set to ND_INITIAL */
 	boolean_t	ncec_trace_disable;	/* True when alloc fails */
 	/*
@@ -157,7 +161,7 @@ typedef	struct ndp_g_s {
 
 /*
  * NCE_F_NONUD is used to disable IPv6 Neighbor Unreachability Detection or
- * IPv4 aging and maps to the ATF_PERM flag for arp(1m)
+ * IPv4 aging and maps to the ATF_PERM flag for arp(8)
  */
 #define	NCE_F_NONUD		0x10
 
@@ -177,7 +181,7 @@ typedef	struct ndp_g_s {
  * NCE_F_AUTHORITY is set for any address that we have authoritatitve
  * information for. This includes locally configured addresses as well
  * as statically configured arp entries that are set up using the "permanent"
- * option described in arp(1m). The NCE_F_AUTHORITY asserts that we would
+ * option described in arp(8). The NCE_F_AUTHORITY asserts that we would
  * reject any updates for that nce's (host, link-layer-address) information
  */
 #define	NCE_F_AUTHORITY		0x800

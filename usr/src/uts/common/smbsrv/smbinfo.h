@@ -20,7 +20,8 @@
  */
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2020 Tintri by DDN, Inc. All rights reserved.
+ * Copyright 2022 RackTop Systems, Inc.
  */
 
 #ifndef	_SMBSRV_SMBINFO_H
@@ -31,6 +32,7 @@
 #include <smbsrv/netbios.h>
 #include <netinet/in.h>
 #include <smbsrv/smb_inet.h>
+#include <smbsrv/smb2.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -119,6 +121,8 @@ extern "C" {
 #define	SMB_PI_MAXIMUM_CREDITS_DEF	1000
 #define	SMB_PI_MAXIMUM_CREDITS_MAX	1024
 
+#define	SMB_PI_NETLOGON_FLAGS_DEFAULT	0x00000000
+
 /*
  * sv_size is used by the RPC services and should be set to
  * sizeof (smb_version_t).
@@ -154,8 +158,11 @@ typedef struct smb_kmod_cfg {
 	int32_t skc_ipv6_enable;
 	int32_t skc_print_enable;
 	int32_t skc_traverse_mounts;
+	int32_t skc_short_names;
 	uint32_t skc_max_protocol;	/* SMB_VERS_... */
+	uint32_t skc_min_protocol;	/* SMB_VERS_... */
 	smb_cfg_val_t skc_encrypt; /* EncryptData and RejectUnencryptedAccess */
+	uint32_t skc_encrypt_ciphers;	/* 3.1.1 encryption ciphers */
 	uint32_t skc_execflags;
 	uint32_t skc_negtok_len;
 	smb_version_t skc_version;
@@ -229,6 +236,24 @@ const char *smbnative_lm_str(smb_version_t *);
 #define	SMB_VERS_2_002		0x202	/* "2.002" */
 #define	SMB_VERS_2_1		0x210	/* "2.1" */
 #define	SMB_VERS_3_0		0x300	/* "3.0" */
+#define	SMB_VERS_3_02		0x302	/* "3.02" */
+#define	SMB_VERS_3_11		0x311	/* "3.11" */
+
+/*
+ * Maxiumum currently supported encryption cipher.
+ */
+#define	SMB3_CIPHER_MAX		SMB3_CIPHER_AES256_GCM
+
+/*
+ * SMB 3.x encryption ciphers bits.
+ */
+#define	SMB3_CIPHER_BIT(c)	(1 << ((c) - 1))
+#define	SMB3_CIPHER_FLAGS_ALL	((1 << (SMB3_CIPHER_MAX)) - 1)
+
+#define	SMB3_CIPHER_FLAG_AES128_CCM	SMB3_CIPHER_BIT(SMB3_CIPHER_AES128_CCM)
+#define	SMB3_CIPHER_FLAG_AES128_GCM	SMB3_CIPHER_BIT(SMB3_CIPHER_AES128_GCM)
+#define	SMB3_CIPHER_FLAG_AES256_CCM	SMB3_CIPHER_BIT(SMB3_CIPHER_AES256_CCM)
+#define	SMB3_CIPHER_FLAG_AES256_GCM	SMB3_CIPHER_BIT(SMB3_CIPHER_AES256_GCM)
 
 #ifdef __cplusplus
 }

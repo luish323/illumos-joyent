@@ -435,8 +435,6 @@ typedef struct zsd_ctl {
 	uint64_t	zsctl_vmusage_cache_num;
 
 	/* Info about procfs for scanning /proc */
-	struct dirent	*zsctl_procfs_dent;
-	long		zsctl_procfs_dent_size;
 	pool_value_t	*zsctl_pool_vals[3];
 
 	/* Counts on tracked entities */
@@ -2658,12 +2656,8 @@ zsd_refresh_procs(zsd_ctl_t *ctl, boolean_t init)
 		return;
 	}
 
-	dent = ctl->zsctl_procfs_dent;
-
-	(void) memset(dent, 0, ctl->zsctl_procfs_dent_size);
-
 	/* Walk all processes and compute each zone's usage on each pset. */
-	while (readdir_r(dir, dent) != 0) {
+	while ((dent = readdir(dir)) != NULL) {
 
 		if (strcmp(dent->d_name, ".") == 0 ||
 		    strcmp(dent->d_name, "..") == 0)
@@ -3872,18 +3866,18 @@ zsd_usage_cache_update(zsd_ctl_t *ctl)
 
 	/* Update the current cache pointer */
 	(void) mutex_lock(&g_usage_cache_lock);
-		old = g_usage_cache;
-		cache->zsuc_ref = 1;
-		cache->zsuc_gen = g_gen_next;
-		usage->zsu_gen = g_gen_next;
-		usage->zsu_size = size;
-		g_usage_cache = cache;
-		if (old != NULL) {
-			old->zsuc_ref--;
-			if (old->zsuc_ref == 0)
-				free(old);
-		}
-		g_gen_next++;
+	old = g_usage_cache;
+	cache->zsuc_ref = 1;
+	cache->zsuc_gen = g_gen_next;
+	usage->zsu_gen = g_gen_next;
+	usage->zsu_size = size;
+	g_usage_cache = cache;
+	if (old != NULL) {
+		old->zsuc_ref--;
+		if (old->zsuc_ref == 0)
+			free(old);
+	}
+	g_gen_next++;
 	/* Wake up any clients that are waiting for this calculation */
 	if (g_usage_cache_kickers > 0) {
 		(void) cond_broadcast(&g_usage_cache_wait);
@@ -4050,7 +4044,6 @@ zsd_open(zsd_ctl_t *ctl)
 	zsd_system_t *system;
 
 	char path[MAXPATHLEN];
-	long pathmax;
 	struct statvfs svfs;
 	int ret;
 	int i;
@@ -4152,23 +4145,6 @@ check_exacct:
 
 	list_create(&ctl->zsctl_cpus, sizeof (zsd_cpu_t),
 	    offsetof(zsd_cpu_t, zsc_next));
-
-	pathmax = pathconf("/proc", _PC_NAME_MAX);
-	if (pathmax < 0) {
-		zsd_warn(gettext("Unable to determine max path of /proc"));
-		errno = EINVAL;
-		goto err;
-	}
-	size = sizeof (struct dirent) + pathmax + 1;
-
-	ctl->zsctl_procfs_dent_size = size;
-	if (ctl->zsctl_procfs_dent == NULL &&
-	    (ctl->zsctl_procfs_dent = (struct dirent *)calloc(1, size))
-	    == NULL) {
-		zsd_warn(gettext("Out of Memory"));
-		errno = ENOMEM;
-		goto err;
-	}
 
 	if (ctl->zsctl_pool_conf == NULL &&
 	    (ctl->zsctl_pool_conf = pool_conf_alloc()) == NULL) {
@@ -4509,7 +4485,7 @@ zsd_stat_server(void *cookie, char *argp, size_t arg_size,
 	rvals = usage->zsu_size;
 	zsd_usage_cache_rele(cache);
 
-	(void) door_return(rvalp, rvals, 0, NULL);
+	(void) door_return(rvalp, rvals, NULL, 0);
 	thr_exit(NULL);
 }
 

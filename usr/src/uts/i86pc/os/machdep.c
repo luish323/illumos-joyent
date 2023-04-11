@@ -21,7 +21,7 @@
 
 /*
  * Copyright (c) 1992, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2017, Joyent, Inc.
+ * Copyright 2020 Joyent, Inc.
  */
 /*
  * Copyright (c) 2010, Intel Corporation.
@@ -276,7 +276,7 @@ mdboot(int cmd, int fcn, char *mdep, boolean_t invoke_cb)
 	 *	On hypervisors, we reboot very quickly..  Perhaps panic
 	 *	should only attempt to recover by rebooting if,
 	 *	say, we were able to mount the root filesystem,
-	 *	or if we successfully launched init(1m).
+	 *	or if we successfully launched init(8).
 	 */
 	if (panicstr && proc_init == NULL)
 		(void) HYPERVISOR_shutdown(SHUTDOWN_poweroff);
@@ -409,7 +409,7 @@ stop_other_cpus(void)
 	cpuset_t xcset;
 
 	CPUSET_ALL_BUT(xcset, CPU->cpu_id);
-	xc_priority(0, 0, 0, CPUSET2BV(xcset), (xc_func_t)mach_cpu_halt);
+	xc_priority(0, 0, 0, CPUSET2BV(xcset), mach_cpu_halt);
 	restore_int_flag(s);
 }
 
@@ -884,14 +884,10 @@ lwp_stk_init(klwp_t *lwp, caddr_t stk)
 	 * have a well-defined initial state (present, ring 3
 	 * and of type data).
 	 */
-#if defined(__amd64)
 	if (lwp_getdatamodel(lwp) == DATAMODEL_NATIVE)
 		pcb->pcb_fsdesc = pcb->pcb_gsdesc = zero_udesc;
 	else
 		pcb->pcb_fsdesc = pcb->pcb_gsdesc = zero_u32desc;
-#elif defined(__i386)
-	pcb->pcb_fsdesc = pcb->pcb_gsdesc = zero_udesc;
-#endif	/* __i386 */
 	lwp_installctx(lwp);
 	return (stk);
 }
@@ -1054,8 +1050,6 @@ boot_virt_alloc(void *addr, size_t size)
 	return (addr);
 }
 
-volatile unsigned long	tenmicrodata;
-
 void
 tenmicrosec(void)
 {
@@ -1076,13 +1070,7 @@ tenmicrosec(void)
 		while (xpv_gethrtime() < newtime)
 			SMT_PAUSE();
 #else	/* __xpv */
-		int i;
-
-		/*
-		 * Artificial loop to induce delay.
-		 */
-		for (i = 0; i < microdata; i++)
-			tenmicrodata = microdata;
+		panic("TSC was not calibrated!");
 #endif	/* __xpv */
 	}
 }
@@ -1471,14 +1459,6 @@ hotinline_smap(hotinline_desc_t *hid)
 {
 	if (is_x86_feature(x86_featureset, X86FSET_SMAP) == B_FALSE)
 		return;
-
-/*
- * We should never hit this since SMAP feature detection is behind
- * an AMD64 header guard.
- */
-#if defined(__i386)
-	panic("illumos only suppports SMAP on the AMD64 architecture.");
-#endif
 
 	if (strcmp(hid->hid_symname, "smap_enable") == 0) {
 		bcopy(clac_instr, (void *)hid->hid_instr_offset,

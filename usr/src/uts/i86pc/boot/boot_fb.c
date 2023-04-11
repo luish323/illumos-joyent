@@ -158,12 +158,11 @@ xbi_fb_init(struct xboot_info *xbi, bcons_dev_t *bcons_dev)
 	fb_info.cursor.visible = xbi_fb->cursor.visible;
 #endif
 
+	xbi_init_font(xbi);
 	tag = (multiboot_tag_framebuffer_t *)(uintptr_t)xbi_fb->framebuffer;
 	if (tag == NULL) {
 		return (B_FALSE);
 	}
-
-	xbi_init_font(xbi);
 
 	fb_info.paddr = tag->framebuffer_common.framebuffer_addr;
 	fb_info.pitch = tag->framebuffer_common.framebuffer_pitch;
@@ -207,6 +206,7 @@ xbi_fb_init(struct xboot_info *xbi, bcons_dev_t *bcons_dev)
 	fb_info.rgb.green.pos = tag->u.fb2.framebuffer_green_field_position;
 	fb_info.rgb.blue.size = tag->u.fb2.framebuffer_blue_mask_size;
 	fb_info.rgb.blue.pos = tag->u.fb2.framebuffer_blue_field_position;
+	rgb_info = fb_info.rgb;
 
 	return (B_TRUE);
 }
@@ -355,28 +355,44 @@ boot_get_color(uint32_t *fg, uint32_t *bg)
 	/* ansi to solaris colors, see also boot_console.c */
 	if (fb_info.inverse == B_TRUE ||
 	    fb_info.inverse_screen == B_TRUE) {
-		if (fb_info.fg_color < 16)
-			*bg = dim_xlate[fb_info.fg_color];
-		else
+		if (fb_info.fg_color < XLATE_NCOLORS) {
+			/*
+			 * white fg -> bright white bg
+			 */
+			if (fb_info.fg_color == pc_white)
+				*bg = brt_xlate[fb_info.fg_color];
+			else
+				*bg = dim_xlate[fb_info.fg_color];
+		} else {
 			*bg = fb_info.fg_color;
+		}
 
-		if (fb_info.bg_color < 16)
-			*fg = brt_xlate[fb_info.bg_color];
-		else
+		if (fb_info.bg_color < XLATE_NCOLORS) {
+			if (fb_info.bg_color == pc_white)
+				*fg = brt_xlate[fb_info.bg_color];
+			else
+				*fg = dim_xlate[fb_info.bg_color];
+		} else {
 			*fg = fb_info.bg_color;
+		}
 	} else {
-		if (fb_info.bg_color < 16) {
-			if (fb_info.bg_color == 7)
+		if (fb_info.fg_color < XLATE_NCOLORS) {
+			if (fb_info.fg_color == pc_white)
+				*fg = brt_xlate[fb_info.fg_color];
+			else
+				*fg = dim_xlate[fb_info.fg_color];
+		} else {
+			*fg = fb_info.fg_color;
+		}
+
+		if (fb_info.bg_color < XLATE_NCOLORS) {
+			if (fb_info.bg_color == pc_white)
 				*bg = brt_xlate[fb_info.bg_color];
 			else
 				*bg = dim_xlate[fb_info.bg_color];
 		} else {
 			*bg = fb_info.bg_color;
 		}
-		if (fb_info.fg_color < 16)
-			*fg = dim_xlate[fb_info.fg_color];
-		else
-			*fg = fb_info.fg_color;
 	}
 }
 
@@ -393,7 +409,7 @@ boot_color_map(uint8_t index)
 			return (index);
 	}
 
-	return (rgb_color_map(&fb_info.rgb, index));
+	return (rgb_color_map(&fb_info.rgb, index, 0));
 }
 
 /* set up out simple console. */

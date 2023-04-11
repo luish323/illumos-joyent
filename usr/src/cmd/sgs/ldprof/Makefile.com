@@ -21,7 +21,7 @@
 
 #
 # Copyright (c) 1995, 2010, Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2018, Joyent, Inc.
+# Copyright 2020 Joyent, Inc.
 # Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
 #
 
@@ -38,18 +38,19 @@ ROOTLIBDIR=	$(ROOT)/usr/lib/link_audit
 
 MAPFILES =	../common/mapfile-vers
 
-DYNFLAGS +=	$(CC_USE_PROTO)
 CPPFLAGS=	-I. -I../common -I../../include \
 		-I../../rtld/common \
 		-I../../include/$(MACH) \
-		-I$(SRCBASE)/lib/libc/inc \
-		-I$(SRCBASE)/uts/common/krtld \
+		-I$(SRC)/lib/libc/inc \
+		-I$(SRC)/uts/common/krtld \
 		-I$(SRC)/common/sgsrtcid \
-		-I$(SRCBASE)/uts/$(ARCH)/sys \
+		-I$(SRC)/uts/$(ARCH)/sys \
 		$(CPPFLAGS.master) -I$(ELFCAP)
 CFLAGS +=	$(C_PICFLAGS)
 
 SMOFF += indenting
+
+ZGUIDANCE =	-Wl,-zguidance=nounused
 
 LDLIBS +=	$(ZRECORD) -lmapmalloc -lc $(DLLIB)
 

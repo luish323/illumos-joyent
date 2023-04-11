@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2018 Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
  */
 
 #include <sys/types.h>
@@ -145,15 +145,18 @@ struct seg kvmmseg;		/* Segment for vmm memory */
  */
 
 size_t	segkmem_lpsize;
-static  uint_t	segkmem_lpshift = PAGESHIFT;
 int	segkmem_lpszc = 0;
 
 size_t  segkmem_kmemlp_quantum = 0x400000;	/* 4MB */
 size_t  segkmem_heaplp_quantum;
 vmem_t *heap_lp_arena;
 static  vmem_t *kmem_lp_arena;
-static  vmem_t *segkmem_ppa_arena;
 static	segkmem_lpcb_t segkmem_lpcb;
+
+#ifdef __sparc
+static  uint_t	segkmem_lpshift = PAGESHIFT;
+static  vmem_t *segkmem_ppa_arena;
+#endif
 
 /*
  * We use "segkmem_kmemlp_max" to limit the total amount of physical memory
@@ -163,14 +166,14 @@ static	segkmem_lpcb_t segkmem_lpcb;
  * we allow for large page heap.
  */
 size_t  segkmem_kmemlp_max;
-static  uint_t  segkmem_kmemlp_pcnt;
+uint_t  segkmem_kmemlp_pcnt;
 
 /*
  * Getting large pages for kernel heap could be problematic due to
  * physical memory fragmentation. That's why we allow to preallocate
  * "segkmem_kmemlp_min" bytes at boot time.
  */
-static  size_t	segkmem_kmemlp_min;
+size_t	segkmem_kmemlp_min;
 
 /*
  * Throttling is used to avoid expensive tries to allocate large pages
@@ -440,7 +443,7 @@ segkmem_badop()
 	panic("segkmem_badop");
 }
 
-#define	SEGKMEM_BADOP(t)	(t(*)())segkmem_badop
+#define	SEGKMEM_BADOP(t)	(t(*)())(uintptr_t)segkmem_badop
 
 /*ARGSUSED*/
 static faultcode_t
@@ -833,15 +836,14 @@ segkmem_create(struct seg *seg)
 page_t *
 segkmem_page_create(void *addr, size_t size, int vmflag, void *arg)
 {
-	struct seg kseg;
-	int pgflags;
+	struct seg kseg = { 0 };
+	int pgflags = PG_EXCL;
 	struct vnode *vp = arg;
 
 	if (vp == NULL)
 		vp = &kvp;
 
 	kseg.s_as = &kas;
-	pgflags = PG_EXCL;
 
 	if (segkmem_reloc == 0 || (vmflag & VM_NORELOC))
 		pgflags |= PG_NORELOC;
@@ -1098,6 +1100,7 @@ kmem_freepages(void *addr, pgcnt_t npages)
 	kmem_free(addr, ptob(npages));
 }
 
+#ifdef __sparc
 /*
  * segkmem_page_create_large() allocates a large page to be used for the kmem
  * caches. If kpr is enabled we ask for a relocatable page unless requested
@@ -1224,7 +1227,7 @@ static void
 segkmem_free_one_lp(caddr_t addr, size_t size)
 {
 	page_t		*pp, *rootpp = NULL;
-	pgcnt_t 	pgs_left = btopr(size);
+	pgcnt_t		pgs_left = btopr(size);
 
 	ASSERT(size == segkmem_lpsize);
 
@@ -1244,6 +1247,7 @@ segkmem_free_one_lp(caddr_t addr, size_t size)
 
 	/* page_unresv() is done by the caller */
 }
+#endif /* __sparc */
 
 /*
  * This function is called to import new spans into the vmem arenas like
@@ -1388,6 +1392,7 @@ segkmem_free_lp(vmem_t *vmp, void *inaddr, size_t size)
 	}
 }
 
+#ifdef __sparc
 /*
  * segkmem_alloc_lpi() imports virtual memory from large page heap arena
  * into kmem_lp arena. In the process it maps the imported segment with
@@ -1424,7 +1429,7 @@ segkmem_free_lpi(vmem_t *vmp, void *inaddr, size_t size)
 	pgcnt_t		nlpages = size >> segkmem_lpshift;
 	size_t		lpsize = segkmem_lpsize;
 	caddr_t		addr = inaddr;
-	pgcnt_t 	npages = btopr(size);
+	pgcnt_t		npages = btopr(size);
 	int		i;
 
 	ASSERT(vmp == heap_lp_arena);
@@ -1440,6 +1445,7 @@ segkmem_free_lpi(vmem_t *vmp, void *inaddr, size_t size)
 
 	vmem_free(vmp, inaddr, size);
 }
+#endif /* __sparc */
 
 /*
  * This function is called at system boot time by kmem_init right after

@@ -31,23 +31,22 @@ OBJECTS = $(ASOBJS) $(MACHCOBJS) $(COBJS) $(V1_OBJS)
 
 include ../../Makefile.lib
 
-SRCS =	$(ASOBJS:%.o=../$(MACH)/%.s)	\
+SRCS =	$(ASOBJS:%.o=../$(MACH)/%.S)	\
 	$(MACHCOBJS:%.o=../$(MACH)/%.c)	\
 	$(V1_OBJS:%.o=../common/%.c)	\
 	$(COBJS:%.o=../common/%.c)
 
-LIBS =		$(DYNLIB) $(LINTLIB)
-$(LINTLIB) :=	SRCS = ../common/llib-lcpc
+LIBS =		$(DYNLIB)
 LDLIBS +=	-lpctx -lnvpair -lc
 
 SRCDIR =	../common
 
-ASFLAGS +=	-P -D_ASM -I../common
+ASFLAGS +=	-D_ASM -I../common
 CPPFLAGS +=	-D_REENTRANT -I../common
 CFLAGS +=	$(CCVERBOSE)
 
 CERRWARN +=	-_gcc=-Wno-switch
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 
 # not linted
 SMATCH=off
@@ -56,7 +55,6 @@ SMATCH=off
 
 all: $(LIBS)
 
-lint: lintcheck
 
 include ../../Makefile.targ
 
@@ -64,6 +62,6 @@ pics/%.o: ../$(MACH)/%.c
 	$(COMPILE.c) -o $@ $<
 	$(POST_PROCESS_O)
 
-pics/%.o: ../$(MACH)/%.s
+pics/%.o: ../$(MACH)/%.S
 	$(COMPILE.s) -o $@ $<
 	$(POST_PROCESS_S_O)

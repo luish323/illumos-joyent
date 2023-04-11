@@ -29,6 +29,7 @@
  * Copyright 2014 Pluribus Networks Inc.
  * Copyright 2016 OmniTI Computer Consulting, Inc. All rights reserved.
  * Copyright (c) 2017, Joyent, Inc.
+ * Copyright 2023 Oxide Computer Company
  */
 
 #include "igb_sw.h"
@@ -205,8 +206,7 @@ igb_m_stat(void *arg, uint_t stat, uint64_t *val)
 
 	/* MII/GMII stats */
 	case ETHER_STAT_XCVR_ADDR:
-		/* The Internal PHY's MDI address for each MAC is 1 */
-		*val = 1;
+		*val = hw->phy.addr;
 		break;
 
 	case ETHER_STAT_XCVR_ID:
@@ -214,25 +214,7 @@ igb_m_stat(void *arg, uint_t stat, uint64_t *val)
 		break;
 
 	case ETHER_STAT_XCVR_INUSE:
-		switch (igb->link_speed) {
-		case SPEED_1000:
-			*val =
-			    (hw->phy.media_type == e1000_media_type_copper) ?
-			    XCVR_1000T : XCVR_1000X;
-			break;
-		case SPEED_100:
-			*val =
-			    (hw->phy.media_type == e1000_media_type_copper) ?
-			    (igb->param_100t4_cap == 1) ?
-			    XCVR_100T4 : XCVR_100T2 : XCVR_100X;
-			break;
-		case SPEED_10:
-			*val = XCVR_10;
-			break;
-		default:
-			*val = XCVR_NONE;
-			break;
-		}
+		*val = (uint64_t)e1000_link_to_media(hw, igb->link_speed);
 		break;
 
 	case ETHER_STAT_CAP_1000FDX:
@@ -965,8 +947,10 @@ igb_m_getcapab(void *arg, mac_capab_t cap, void *cap_data)
 		mac_capab_lso_t *cap_lso = cap_data;
 
 		if (igb->lso_enable) {
-			cap_lso->lso_flags = LSO_TX_BASIC_TCP_IPV4;
+			cap_lso->lso_flags = LSO_TX_BASIC_TCP_IPV4 |
+			    LSO_TX_BASIC_TCP_IPV6;
 			cap_lso->lso_basic_tcp_ipv4.lso_max = IGB_LSO_MAXLEN;
+			cap_lso->lso_basic_tcp_ipv6.lso_max = IGB_LSO_MAXLEN;
 			break;
 		} else {
 			return (B_FALSE);
@@ -1141,6 +1125,7 @@ setup_link:
 	case MAC_PROP_STATUS:
 	case MAC_PROP_SPEED:
 	case MAC_PROP_DUPLEX:
+	case MAC_PROP_MEDIA:
 		err = ENOTSUP; /* read-only prop. Can't set this. */
 		break;
 	case MAC_PROP_MTU:
@@ -1284,6 +1269,10 @@ igb_m_getprop(void *arg, const char *pr_name, mac_prop_id_t pr_num,
 		break;
 	case MAC_PROP_EN_10HDX_CAP:
 		*(uint8_t *)pr_val = igb->param_en_10hdx_cap;
+		break;
+	case MAC_PROP_MEDIA:
+		*(mac_ether_media_t *)pr_val = e1000_link_to_media(hw,
+		    igb->link_speed);
 		break;
 	case MAC_PROP_PRIVATE:
 		err = igb_get_priv_prop(igb, pr_name, pr_valsize, pr_val);
@@ -1645,7 +1634,7 @@ igb_priv_prop_info(igb_t *igb, const char *pr_name, mac_prop_info_handle_t prh)
 		value = DEFAULT_RX_COPY_THRESHOLD;
 	} else if (strcmp(pr_name, "_rx_limit_per_intr") == 0) {
 		value = DEFAULT_RX_LIMIT_PER_INTR;
-	} else 	if (strcmp(pr_name, "_intr_throttling") == 0) {
+	} else if (strcmp(pr_name, "_intr_throttling") == 0) {
 		value = igb->capab->def_intr_throttle;
 	} else {
 		return;

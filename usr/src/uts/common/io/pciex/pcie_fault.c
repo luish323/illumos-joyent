@@ -20,7 +20,8 @@
  */
 /*
  * Copyright (c) 2006, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2017, Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
+ * Copyright 2023 Oxide Computer Company
  */
 
 #include <sys/sysmacros.h>
@@ -192,6 +193,28 @@ pf_eh_exit(pcie_bus_t *bus_p)
 }
 
 /*
+ * After sending an ereport, or in lieu of doing so, unlock all the devices in
+ * the data queue.  We also must clear pe_valid here; this function is called in
+ * the path where we decide not to send an ereport because there is no error
+ * (spurious AER interrupt), as well as from pf_send_ereport() which has already
+ * cleared it.  Failing to do this will result in a different path through
+ * pf_dispatch() and the potential for deadlocks.  It is safe to do as we are
+ * still holding the handler lock here, just as in pf_send_ereport().
+ */
+static void
+pf_dq_unlock_chain(pf_impl_t *impl)
+{
+	pf_data_t *pfd_p;
+
+	for (pfd_p = impl->pf_dq_tail_p; pfd_p; pfd_p = pfd_p->pe_prev) {
+		pfd_p->pe_valid = B_FALSE;
+		if (pfd_p->pe_lock) {
+			pf_handler_exit(PCIE_PFD2DIP(pfd_p));
+		}
+	}
+}
+
+/*
  * Scan Fabric is the entry point for PCI/PCIe IO fabric errors.  The
  * caller may create a local pf_data_t with the "root fault"
  * information populated to either do a precise or full scan.  More
@@ -200,7 +223,7 @@ pf_eh_exit(pcie_bus_t *bus_p)
  * for the root_pfd_p.
  *
  * "Root Complexes" such as NPE and PX should call scan_fabric using itself as
- * the rdip.  PCIe Root ports should call pf_scan_fabric using it's parent as
+ * the rdip.  PCIe Root ports should call pf_scan_fabric using its parent as
  * the rdip.
  *
  * Scan fabric initiated from RCs are likely due to a fabric message, traps or
@@ -284,7 +307,16 @@ done:
 		analyse_flag = pf_analyse_error(derr, &impl);
 	}
 
-	pf_send_ereport(derr, &impl);
+	/*
+	 * If analyse_flag is 0 or PF_ERR_NO_ERROR, there's nothing here.  Skip
+	 * ereport generation unless something went wrong with the scan.
+	 */
+	if ((analyse_flag & ~PF_ERR_NO_ERROR) != 0 ||
+	    (scan_flag & (PF_SCAN_CB_FAILURE | PF_SCAN_DEADLOCK)) != 0) {
+		pf_send_ereport(derr, &impl);
+	} else {
+		pf_dq_unlock_chain(&impl);
+	}
 
 	/*
 	 * Check if any hardened driver's callback reported a panic.
@@ -587,6 +619,35 @@ pf_pcie_regs_gather(pf_data_t *pfd_p, pcie_bus_t *bus_p)
 		    PCIE_ROOTCTL);
 	}
 
+	/*
+	 * For eligible components, we gather Slot Register state.
+	 *
+	 * Eligible components are:
+	 * - a Downstream Port or a Root Port with the Slot Implemented
+	 * capability bit set
+	 * - hotplug capable
+	 *
+	 * Slot register state is useful, for instance, to determine whether the
+	 * Slot's child device is physically present (via the Slot Status
+	 * register).
+	 */
+	if ((PCIE_IS_SWD(bus_p) || PCIE_IS_ROOT(bus_p)) &&
+	    PCIE_IS_HOTPLUG_ENABLED(PCIE_BUS2DIP(bus_p))) {
+		pf_pcie_slot_regs_t *pcie_slot_regs = PCIE_SLOT_REG(pfd_p);
+		pcie_slot_regs->pcie_slot_cap = PCIE_CAP_GET(32, bus_p,
+		    PCIE_SLOTCAP);
+		pcie_slot_regs->pcie_slot_control = PCIE_CAP_GET(16, bus_p,
+		    PCIE_SLOTCTL);
+		pcie_slot_regs->pcie_slot_status = PCIE_CAP_GET(16, bus_p,
+		    PCIE_SLOTSTS);
+
+		if (pcie_slot_regs->pcie_slot_cap != PCI_EINVAL32 &&
+		    pcie_slot_regs->pcie_slot_control != PCI_EINVAL16 &&
+		    pcie_slot_regs->pcie_slot_status != PCI_EINVAL16) {
+			pcie_slot_regs->pcie_slot_regs_valid = B_TRUE;
+		}
+	}
+
 	if (!PCIE_HAS_AER(bus_p))
 		return;
 
@@ -838,7 +899,7 @@ pf_pci_find_rp_fault(pf_data_t *pfd_p, pcie_bus_t *bus_p)
 	 * Check to see if an error has been received that
 	 * requires a scan of the fabric.  Count the number of
 	 * faults seen.  If MUL CE/FE_NFE that counts for
-	 * atleast 2 faults, so just return with full_scan.
+	 * at least 2 faults, so just return with full_scan.
 	 */
 	if ((root_err & PCIE_AER_RE_STS_MUL_CE_RCVD) ||
 	    (root_err & PCIE_AER_RE_STS_MUL_FE_NFE_RCVD)) {
@@ -1207,7 +1268,7 @@ const pf_fab_err_tbl_t pcie_pcie_tbl[] = {
 	{PCIE_AER_UCE_MTLP,	pf_panic,
 	    PF_AFFECTED_PARENT, 0},
 
-	{PCIE_AER_UCE_ECRC,	pf_panic,
+	{PCIE_AER_UCE_ECRC,	pf_no_panic,
 	    PF_AFFECTED_SELF, 0},
 
 	{PCIE_AER_UCE_UR,	pf_analyse_ca_ur,
@@ -1232,7 +1293,7 @@ const pf_fab_err_tbl_t pcie_rp_tbl[] = {
 	{PCIE_AER_UCE_FCP,	pf_panic,
 	    PF_AFFECTED_SELF | PF_AFFECTED_CHILDREN, 0},
 
-	{PCIE_AER_UCE_TO,	pf_panic,
+	{PCIE_AER_UCE_TO,	pf_analyse_to,
 	    PF_AFFECTED_ADDR, PF_AFFECTED_CHILDREN},
 
 	{PCIE_AER_UCE_CA,	pf_no_panic,
@@ -1248,7 +1309,7 @@ const pf_fab_err_tbl_t pcie_rp_tbl[] = {
 	    PF_AFFECTED_SELF | PF_AFFECTED_AER,
 	    PF_AFFECTED_SELF | PF_AFFECTED_CHILDREN},
 
-	{PCIE_AER_UCE_ECRC,	pf_panic,
+	{PCIE_AER_UCE_ECRC,	pf_no_panic,
 	    PF_AFFECTED_AER, PF_AFFECTED_CHILDREN},
 
 	{PCIE_AER_UCE_UR,	pf_no_panic,
@@ -1289,7 +1350,7 @@ const pf_fab_err_tbl_t pcie_sw_tbl[] = {
 	    PF_AFFECTED_SELF | PF_AFFECTED_AER,
 	    PF_AFFECTED_SELF | PF_AFFECTED_CHILDREN},
 
-	{PCIE_AER_UCE_ECRC,	pf_panic,
+	{PCIE_AER_UCE_ECRC,	pf_no_panic,
 	    PF_AFFECTED_AER, PF_AFFECTED_SELF | PF_AFFECTED_CHILDREN},
 
 	{PCIE_AER_UCE_UR,	pf_analyse_ca_ur,
@@ -1916,15 +1977,34 @@ pf_analyse_sc(ddi_fm_error_t *derr, uint32_t bit, pf_data_t *dq_head_p,
 /*
  * PCIe Timeout error analyser.  This error can be forgiven if it is marked as
  * CE Advisory.  If it is marked as advisory, this means the HW can recover
- * and/or retry the transaction automatically.
+ * and/or retry the transaction automatically. Additionally, if a device's
+ * parent slot reports that it is no longer physically present, we do not panic,
+ * as one would not expect a missing device to respond to a command.
  */
 /* ARGSUSED */
 static int
 pf_analyse_to(ddi_fm_error_t *derr, uint32_t bit, pf_data_t *dq_head_p,
     pf_data_t *pfd_p)
 {
+	dev_info_t	*rpdip = PCIE_PFD2BUS(pfd_p)->bus_rp_dip;
+	pf_data_t	*rppfd = PCIE_DIP2PFD(rpdip);
+	pf_pcie_slot_regs_t	*p_pcie_slot_regs;
+
 	if (HAS_AER_LOGS(pfd_p, bit) && CE_ADVISORY(pfd_p))
 		return (PF_ERR_NO_PANIC);
+
+	p_pcie_slot_regs = PCIE_SLOT_REG(rppfd);
+	if (p_pcie_slot_regs->pcie_slot_regs_valid) {
+		/*
+		 * If the device is reported gone from its parent slot, then it
+		 * is expected that any outstanding commands would time out. In
+		 * this case, do not panic.
+		 */
+		if ((p_pcie_slot_regs->pcie_slot_status &
+		    PCIE_SLOTSTS_PRESENCE_DETECTED) == 0x0) {
+			return (PF_ERR_NO_PANIC);
+		}
+	}
 
 	return (PF_ERR_PANIC);
 }
@@ -2970,6 +3050,24 @@ pf_send_ereport(ddi_fm_error_t *derr, pf_impl_t *impl)
 			    NULL);
 		}
 
+		/*
+		 * Slot Status registers
+		 *
+		 * Since we only gather these for certain types of components,
+		 * only put these registers into the ereport if we have valid
+		 * data.
+		 */
+		if (PCIE_SLOT_REG(pfd_p)->pcie_slot_regs_valid) {
+			fm_payload_set(ereport,
+			    "pcie_slot_cap", DATA_TYPE_UINT32,
+			    PCIE_SLOT_REG(pfd_p)->pcie_slot_cap,
+			    "pcie_slot_control", DATA_TYPE_UINT16,
+			    PCIE_SLOT_REG(pfd_p)->pcie_slot_control,
+			    "pcie_slot_status", DATA_TYPE_UINT16,
+			    PCIE_SLOT_REG(pfd_p)->pcie_slot_status,
+			    NULL);
+		}
+
 generic:
 		/* IOV related information */
 		if (!PCIE_BDG_IS_UNASSIGNED(PCIE_PFD2BUS(impl->pf_dq_head_p))) {
@@ -2993,12 +3091,7 @@ generic:
 		    &eqep);
 	}
 
-	/* Unlock all the devices in the queue */
-	for (pfd_p = impl->pf_dq_tail_p; pfd_p; pfd_p = pfd_p->pe_prev) {
-		if (pfd_p->pe_lock) {
-			pf_handler_exit(PCIE_PFD2DIP(pfd_p));
-		}
-	}
+	pf_dq_unlock_chain(impl);
 }
 
 /*

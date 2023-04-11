@@ -58,8 +58,17 @@ _NOTE(CONSTCOND) } while (0)
 
 typedef struct arc_buf_hdr arc_buf_hdr_t;
 typedef struct arc_buf arc_buf_t;
+
+/*
+ * Because the ARC can store encrypted data, errors (not due to bugs) may arise
+ * while transforming data into its desired format - specifically, when
+ * decrypting, the key may not be present, or the HMAC may not be correct
+ * which signifies deliberate tampering with the on-disk state
+ * (assuming that the checksum was correct). The "error" parameter will be
+ * nonzero in this case, even if there is no associated zio.
+ */
 typedef void arc_read_done_func_t(zio_t *zio, const zbookmark_phys_t *zb,
-    const blkptr_t *bp, arc_buf_t *buf, void *private);
+    const blkptr_t *bp, arc_buf_t *buf, void *priv);
 typedef void arc_write_done_func_t(zio_t *zio, arc_buf_t *buf, void *priv);
 
 /* generic arc_done_func_t's which you can use */
@@ -93,20 +102,29 @@ typedef enum arc_flags
 	ARC_FLAG_L2_WRITING		= 1 << 12,	/* write in progress */
 	ARC_FLAG_L2_EVICTED		= 1 << 13,	/* evicted during I/O */
 	ARC_FLAG_L2_WRITE_HEAD		= 1 << 14,	/* head of write list */
+	/*
+	 * Encrypted or authenticated on disk (may be plaintext in memory).
+	 * This header has b_crypt_hdr allocated. Does not include indirect
+	 * blocks with checksums of MACs which will also have their X
+	 * (encrypted) bit set in the bp.
+	 */
+	ARC_FLAG_PROTECTED		= 1 << 15,
+	/* data has not been authenticated yet */
+	ARC_FLAG_NOAUTH			= 1 << 16,
 	/* indicates that the buffer contains metadata (otherwise, data) */
-	ARC_FLAG_BUFC_METADATA		= 1 << 15,
+	ARC_FLAG_BUFC_METADATA		= 1 << 17,
 
 	/* Flags specifying whether optional hdr struct fields are defined */
-	ARC_FLAG_HAS_L1HDR		= 1 << 16,
-	ARC_FLAG_HAS_L2HDR		= 1 << 17,
+	ARC_FLAG_HAS_L1HDR		= 1 << 18,
+	ARC_FLAG_HAS_L2HDR		= 1 << 19,
 
 	/*
 	 * Indicates the arc_buf_hdr_t's b_pdata matches the on-disk data.
 	 * This allows the l2arc to use the blkptr's checksum to verify
 	 * the data without having to store the checksum in the hdr.
 	 */
-	ARC_FLAG_COMPRESSED_ARC		= 1 << 18,
-	ARC_FLAG_SHARED_DATA		= 1 << 19,
+	ARC_FLAG_COMPRESSED_ARC		= 1 << 20,
+	ARC_FLAG_SHARED_DATA		= 1 << 21,
 
 	/*
 	 * The arc buffer's compression mode is stored in the top 7 bits of the
@@ -125,7 +143,12 @@ typedef enum arc_flags
 
 typedef enum arc_buf_flags {
 	ARC_BUF_FLAG_SHARED		= 1 << 0,
-	ARC_BUF_FLAG_COMPRESSED		= 1 << 1
+	ARC_BUF_FLAG_COMPRESSED		= 1 << 1,
+	/*
+	 * indicates whether this arc_buf_t is encrypted, regardless of
+	 * state on-disk
+	 */
+	ARC_BUF_FLAG_ENCRYPTED		= 1 << 2
 } arc_buf_flags_t;
 
 struct arc_buf {
@@ -156,17 +179,43 @@ typedef enum arc_space_type {
 	ARC_SPACE_NUMTYPES
 } arc_space_type_t;
 
+typedef enum arc_state_type {
+	ARC_STATE_ANON,
+	ARC_STATE_MRU,
+	ARC_STATE_MRU_GHOST,
+	ARC_STATE_MFU,
+	ARC_STATE_MFU_GHOST,
+	ARC_STATE_L2C_ONLY,
+	ARC_STATE_NUMTYPES
+} arc_state_type_t;
+
 void arc_space_consume(uint64_t space, arc_space_type_t type);
 void arc_space_return(uint64_t space, arc_space_type_t type);
 boolean_t arc_is_metadata(arc_buf_t *buf);
+boolean_t arc_is_encrypted(arc_buf_t *buf);
+boolean_t arc_is_unauthenticated(arc_buf_t *buf);
 enum zio_compress arc_get_compression(arc_buf_t *buf);
-int arc_decompress(arc_buf_t *buf);
+void arc_get_raw_params(arc_buf_t *buf, boolean_t *byteorder, uint8_t *salt,
+    uint8_t *iv, uint8_t *mac);
+int arc_untransform(arc_buf_t *buf, spa_t *spa, const zbookmark_phys_t *zb,
+    boolean_t in_place);
+void arc_convert_to_raw(arc_buf_t *buf, uint64_t dsobj, boolean_t byteorder,
+    dmu_object_type_t ot, const uint8_t *salt, const uint8_t *iv,
+    const uint8_t *mac);
 arc_buf_t *arc_alloc_buf(spa_t *spa, void *tag, arc_buf_contents_t type,
     int32_t size);
 arc_buf_t *arc_alloc_compressed_buf(spa_t *spa, void *tag,
     uint64_t psize, uint64_t lsize, enum zio_compress compression_type);
+arc_buf_t *arc_alloc_raw_buf(spa_t *spa, void *tag, uint64_t dsobj,
+    boolean_t byteorder, const uint8_t *salt, const uint8_t *iv,
+    const uint8_t *mac, dmu_object_type_t ot, uint64_t psize, uint64_t lsize,
+    enum zio_compress compression_type);
 arc_buf_t *arc_loan_buf(spa_t *spa, boolean_t is_metadata, int size);
 arc_buf_t *arc_loan_compressed_buf(spa_t *spa, uint64_t psize, uint64_t lsize,
+    enum zio_compress compression_type);
+arc_buf_t *arc_loan_raw_buf(spa_t *spa, uint64_t dsobj, boolean_t byteorder,
+    const uint8_t *salt, const uint8_t *iv, const uint8_t *mac,
+    dmu_object_type_t ot, uint64_t psize, uint64_t lsize,
     enum zio_compress compression_type);
 void arc_return_buf(arc_buf_t *buf, void *tag);
 void arc_loan_inuse_buf(arc_buf_t *buf, void *tag);
@@ -197,6 +246,7 @@ void arc_flush(spa_t *spa, boolean_t retry);
 void arc_tempreserve_clear(uint64_t reserve);
 int arc_tempreserve_space(spa_t *spa, uint64_t reserve, uint64_t txg);
 
+uint64_t arc_all_memory(void);
 uint64_t arc_max_bytes(void);
 void arc_init(void);
 void arc_fini(void);
@@ -208,10 +258,14 @@ void arc_fini(void);
 void l2arc_add_vdev(spa_t *spa, vdev_t *vd);
 void l2arc_remove_vdev(vdev_t *vd);
 boolean_t l2arc_vdev_present(vdev_t *vd);
+void l2arc_rebuild_vdev(vdev_t *vd, boolean_t reopen);
+boolean_t l2arc_range_check_overlap(uint64_t bottom, uint64_t top,
+    uint64_t check);
 void l2arc_init(void);
 void l2arc_fini(void);
 void l2arc_start(void);
 void l2arc_stop(void);
+void l2arc_spa_rebuild_start(spa_t *spa);
 
 #ifndef _KERNEL
 extern boolean_t arc_watch;

@@ -39,7 +39,7 @@ CONVLIBDIR =	$(CONVLIBDIR64)
 
 all:		$(DYNLIB)
 
-install:	all $(ROOTFS_DYNLIB64) $(ROOTFS_LINKS64)
+install:	all $(ROOTLIBS64) $(ROOTLINKS64) $(ROOTCOMPATLINKS64)
 
 pics/plt32_resolution.o: ../sparc/plt32_resolution.c
 		$(COMPILE.c) -D_ELF32 $(PICFLAGS) -o $@ \
@@ -47,4 +47,4 @@ pics/plt32_resolution.o: ../sparc/plt32_resolution.c
 		$(POST_PROCESS_O)
 
 include		../Makefile.targ
-include		../../Makefile.sub.64
+include		$(SRC)/Makefile.master.64

@@ -56,7 +56,7 @@ POFILES = generic.po
 INS.liblink=	-$(RM) $@; $(SYMLINK) $(LIBLINKS)$(VERS) $@
 
 
-CPPFLAGS += 	-I$(SRC)/lib/krb5 \
+CPPFLAGS +=	-I$(SRC)/lib/krb5 \
 		-I$(SRC)/lib/krb5/kdb \
 		-I$(SRC)/lib/gss_mechs/mech_krb5/include \
 		-I$(SRC)/lib/gss_mechs/mech_krb5/krb5/os \
@@ -65,14 +65,14 @@ CPPFLAGS += 	-I$(SRC)/lib/krb5 \
 		-I$(SRC)/uts/common/gssapi/mechs/krb5/include \
 		-I$(SRC)
 
-CERRWARN	+= -_gcc=-Wno-uninitialized
+CERRWARN	+= $(CNOWARN_UNINIT)
 CERRWARN	+= -_gcc=-Wno-unused-function
 
 # not linted
 SMATCH=off
 
 CFLAGS +=	$(CCVERBOSE) -I..
-DYNFLAGS +=	$(KRUNPATH) $(KMECHLIB) -znodelete
+DYNFLAGS +=	$(KRUNPATH) $(KMECHLIB) $(ZNODELETE)
 LDLIBS +=	-L $(ROOTLIBDIR) -lsunw_crypto -lc
 
 ROOTLIBDIR= $(ROOT)/usr/lib/krb5/plugins/preauth
@@ -84,7 +84,6 @@ $(ROOTLIBDIR):
 
 all:	$(LIBS)
 
-lint:	lintcheck
 
 # include library targets
 include $(SRC)/lib/krb5/Makefile.targ

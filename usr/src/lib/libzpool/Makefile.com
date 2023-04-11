@@ -21,7 +21,8 @@
 #
 # Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, 2016 by Delphix. All rights reserved.
-# Copyright 2019, Joyent, Inc.
+# Copyright 2020 Joyent, Inc.
+# Copyright 2023 OmniOS Community Edition (OmniOSce) Association.
 #
 
 LIBRARY= libzpool.a
@@ -48,33 +49,33 @@ SRCDIR=		../common
 # There should be a mapfile here
 MAPFILES =
 
-LIBS +=		$(DYNLIB) $(LINTLIB)
+LIBS +=		$(DYNLIB)
 
 INCS += -I../common
 INCS += -I../../../uts/common/fs/zfs
 INCS += -I../../../uts/common/fs/zfs/lua
 INCS += -I../../../common/zfs
 INCS += -I../../../common
+INCS += -I../../libzutil/common
+
 
 CLEANFILES += ../common/zfs.h
 CLEANFILES += $(EXTPICS)
 
-$(LINTLIB) := SRCS=	$(SRCDIR)/$(LINTSRC)
-$(LINTLIB): ../common/zfs.h
 $(LIBS): ../common/zfs.h
 
 CSTD=	$(CSTD_GNU99)
-C99LMODE=	-Xc99=%all
 
 CFLAGS +=	$(CCGDEBUG) $(CCVERBOSE) $(CNOGLOBAL)
 CFLAGS64 +=	$(CCGDEBUG) $(CCVERBOSE) $(CNOGLOBAL)
-LDLIBS +=	-lcmdutils -lumem -lavl -lnvpair -lz -lc -lsysevent -lmd \
-		-lfakekernel -lzfs
+LDLIBS +=	-lcmdutils -lumem -lavl -lnvpair -lz -lc -lmd \
+		-lfakekernel -lzutil
+NATIVE_LIBS +=	libz.so
 CPPFLAGS.first =	-I$(SRC)/lib/libfakekernel/common
+# The in-gate lz4 headers must take precedence over any that may appear in an
+# adjunct.
+CPPFLAGS.first +=	-I$(SRC)/common/lz4
 CPPFLAGS +=	$(INCS)	-DDEBUG -D_FAKE_KERNEL
-
-LINTFLAGS +=	-erroff=E_STATIC_UNUSED $(INCS)
-LINTFLAGS64 +=	-erroff=E_STATIC_UNUSED $(INCS)
 
 # The following is needed to fix the SmartOS build; see OS-6582. We cannot do
 # a conditional appendage to INCS, since that breaks the lint build.
@@ -96,8 +97,6 @@ SMATCH=off
 
 all: $(LIBS)
 
-lint: $(LINTLIB)
-
 include ../../Makefile.targ
 
 EXTPICS= $(DTRACE_OBJS:%=pics/%)
@@ -111,6 +110,10 @@ pics/%.o: ../../../uts/common/fs/zfs/lua/%.c
 	$(POST_PROCESS_O)
 
 pics/%.o: ../../../common/zfs/%.c ../common/zfs.h
+	$(COMPILE.c) -o $@ $<
+	$(POST_PROCESS_O)
+
+pics/%.o: ../../../common/lz4/%.c ../common/zfs.h
 	$(COMPILE.c) -o $@ $<
 	$(POST_PROCESS_O)
 

@@ -10,6 +10,7 @@
 #
 
 # Copyright 2015, Richard Lowe.
+# Copyright 2020 Joyent, Inc.
 
 MAKE_INCLUDE= $(SRC)/cmd/make/include
 
@@ -17,4 +18,6 @@ CC = $(NATIVECC)
 CCC = $(NATIVECCC)
 CFLAGS = $(NATIVE_CFLAGS)
 CFLAGS += $(CCVERBOSE)
+CCFLAGS = $(NATIVE_CCFLAGS)
 CPPFLAGS = -I$(MAKE_INCLUDE) $(MAKE_DEFS)
+CCNEEDED = $(NATIVECCNEEDED)

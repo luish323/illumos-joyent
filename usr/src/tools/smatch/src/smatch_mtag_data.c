@@ -36,11 +36,9 @@ static int save_rl(void *_rl, int argc, char **argv, char **azColName)
 	return 0;
 }
 
-static struct range_list *select_orig_rl(sval_t sval)
+static struct range_list *select_orig(mtag_t tag, int offset)
 {
 	struct range_list *rl = NULL;
-	mtag_t tag = sval.uvalue & ~MTAG_OFFSET_MASK;
-	int offset = sval.uvalue & MTAG_OFFSET_MASK;
 
 	mem_sql(&save_rl, &rl, "select value from mtag_data where tag = %lld and offset = %d;",
 		tag, offset);
@@ -71,10 +69,58 @@ static int is_kernel_param(const char *name)
 	return 0;
 }
 
-void insert_mtag_data(sval_t sval, struct range_list *rl)
+static bool is_ignored_macro(struct expression *expr)
 {
-	mtag_t tag = sval.uvalue & ~MTAG_OFFSET_MASK;
-	int offset = sval.uvalue & MTAG_OFFSET_MASK;
+	char *macro;
+
+	macro = get_macro_name(expr->pos);
+	if (!macro)
+		return false;
+	if (strcmp(macro, "EXPORT_SYMBOL") == 0)
+		return true;
+	return false;
+}
+
+static bool is_head_next(struct expression *expr)
+{
+	struct symbol *type;
+
+	/* Smatch thinks head->next == head is always true.  *sad face* */
+
+	if (option_project != PROJ_KERNEL)
+		return false;
+
+	if (expr->type != EXPR_DEREF)
+		return false;
+	if (!expr->member || !expr->member->name ||
+	    strcmp(expr->member->name, "next") != 0)
+		return false;
+
+	type = get_type(expr->deref);
+	if (!type)
+		return false;
+	if (type->type == SYM_PTR)
+		type = get_real_base_type(type);
+	if (type->type != SYM_STRUCT)
+		return false;
+	if (!type->ident || !type->ident->name ||
+	    strcmp(type->ident->name, "list_head") != 0)
+		return false;
+	return true;
+}
+
+mtag_t ignored_mtag;
+static bool is_ignored_tag(mtag_t tag)
+{
+	if (tag == ignored_mtag)
+		return true;
+	return false;
+}
+
+static void insert_mtag_data(mtag_t tag, int offset, struct range_list *rl)
+{
+	if (is_ignored_tag(tag))
+		return;
 
 	rl = clone_rl_permanent(rl);
 
@@ -84,12 +130,45 @@ void insert_mtag_data(sval_t sval, struct range_list *rl)
 		tag, offset, DATA_VALUE, (unsigned long)rl);
 }
 
-void update_mtag_data(struct expression *expr)
+static bool invalid_type(struct symbol *type)
 {
-	struct range_list *orig, *new, *rl;
-	char *name;
-	sval_t sval;
+	if (!type)
+		return true;
+	if (type == &void_ctype)
+		return true;
+	if (type->type == SYM_STRUCT ||
+	    type->type == SYM_ARRAY ||
+	    type->type == SYM_UNION)
+		return true;
+	return false;
+}
 
+static bool parent_is_fresh_alloc(struct expression *expr)
+{
+	struct symbol *sym;
+
+	sym = expr_to_sym(expr);
+	if (!sym || !sym->ident)
+		return false;
+	return is_fresh_alloc_var_sym(sym->ident->name, sym);
+}
+
+void update_mtag_data(struct expression *expr, struct smatch_state *state)
+{
+	struct range_list *orig, *new;
+	struct symbol *type;
+	char *name;
+	mtag_t tag;
+	int offset;
+
+	if (!expr)
+		return;
+	if (is_local_variable(expr))
+		return;
+	if (is_ignored_macro(expr))
+		return;
+	if (is_head_next(expr))
+		return;
 	name = expr_to_var(expr);
 	if (is_kernel_param(name)) {
 		free_string(name);
@@ -97,22 +176,32 @@ void update_mtag_data(struct expression *expr)
 	}
 	free_string(name);
 
-	if (!get_mtag_addr_sval(expr, &sval))
+	if (!expr_to_mtag_offset(expr, &tag, &offset))
 		return;
 
-	get_absolute_rl(expr, &rl);
+	type = get_type(expr);
+	if (offset == 0 && invalid_type(type))
+		return;
 
-	orig = select_orig_rl(sval);
-	new = rl_union(orig, rl);
-	insert_mtag_data(sval, new);
+	if (parent_is_fresh_alloc(expr))
+		orig = NULL;
+	else
+		orig = select_orig(tag, offset);
+	new = rl_union(orig, estate_rl(state));
+	insert_mtag_data(tag, offset, new);
 }
 
 static void match_global_assign(struct expression *expr)
 {
 	struct range_list *rl;
-	sval_t sval;
+	mtag_t tag;
+	int offset;
 	char *name;
 
+	if (is_ignored_macro(expr))
+		return;
+	if (is_head_next(expr->left))
+		return;
 	name = expr_to_var(expr->left);
 	if (is_kernel_param(name)) {
 		free_string(name);
@@ -120,11 +209,11 @@ static void match_global_assign(struct expression *expr)
 	}
 	free_string(name);
 
-	if (!get_mtag_addr_sval(expr->left, &sval))
+	if (!expr_to_mtag_offset(expr->left, &tag, &offset))
 		return;
 
 	get_absolute_rl(expr->right, &rl);
-	insert_mtag_data(sval, rl);
+	insert_mtag_data(tag, offset, rl);
 }
 
 static int save_mtag_data(void *_unused, int argc, char **argv, char **azColName)
@@ -171,22 +260,21 @@ static int get_vals(void *_db_info, int argc, char **argv, char **azColName)
 }
 
 struct db_cache_results {
-	sval_t sval;
+	mtag_t tag;
 	struct range_list *rl;
 };
 static struct db_cache_results cached_results[8];
 
-static int get_rl_from_mtag_sval(sval_t sval, struct symbol *type, struct range_list **rl)
+static int get_rl_from_mtag_offset(mtag_t tag, int offset, struct symbol *type, struct range_list **rl)
 {
 	struct db_info db_info = {};
-	mtag_t tag;
-	int offset;
+	mtag_t merged = tag | offset;
 	static int idx;
 	int ret;
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(cached_results); i++) {
-		if (sval.uvalue == cached_results[i].sval.uvalue) {
+		if (merged == cached_results[i].tag) {
 			if (cached_results[i].rl) {
 				*rl = cached_results[i].rl;
 				return 1;
@@ -195,12 +283,6 @@ static int get_rl_from_mtag_sval(sval_t sval, struct symbol *type, struct range_
 		}
 	}
 
-	tag = sval.uvalue & ~MTAG_OFFSET_MASK;
-	offset = sval.uvalue & MTAG_OFFSET_MASK;
-	if (offset == MTAG_OFFSET_MASK) {
-		ret = 0;
-		goto update_cache;
-	}
 	db_info.type = type;
 
 	run_sql(get_vals, &db_info,
@@ -216,7 +298,7 @@ static int get_rl_from_mtag_sval(sval_t sval, struct symbol *type, struct range_
 	ret = 1;
 
 update_cache:
-	cached_results[idx].sval = sval;
+	cached_results[idx].tag = merged;
 	cached_results[idx].rl = db_info.rl;
 	idx = (idx + 1) % ARRAY_SIZE(cached_results);
 
@@ -231,22 +313,28 @@ static void clear_cache(struct symbol *sym)
 int get_mtag_rl(struct expression *expr, struct range_list **rl)
 {
 	struct symbol *type;
-	sval_t sval;
+	mtag_t tag;
+	int offset;
 
-	if (!get_mtag_addr_sval(expr, &sval))
+	if (is_local_variable(expr))
+		return 0;
+	if (!expr_to_mtag_offset(expr, &tag, &offset))
+		return 0;
+	if (offset >= MTAG_OFFSET_MASK)
 		return 0;
 
 	type = get_type(expr);
-	if (!type)
+	if (invalid_type(type))
 		return 0;
 
-	return get_rl_from_mtag_sval(sval, type, rl);
+	return get_rl_from_mtag_offset(tag, offset, type, rl);
 }
 
 void register_mtag_data(int id)
 {
 	my_id = id;
 
+	ignored_mtag = str_to_mtag("extern boot_params");
 	add_hook(&clear_cache, FUNC_DEF_HOOK);
 
 //	if (!option_info)

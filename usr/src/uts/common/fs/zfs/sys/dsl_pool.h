@@ -51,6 +51,7 @@ struct dsl_dataset;
 struct dsl_pool;
 struct dmu_tx;
 struct dsl_scan;
+struct dsl_crypto_params;
 
 extern uint64_t zfs_dirty_data_max;
 extern uint64_t zfs_dirty_data_max_max;
@@ -92,6 +93,7 @@ typedef struct dsl_pool {
 	struct dsl_dataset *dp_origin_snap;
 	uint64_t dp_root_dir_obj;
 	taskq_t *dp_vnrele_taskq;
+	struct taskq *dp_unlinked_drain_taskq;
 
 	/* No lock needed - sync context only */
 	blkptr_t dp_meta_rootbp;
@@ -144,7 +146,8 @@ typedef struct dsl_pool {
 int dsl_pool_init(spa_t *spa, uint64_t txg, dsl_pool_t **dpp);
 int dsl_pool_open(dsl_pool_t *dp);
 void dsl_pool_close(dsl_pool_t *dp);
-dsl_pool_t *dsl_pool_create(spa_t *spa, nvlist_t *zplprops, uint64_t txg);
+dsl_pool_t *dsl_pool_create(spa_t *spa, nvlist_t *zplprops,
+    struct dsl_crypto_params *dcp, uint64_t txg);
 void dsl_pool_sync(dsl_pool_t *dp, uint64_t txg);
 void dsl_pool_sync_done(dsl_pool_t *dp, uint64_t txg);
 int dsl_pool_sync_context(dsl_pool_t *dp);
@@ -171,6 +174,7 @@ boolean_t dsl_pool_config_held_writer(dsl_pool_t *dp);
 boolean_t dsl_pool_need_dirty_delay(dsl_pool_t *dp);
 
 taskq_t *dsl_pool_vnrele_taskq(dsl_pool_t *dp);
+taskq_t *dsl_pool_unlinked_drain_taskq(dsl_pool_t *dp);
 
 int dsl_pool_user_hold(dsl_pool_t *dp, uint64_t dsobj,
     const char *tag, uint64_t now, dmu_tx_t *tx);

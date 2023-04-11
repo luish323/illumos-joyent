@@ -11,7 +11,7 @@
 .\"
 .\" Copyright 2016 Joyent, Inc.
 .\"
-.Dd November 15, 2016
+.Dd February 15, 2020
 .Dt MC_GETPROP 9E
 .Os
 .Sh NAME
@@ -62,7 +62,7 @@ When the
 .Fn mc_getprop
 entry point is called, the driver needs to first identify the property.
 The set of possible properties and their meaning is listed in the
-.Sx PROPERTIES
+.Sy PROPERTIES
 section of
 .Xr mac 9E .
 It should identify the property based on the value of
@@ -96,7 +96,7 @@ identify which one it is.
 At this time, private properties are limited to being string based properties.
 If other types of property values are used, they will not be rendered
 correctly by
-.Xr dladm 1M .
+.Xr dladm 8 .
 .Pp
 The device
 driver can access its device soft state by casting the
@@ -145,7 +145,7 @@ example_m_getprop_private(example_t *ep, const char *pr_name, uint_t pr_valsize,
 	ASSERT(MUTEX_HELD(&ep->ep_lock));
 	if (strcmp(pr_name, example_priv_props[0] == 0) {
 		val = ep->ep_rx_itr;
-	} else if (strcmp(pr_name, exampe_priv_props[1] == 0) {
+	} else if (strcmp(pr_name, example_priv_props[1] == 0) {
 		val = ep->ep_tx_itr;
 	} else {
 		return (ENOTSUP);

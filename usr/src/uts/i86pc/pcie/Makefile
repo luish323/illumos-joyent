@@ -48,7 +48,7 @@ include $(UTSBASE)/i86pc/Makefile.i86pc
 #
 #	Dependency
 #
-LDFLAGS		+= -dy -Nmisc/acpica -Nmisc/busra
+LDFLAGS		+= -Nmisc/acpica -Nmisc/busra
 
 #
 #	Define targets
@@ -57,7 +57,6 @@ ALL_TARGET	= $(BINARY)
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 
 CERRWARN	+= -_gcc=-Wno-unused-value
-CERRWARN	+= -_gcc=-Wno-unused-variable
 CERRWARN	+= -_gcc=-Wno-unused-function # safe
 
 # needs work

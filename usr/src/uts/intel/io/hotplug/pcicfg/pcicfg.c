@@ -20,7 +20,8 @@
  */
 /*
  * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2019, Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
+ * Copyright 2023 Oxide Computer Company
  */
 
 /*
@@ -42,7 +43,6 @@
 #include <sys/hotplug/pci/pcicfg.h>
 #include <sys/ndi_impldefs.h>
 #include <sys/pci_cfgacc.h>
-#include <sys/pcie_impl.h>
 
 /*
  * ************************************************************************
@@ -557,7 +557,7 @@ pcicfg_configure(dev_info_t *devi, uint_t device, uint_t function,
 	dev_info_t *attach_point;
 	pci_bus_range_t pci_bus_range;
 	int rv;
-	int circ;
+	int circ, pcirc;
 	uint_t highest_bus, visited = 0;
 	int ari_mode = B_FALSE;
 	int max_function = PCI_MAX_FUNCTIONS;
@@ -585,6 +585,16 @@ pcicfg_configure(dev_info_t *devi, uint_t device, uint_t function,
 
 	is_pcie = is_pcie_fabric(devi);
 
+	/*
+	 * This code may be racing against other code walking the device info
+	 * tree, such as `di_copytree` et al.  To avoid deadlock, we must ensure
+	 * a strict hierarchical ordering of `ndi_devi_enter` calls that mirrors
+	 * the structure of the tree, working from the root towards leaves.
+	 * `pcie_fabric_setup`, if called, will call `ddi_walk_devs` which
+	 * requires that the parent is locked; therefore, to obey the lock
+	 * ordering, we must lock the parent here.
+	 */
+	ndi_devi_enter(ddi_get_parent(devi), &pcirc);
 	ndi_devi_enter(devi, &circ);
 	for (func = 0; func < max_function; ) {
 
@@ -716,7 +726,20 @@ next:
 		DEBUG1("Next Function - %x\n", func);
 	}
 
+	/*
+	 * At this point we have set up the various dev_info nodes that we
+	 * expect to see in the tree and we must re-evaluate the general fabric
+	 * settings such as the overall max payload size or the tagging that is
+	 * enabled. However, as part the big theory statement in pcie.c, this
+	 * can only be performed on a root port; however, that determination
+	 * will be made by the fabric scanning logic.
+	 */
+	if (visited > 0 && is_pcie) {
+		pcie_fabric_setup(devi);
+	}
+
 	ndi_devi_exit(devi, circ);
+	ndi_devi_exit(ddi_get_parent(devi), pcirc);
 
 	if (visited == 0)
 		return (PCICFG_FAILURE);	/* probe failed */
@@ -761,6 +784,7 @@ cleanup:
 		(void) ndi_devi_offline(new_device, NDI_DEVI_REMOVE);
 	}
 	ndi_devi_exit(devi, circ);
+	ndi_devi_exit(ddi_get_parent(devi), pcirc);
 
 	/*
 	 * Use private return codes to help identify issues without debugging
@@ -1251,7 +1275,7 @@ pcicfg_ntbridge_unconfigure_child(dev_info_t *new_device, uint_t devno)
 {
 
 	dev_info_t	*new_ntbridgechild;
-	int 		len, bus;
+	int		len, bus;
 	uint16_t	vid;
 	ddi_acc_handle_t	config_handle;
 	pci_bus_range_t pci_bus_range;
@@ -1368,7 +1392,7 @@ pcicfg_is_ntbridge(dev_info_t *dip)
 static uint_t
 pcicfg_ntbridge_child(dev_info_t *dip)
 {
-	int 		len, val, rc = DDI_FAILURE;
+	int		len, val, rc = DDI_FAILURE;
 	dev_info_t	*anode = dip;
 
 	/*
@@ -1398,7 +1422,7 @@ pcicfg_ntbridge_child(dev_info_t *dip)
 
 static uint_t
 pcicfg_get_ntbridge_child_range(dev_info_t *dip, uint64_t *boundbase,
-				uint64_t *boundlen, uint_t space_type)
+    uint64_t *boundlen, uint_t space_type)
 {
 	int		length, found = DDI_FAILURE, acount, i, ibridge;
 	pci_regspec_t	*assigned;
@@ -1584,6 +1608,7 @@ static int
 pcicfg_teardown_device(dev_info_t *dip, pcicfg_flags_t flags, boolean_t is_pcie)
 {
 	ddi_acc_handle_t	handle;
+	int			ret;
 
 	/*
 	 * Free up resources associated with 'dip'
@@ -1596,10 +1621,20 @@ pcicfg_teardown_device(dev_info_t *dip, pcicfg_flags_t flags, boolean_t is_pcie)
 	/*
 	 * disable the device
 	 */
-	if (pcicfg_config_setup(dip, &handle) != PCICFG_SUCCESS)
+
+	ret = pcicfg_config_setup(dip, &handle);
+	if (ret == PCICFG_SUCCESS) {
+		pcicfg_device_off(handle);
+		pcicfg_config_teardown(&handle);
+	} else if (ret != PCICFG_NODEVICE) {
+		/*
+		 * It is possible the device no longer exists -- for instance,
+		 * if the device has been pulled from a hotpluggable slot on the
+		 * system. In this case, do not fail the teardown, though there
+		 * is less to clean up.
+		 */
 		return (PCICFG_FAILURE);
-	pcicfg_device_off(handle);
-	pcicfg_config_teardown(&handle);
+	}
 
 	if (is_pcie) {
 		/*
@@ -2401,8 +2436,7 @@ pcicfg_get_mem(pcicfg_phdl_t *entry, uint32_t length, uint64_t *ans)
 }
 
 static void
-pcicfg_get_io(pcicfg_phdl_t *entry,
-	uint32_t length, uint32_t *ans)
+pcicfg_get_io(pcicfg_phdl_t *entry, uint32_t length, uint32_t *ans)
 {
 	uint32_t new_io;
 	uint64_t io_last;
@@ -2438,6 +2472,7 @@ pcicfg_get_pf_mem(pcicfg_phdl_t *entry, uint32_t length, uint64_t *ans)
 		    length, ddi_get_name(entry->dip));
 }
 
+#ifdef __sparc
 static int
 pcicfg_sum_resources(dev_info_t *dip, void *hdl)
 {
@@ -2570,6 +2605,7 @@ pcicfg_sum_resources(dev_info_t *dip, void *hdl)
 		return (DDI_WALK_CONTINUE);
 	}
 }
+#endif /* __sparc */
 
 static int
 pcicfg_free_bridge_resources(dev_info_t *dip)
@@ -3189,7 +3225,7 @@ pcicfg_device_off(ddi_acc_handle_t config_handle)
  */
 static int
 pcicfg_set_standard_props(dev_info_t *dip, ddi_acc_handle_t config_handle,
-	uint8_t pcie_dev)
+    uint8_t pcie_dev)
 {
 	int ret;
 	uint16_t cap_id_loc, val;
@@ -3361,7 +3397,7 @@ pcicfg_set_busnode_props(dev_info_t *dip, uint8_t pcie_device_type)
 
 static int
 pcicfg_set_childnode_props(dev_info_t *dip, ddi_acc_handle_t config_handle,
-		uint8_t pcie_dev)
+    uint8_t pcie_dev)
 {
 
 	int		ret;
@@ -3521,8 +3557,8 @@ pcicfg_set_childnode_props(dev_info_t *dip, ddi_acc_handle_t config_handle,
  * Program the bus numbers into the bridge
  */
 static void
-pcicfg_set_bus_numbers(ddi_acc_handle_t config_handle,
-uint_t primary, uint_t secondary, uint_t subordinate)
+pcicfg_set_bus_numbers(ddi_acc_handle_t config_handle, uint_t primary,
+    uint_t secondary, uint_t subordinate)
 {
 	DEBUG3("Setting bridge bus-range %d,%d,%d\n", primary, secondary,
 	    subordinate);
@@ -3547,8 +3583,7 @@ uint_t primary, uint_t secondary, uint_t subordinate)
  * Put bridge registers into initial state
  */
 static void
-pcicfg_setup_bridge(pcicfg_phdl_t *entry,
-	ddi_acc_handle_t handle)
+pcicfg_setup_bridge(pcicfg_phdl_t *entry, ddi_acc_handle_t handle)
 {
 	/*
 	 * The highest bus seen during probing is the max-subordinate bus
@@ -3607,8 +3642,7 @@ pcicfg_setup_bridge(pcicfg_phdl_t *entry,
 }
 
 static void
-pcicfg_update_bridge(pcicfg_phdl_t *entry,
-	ddi_acc_handle_t handle)
+pcicfg_update_bridge(pcicfg_phdl_t *entry, ddi_acc_handle_t handle)
 {
 	uint_t length;
 
@@ -3853,11 +3887,10 @@ failedconfig:
  * Sizing the BARs and update "reg" property
  */
 static int
-pcicfg_populate_reg_props(dev_info_t *new_child,
-    ddi_acc_handle_t config_handle)
+pcicfg_populate_reg_props(dev_info_t *new_child, ddi_acc_handle_t config_handle)
 {
 	int		i;
-	uint32_t 	request;
+	uint32_t	request;
 
 	i = PCI_CONF_BASE0;
 
@@ -5079,7 +5112,7 @@ pcicfg_config_teardown(ddi_acc_handle_t *handle)
 
 static int
 pcicfg_add_config_reg(dev_info_t *dip,
-	uint_t bus, uint_t device, uint_t func)
+    uint_t bus, uint_t device, uint_t func)
 {
 	int reg[10] = { PCI_ADDR_CONFIG, 0, 0, 0, 0};
 
@@ -5104,8 +5137,8 @@ pcicfg_ari_configure(dev_info_t *dip)
 
 #ifdef DEBUG
 static void
-debug(char *fmt, uintptr_t a1, uintptr_t a2, uintptr_t a3,
-	uintptr_t a4, uintptr_t a5)
+debug(char *fmt, uintptr_t a1, uintptr_t a2, uintptr_t a3, uintptr_t a4,
+    uintptr_t a5)
 {
 	if (pcicfg_debug > 1) {
 		prom_printf("pcicfg: ");

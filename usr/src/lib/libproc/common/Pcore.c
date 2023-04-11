@@ -27,6 +27,8 @@
  * Copyright (c) 2018, Joyent, Inc. All rights reserved.
  * Copyright (c) 2013 by Delphix. All rights reserved.
  * Copyright 2015 Gary Mills
+ * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2021 Oxide Computer Company
  */
 
 #include <sys/types.h>
@@ -50,6 +52,7 @@
 #include "Pcontrol.h"
 #include "P32ton.h"
 #include "Putil.h"
+#include "proc_fd.h"
 #ifdef __x86
 #include "Pcore_linux.h"
 #endif
@@ -211,11 +214,9 @@ Pfini_core(struct ps_prochandle *P, void *data)
 
 	if (core != NULL) {
 		extern void __priv_free_info(void *);
-		lwp_info_t *nlwp, *lwp = list_next(&core->core_lwp_head);
-		int i;
+		lwp_info_t *lwp;
 
-		for (i = 0; i < core->core_nlwp; i++, lwp = nlwp) {
-			nlwp = list_next(lwp);
+		while ((lwp = list_remove_head(&core->core_lwp_head)) != NULL) {
 #ifdef __sparc
 			if (lwp->lwp_gwins != NULL)
 				free(lwp->lwp_gwins);
@@ -243,6 +244,8 @@ Pfini_core(struct ps_prochandle *P, void *data)
 			free(core->core_zonename);
 		if (core->core_secflags != NULL)
 			free(core->core_secflags);
+		if (core->core_upanic != NULL)
+			free(core->core_upanic);
 #ifdef __x86
 		if (core->core_ldt != NULL)
 			free(core->core_ldt);
@@ -344,11 +347,10 @@ static lwp_info_t *
 lwpid2info(struct ps_prochandle *P, lwpid_t id)
 {
 	core_info_t *core = P->data;
-	lwp_info_t *lwp = list_next(&core->core_lwp_head);
-	lwp_info_t *next;
-	uint_t i;
+	lwp_info_t *lwp, *prev;
 
-	for (i = 0; i < core->core_nlwp; i++, lwp = list_next(lwp)) {
+	for (lwp = list_head(&core->core_lwp_head); lwp != NULL;
+	    lwp = list_next(&core->core_lwp_head, lwp)) {
 		if (lwp->lwp_id == id) {
 			core->core_lwp = lwp;
 			return (lwp);
@@ -358,15 +360,14 @@ lwpid2info(struct ps_prochandle *P, lwpid_t id)
 		}
 	}
 
-	next = lwp;
+	prev = lwp;
 	if ((lwp = calloc(1, sizeof (lwp_info_t))) == NULL)
 		return (NULL);
 
-	list_link(lwp, next);
+	list_insert_before(&core->core_lwp_head, prev, lwp);
 	lwp->lwp_id = id;
 
 	core->core_lwp = lwp;
-	core->core_nlwp++;
 
 	return (lwp);
 }
@@ -754,7 +755,7 @@ err:
 static int
 note_fdinfo(struct ps_prochandle *P, size_t nbytes)
 {
-	prfdinfo_t prfd;
+	prfdinfo_core_t prfd;
 	fd_info_t *fip;
 
 	if ((nbytes < sizeof (prfd)) ||
@@ -767,7 +768,13 @@ note_fdinfo(struct ps_prochandle *P, size_t nbytes)
 		dprintf("Pgrab_core: failed to add NT_FDINFO\n");
 		return (-1);
 	}
-	(void) memcpy(&fip->fd_info, &prfd, sizeof (prfd));
+	if (fip->fd_info == NULL) {
+		if (proc_fdinfo_from_core(&prfd, &fip->fd_info) != 0) {
+			dprintf("Pgrab_core: failed to convert NT_FDINFO\n");
+			return (-1);
+		}
+	}
+
 	return (0);
 }
 
@@ -1193,6 +1200,34 @@ err:
 	return (-1);
 }
 
+static int
+note_upanic(struct ps_prochandle *P, size_t nbytes)
+{
+	core_info_t *core = P->data;
+	prupanic_t *pru;
+
+	if (core->core_upanic != NULL)
+		return (0);
+
+	if (sizeof (*pru) != nbytes) {
+		dprintf("Pgrab_core: NT_UPANIC changed size."
+		    "  Need to handle a version change?\n");
+		return (-1);
+	}
+
+	if (nbytes != 0 && ((pru = malloc(nbytes)) != NULL)) {
+		if (read(P->asfd, pru, nbytes) != nbytes) {
+			dprintf("Pgrab_core: failed to read NT_UPANIC\n");
+			free(pru);
+			return (-1);
+		}
+
+		core->core_upanic = pru;
+	}
+
+	return (0);
+}
+
 /*ARGSUSED*/
 static int
 note_notsup(struct ps_prochandle *P, size_t nbytes)
@@ -1258,6 +1293,7 @@ static int (*nhdlrs[])(struct ps_prochandle *, size_t) = {
 	note_spymaster,		/* 23	NT_SPYMASTER		*/
 	note_secflags,		/* 24	NT_SECFLAGS		*/
 	note_lwpname,		/* 25	NT_LWPNAME		*/
+	note_upanic		/* 26	NT_UPANIC		*/
 };
 
 static void
@@ -1934,7 +1970,7 @@ core_find_data(struct ps_prochandle *P, Elf *elf, rd_loadobj_t *rlp)
 	uint_t i, pagemask;
 	size_t nphdrs;
 
-	rlp->rl_data_base = NULL;
+	rlp->rl_data_base = (uintptr_t)NULL;
 
 	/*
 	 * Find the first loadable, writeable Phdr and compute rl_data_base
@@ -1958,7 +1994,7 @@ core_find_data(struct ps_prochandle *P, Elf *elf, rd_loadobj_t *rlp)
 	 * If we didn't find an appropriate phdr or if the address we
 	 * computed has no mapping, return NULL.
 	 */
-	if (rlp->rl_data_base == NULL ||
+	if (rlp->rl_data_base == (uintptr_t)NULL ||
 	    (mp = Paddr2mptr(P, rlp->rl_data_base)) == NULL)
 		return (NULL);
 
@@ -2135,7 +2171,7 @@ core_exec_open(const char *path, void *efp)
 /*
  * Attempt to load any section headers found in the core file.  If present,
  * this will refer to non-loadable data added to the core file by the kernel
- * based on coreadm(1M) settings, including CTF data and the symbol table.
+ * based on coreadm(8) settings, including CTF data and the symbol table.
  */
 static void
 core_load_shdrs(struct ps_prochandle *P, elf_file_t *efp)
@@ -2357,6 +2393,7 @@ Pfgrab_core(int core_fd, const char *aout_path, int *perr)
 	Pinit_ops(&P->ops, &P_core_ops);
 
 	Pinitsym(P);
+	Pinitfd(P);
 
 	/*
 	 * Fstat and open the core file and make sure it is a valid ELF core.
@@ -2379,7 +2416,8 @@ Pfgrab_core(int core_fd, const char *aout_path, int *perr)
 	}
 
 	P->data = core_info;
-	list_link(&core_info->core_lwp_head, NULL);
+	list_create(&core_info->core_lwp_head, sizeof (lwp_info_t),
+	    offsetof(lwp_info_t, lwp_list));
 	core_info->core_size = stbuf.st_size;
 	/*
 	 * In the days before adjustable core file content, this was the
@@ -2572,17 +2610,15 @@ Pfgrab_core(int core_fd, const char *aout_path, int *perr)
 
 #ifdef __x86
 	if (from_linux) {
-		size_t tcount, pid;
+		size_t pid;
 		lwp_info_t *lwp;
 
 		P->status.pr_dmodel = core_info->core_dmodel;
 
-		lwp = list_next(&core_info->core_lwp_head);
-
 		pid = P->status.pr_pid;
 
-		for (tcount = 0; tcount < core_info->core_nlwp;
-		    tcount++, lwp = list_next(lwp)) {
+		for (lwp = list_head(&core_info->core_lwp_head); lwp != NULL;
+		    lwp = list_next(&core_info->core_lwp_head, lwp)) {
 			dprintf("Linux thread with id %d\n", lwp->lwp_id);
 
 			/*
@@ -2771,7 +2807,7 @@ Pfgrab_core(int core_fd, const char *aout_path, int *perr)
 
 			(void) memset(fp, 0, sizeof (file_info_t));
 
-			list_link(fp, &P->file_head);
+			list_insert_head(&P->file_head, fp);
 			tmp->map_file = fp;
 			P->num_files++;
 
@@ -2871,4 +2907,38 @@ Pgrab_core(const char *core, const char *aout, int gflag, int *perr)
 		*perr = G_NOCORE;
 
 	return (NULL);
+}
+
+int
+Pupanic(struct ps_prochandle *P, prupanic_t **pru)
+{
+	core_info_t *core;
+
+	if (P->state != PS_DEAD) {
+		errno = ENODATA;
+		return (-1);
+	}
+
+	core = P->data;
+	if (core->core_upanic == NULL) {
+		errno = ENOENT;
+		return (-1);
+	}
+
+	if (core->core_upanic->pru_version != PRUPANIC_VERSION_1) {
+		errno = EINVAL;
+		return (-1);
+	}
+
+	if ((*pru = calloc(1, sizeof (prupanic_t))) == NULL)
+		return (-1);
+	(void) memcpy(*pru, core->core_upanic, sizeof (prupanic_t));
+
+	return (0);
+}
+
+void
+Pupanic_free(prupanic_t *pru)
+{
+	free(pru);
 }

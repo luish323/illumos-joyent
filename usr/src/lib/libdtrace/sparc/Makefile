@@ -23,11 +23,10 @@
 # Use is subject to license terms.
 #
 
-ASFLAGS += -D_ASM $(AS_BIGPICFLAGS) -P
+ASFLAGS += -D_ASM $(AS_BIGPICFLAGS)
 
 include ../Makefile.com
 
-LINTFLAGS += -erroff=E_BAD_PTR_CAST_ALIGN
 
-install yydebug: all $(ROOTLIBS) $(ROOTLINKS) $(ROOTLINT) \
+install yydebug: all $(ROOTLIBS) $(ROOTLINKS) \
 	$(ROOTDLIBS) $(ROOTDOBJS)

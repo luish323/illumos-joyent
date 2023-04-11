@@ -21,22 +21,25 @@
 
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2019 Joyent, Inc.
+ */
+
+/*
+ * Copyright (c) 2013, Joyent, Inc. All rights reserved.
  * Copyright (c) 2011, 2016 by Delphix. All rights reserved.
  * Copyright (c) 2012 DEY Storage Systems, Inc.  All rights reserved.
  * Copyright (c) 2011-2012 Pawel Jakub Dawidek. All rights reserved.
  * Copyright (c) 2013 Martin Matuska. All rights reserved.
  * Copyright (c) 2013 Steven Hartland. All rights reserved.
  * Copyright (c) 2014 Integros [integros.com]
- * Copyright 2017 Nexenta Systems, Inc.
+ * Copyright 2018 Nexenta Systems, Inc.
  * Copyright 2016 Igor Kozhukhov <ikozhukhov@gmail.com>
  * Copyright 2017-2018 RackTop Systems.
+ * Copyright (c) 2021 Matt Fiddaman
  */
 
 #include <ctype.h>
 #include <errno.h>
 #include <libintl.h>
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <strings.h>
@@ -59,7 +62,9 @@
 #include <sys/dnode.h>
 #include <sys/spa.h>
 #include <sys/zap.h>
+#include <sys/dsl_crypt.h>
 #include <libzfs.h>
+#include <libzutil.h>
 
 #include "zfs_namecheck.h"
 #include "zfs_prop.h"
@@ -784,7 +789,9 @@ libzfs_mnttab_cache_compare(const void *arg1, const void *arg2)
 
 	rv = strcmp(mtn1->mtn_mt.mnt_special, mtn2->mtn_mt.mnt_special);
 
-	return (AVL_ISIGN(rv));
+	if (rv == 0)
+		return (0);
+	return (rv > 0 ? 1 : -1);
 }
 
 void
@@ -955,7 +962,7 @@ zfs_which_resv_prop(zfs_handle_t *zhp, zfs_prop_t *resv_prop)
 nvlist_t *
 zfs_valid_proplist(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
     uint64_t zoned, zfs_handle_t *zhp, zpool_handle_t *zpool_hdl,
-    const char *errbuf)
+    boolean_t key_params_ok, const char *errbuf)
 {
 	nvpair_t *elem;
 	uint64_t intval;
@@ -1036,7 +1043,11 @@ zfs_valid_proplist(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 			}
 
 			if (uqtype != ZFS_PROP_USERQUOTA &&
-			    uqtype != ZFS_PROP_GROUPQUOTA) {
+			    uqtype != ZFS_PROP_GROUPQUOTA &&
+			    uqtype != ZFS_PROP_USEROBJQUOTA &&
+			    uqtype != ZFS_PROP_GROUPOBJQUOTA &&
+			    uqtype != ZFS_PROP_PROJECTQUOTA &&
+			    uqtype != ZFS_PROP_PROJECTOBJQUOTA) {
 				zfs_error_aux(hdl,
 				    dgettext(TEXT_DOMAIN, "'%s' is readonly"),
 				    propname);
@@ -1061,7 +1072,7 @@ zfs_valid_proplist(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 				if (intval == 0) {
 					zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 					    "use 'none' to disable "
-					    "userquota/groupquota"));
+					    "{user|group|project}quota"));
 					goto error;
 				}
 			} else {
@@ -1112,7 +1123,8 @@ zfs_valid_proplist(libzfs_handle_t *hdl, zfs_type_t type, nvlist_t *nvl,
 		}
 
 		if (zfs_prop_readonly(prop) &&
-		    (!zfs_prop_setonce(prop) || zhp != NULL)) {
+		    !(zfs_prop_setonce(prop) && zhp == NULL) &&
+		    !(zfs_prop_encryption_key_param(prop) && key_params_ok)) {
 			zfs_error_aux(hdl,
 			    dgettext(TEXT_DOMAIN, "'%s' is readonly"),
 			    propname);
@@ -1307,8 +1319,8 @@ badlabel:
 			 *		global zone	    non-global zone
 			 * --------------------------------------------------
 			 * zoned=on	mountpoint (no)	    mountpoint (yes)
-			 *		sharenfs (no)	    sharenfs (no)
-			 *		sharesmb (no)	    sharesmb (no)
+			 *		sharenfs (no)	    sharenfs (yes)
+			 *		sharesmb (no)	    sharesmb (yes)
 			 *
 			 * zoned=off	mountpoint (yes)	N/A
 			 *		sharenfs (yes)
@@ -1320,14 +1332,6 @@ badlabel:
 					    "'%s' cannot be set on "
 					    "dataset in a non-global zone"),
 					    propname);
-					(void) zfs_error(hdl, EZFS_ZONED,
-					    errbuf);
-					goto error;
-				} else if (prop == ZFS_PROP_SHARENFS ||
-				    prop == ZFS_PROP_SHARESMB) {
-					zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
-					    "'%s' cannot be set in "
-					    "a non-global zone"), propname);
 					(void) zfs_error(hdl, EZFS_ZONED,
 					    errbuf);
 					goto error;
@@ -1407,6 +1411,48 @@ badlabel:
 
 			break;
 
+		case ZFS_PROP_KEYLOCATION:
+			if (!zfs_prop_valid_keylocation(strval, B_FALSE)) {
+				zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+				    "invalid keylocation"));
+				(void) zfs_error(hdl, EZFS_BADPROP, errbuf);
+				goto error;
+			}
+
+			if (zhp != NULL) {
+				uint64_t crypt =
+				    zfs_prop_get_int(zhp, ZFS_PROP_ENCRYPTION);
+
+				if (crypt == ZIO_CRYPT_OFF &&
+				    strcmp(strval, "none") != 0) {
+					zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+					    "keylocation must be 'none' "
+					    "for unencrypted datasets"));
+					(void) zfs_error(hdl, EZFS_BADPROP,
+					    errbuf);
+					goto error;
+				} else if (crypt != ZIO_CRYPT_OFF &&
+				    strcmp(strval, "none") == 0) {
+					zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+					    "keylocation must not be 'none' "
+					    "for encrypted datasets"));
+					(void) zfs_error(hdl, EZFS_BADPROP,
+					    errbuf);
+					goto error;
+				}
+			}
+			break;
+
+		case ZFS_PROP_PBKDF2_ITERS:
+			if (intval < MIN_PBKDF2_ITERATIONS) {
+				zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+				    "minimum pbkdf2 iterations is %u"),
+				    MIN_PBKDF2_ITERATIONS);
+				(void) zfs_error(hdl, EZFS_BADPROP, errbuf);
+				goto error;
+			}
+			break;
+
 		case ZFS_PROP_UTF8ONLY:
 			chosen_utf = (int)intval;
 			break;
@@ -1476,6 +1522,27 @@ badlabel:
 				}
 				break;
 
+			default:
+				break;
+			}
+		}
+
+		/* check encryption properties */
+		if (zhp != NULL) {
+			int64_t crypt = zfs_prop_get_int(zhp,
+			    ZFS_PROP_ENCRYPTION);
+
+			switch (prop) {
+			case ZFS_PROP_COPIES:
+				if (crypt != ZIO_CRYPT_OFF && intval > 2) {
+					zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+					    "encrypted datasets cannot have "
+					    "3 copies"));
+					(void) zfs_error(hdl, EZFS_BADPROP,
+					    errbuf);
+					goto error;
+				}
+				break;
 			default:
 				break;
 			}
@@ -1692,6 +1759,16 @@ zfs_setprop_error(libzfs_handle_t *hdl, zfs_prop_t prop, int err,
 		}
 		break;
 
+	case EACCES:
+		if (prop == ZFS_PROP_KEYLOCATION) {
+			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+			    "keylocation may only be set on encryption roots"));
+			(void) zfs_error(hdl, EZFS_BADPROP, errbuf);
+		} else {
+			(void) zfs_standard_error(hdl, err, errbuf);
+		}
+		break;
+
 	case EOVERFLOW:
 		/*
 		 * This platform can't address a volume this big.
@@ -1761,7 +1838,7 @@ zfs_prop_set_list(zfs_handle_t *zhp, nvlist_t *props)
 
 	if ((nvl = zfs_valid_proplist(hdl, zhp->zfs_type, props,
 	    zfs_prop_get_int(zhp, ZFS_PROP_ZONED), zhp, zhp->zpool_hdl,
-	    errbuf)) == NULL)
+	    B_FALSE, errbuf)) == NULL)
 		goto error;
 
 	/*
@@ -2346,7 +2423,7 @@ get_clones_string(zfs_handle_t *zhp, char *propbuf, size_t proplen)
 	nvpair_t *pair;
 
 	value = zfs_get_clones_nvl(zhp);
-	if (value == NULL)
+	if (value == NULL || nvlist_empty(value))
 		return (-1);
 
 	propbuf[0] = '\0';
@@ -2644,7 +2721,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 			/* 'legacy' or 'none' */
 			(void) strlcpy(propbuf, str, proplen);
 		}
-		zcp_check(zhp, prop, NULL, propbuf);
+		zcp_check(zhp, prop, 0, propbuf);
 		break;
 
 	case ZFS_PROP_ORIGIN:
@@ -2652,7 +2729,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 		if (str == NULL)
 			return (-1);
 		(void) strlcpy(propbuf, str, proplen);
-		zcp_check(zhp, prop, NULL, str);
+		zcp_check(zhp, prop, 0, str);
 		break;
 
 	case ZFS_PROP_CLONES:
@@ -2742,7 +2819,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 			abort();
 		}
 		(void) snprintf(propbuf, proplen, "%s", str);
-		zcp_check(zhp, prop, NULL, propbuf);
+		zcp_check(zhp, prop, 0, propbuf);
 		break;
 
 	case ZFS_PROP_MOUNTED:
@@ -2768,7 +2845,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 		 * consumers.
 		 */
 		(void) strlcpy(propbuf, zhp->zfs_name, proplen);
-		zcp_check(zhp, prop, NULL, propbuf);
+		zcp_check(zhp, prop, 0, propbuf);
 		break;
 
 	case ZFS_PROP_MLSLABEL:
@@ -2845,7 +2922,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 				return (-1);
 
 			(void) strlcpy(propbuf, str, proplen);
-			zcp_check(zhp, prop, NULL, str);
+			zcp_check(zhp, prop, 0, str);
 			break;
 
 		case PROP_TYPE_INDEX:
@@ -2856,7 +2933,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 				return (-1);
 
 			(void) strlcpy(propbuf, strval, proplen);
-			zcp_check(zhp, prop, NULL, strval);
+			zcp_check(zhp, prop, 0, strval);
 			break;
 
 		default:
@@ -2957,19 +3034,26 @@ out:
  * convert the propname into parameters needed by kernel
  * Eg: userquota@ahrens -> ZFS_PROP_USERQUOTA, "", 126829
  * Eg: userused@matt@domain -> ZFS_PROP_USERUSED, "S-1-123-456", 789
+ * Eg: groupquota@staff -> ZFS_PROP_GROUPQUOTA, "", 1234
+ * Eg: groupused@staff -> ZFS_PROP_GROUPUSED, "", 1234
+ * Eg: projectquota@123 -> ZFS_PROP_PROJECTQUOTA, "", 123
+ * Eg: projectused@789 -> ZFS_PROP_PROJECTUSED, "", 789
  */
 static int
 userquota_propname_decode(const char *propname, boolean_t zoned,
     zfs_userquota_prop_t *typep, char *domain, int domainlen, uint64_t *ridp)
 {
 	zfs_userquota_prop_t type;
-	char *cp, *end;
-	char *numericsid = NULL;
+	char *cp;
 	boolean_t isuser;
+	boolean_t isgroup;
+	boolean_t isproject;
+	struct passwd *pw;
+	struct group *gr;
 
 	domain[0] = '\0';
-	*ridp = 0;
-	/* Figure out the property type ({user|group}{quota|space}) */
+
+	/* Figure out the property type ({user|group|project}{quota|space}) */
 	for (type = 0; type < ZFS_NUM_USERQUOTA_PROPS; type++) {
 		if (strncmp(propname, zfs_userquota_prop_prefixes[type],
 		    strlen(zfs_userquota_prop_prefixes[type])) == 0)
@@ -2979,107 +3063,73 @@ userquota_propname_decode(const char *propname, boolean_t zoned,
 		return (EINVAL);
 	*typep = type;
 
-	isuser = (type == ZFS_PROP_USERQUOTA ||
-	    type == ZFS_PROP_USERUSED);
+	isuser = (type == ZFS_PROP_USERQUOTA || type == ZFS_PROP_USERUSED ||
+	    type == ZFS_PROP_USEROBJQUOTA ||
+	    type == ZFS_PROP_USEROBJUSED);
+	isgroup = (type == ZFS_PROP_GROUPQUOTA || type == ZFS_PROP_GROUPUSED ||
+	    type == ZFS_PROP_GROUPOBJQUOTA ||
+	    type == ZFS_PROP_GROUPOBJUSED);
+	isproject = (type == ZFS_PROP_PROJECTQUOTA ||
+	    type == ZFS_PROP_PROJECTUSED || type == ZFS_PROP_PROJECTOBJQUOTA ||
+	    type == ZFS_PROP_PROJECTOBJUSED);
 
 	cp = strchr(propname, '@') + 1;
 
-	if (strchr(cp, '@')) {
+	if (isuser && (pw = getpwnam(cp)) != NULL) {
+		if (zoned && getzoneid() == GLOBAL_ZONEID)
+			return (ENOENT);
+		*ridp = pw->pw_uid;
+	} else if (isgroup && (gr = getgrnam(cp)) != NULL) {
+		if (zoned && getzoneid() == GLOBAL_ZONEID)
+			return (ENOENT);
+		*ridp = gr->gr_gid;
+	} else if (!isproject && strchr(cp, '@')) {
 		/*
 		 * It's a SID name (eg "user@domain") that needs to be
 		 * turned into S-1-domainID-RID.
 		 */
-		int flag = 0;
-		idmap_stat stat, map_stat;
-		uid_t pid;
-		idmap_rid_t rid;
-		idmap_get_handle_t *gh = NULL;
+		directory_error_t e;
+		char *numericsid = NULL;
+		char *end;
 
-		stat = idmap_get_create(&gh);
-		if (stat != IDMAP_SUCCESS) {
-			idmap_get_destroy(gh);
-			return (ENOMEM);
-		}
 		if (zoned && getzoneid() == GLOBAL_ZONEID)
 			return (ENOENT);
 		if (isuser) {
-			stat = idmap_getuidbywinname(cp, NULL, flag, &pid);
-			if (stat < 0)
-				return (ENOENT);
-			stat = idmap_get_sidbyuid(gh, pid, flag, &numericsid,
-			    &rid, &map_stat);
+			e = directory_sid_from_user_name(NULL,
+			    cp, &numericsid);
 		} else {
-			stat = idmap_getgidbywinname(cp, NULL, flag, &pid);
-			if (stat < 0)
-				return (ENOENT);
-			stat = idmap_get_sidbygid(gh, pid, flag, &numericsid,
-			    &rid, &map_stat);
+			e = directory_sid_from_group_name(NULL,
+			    cp, &numericsid);
 		}
-		if (stat < 0) {
-			idmap_get_destroy(gh);
-			return (ENOENT);
-		}
-		stat = idmap_get_mappings(gh);
-		idmap_get_destroy(gh);
-
-		if (stat < 0) {
+		if (e != NULL) {
+			directory_error_free(e);
 			return (ENOENT);
 		}
 		if (numericsid == NULL)
 			return (ENOENT);
 		cp = numericsid;
-		*ridp = rid;
-		/* will be further decoded below */
-	}
-
-	if (strncmp(cp, "S-1-", 4) == 0) {
-		/* It's a numeric SID (eg "S-1-234-567-89") */
 		(void) strlcpy(domain, cp, domainlen);
+		cp = strrchr(domain, '-');
+		*cp = '\0';
+		cp++;
+
 		errno = 0;
-		if (*ridp == 0) {
-			cp = strrchr(domain, '-');
-			*cp = '\0';
-			cp++;
-			*ridp = strtoull(cp, &end, 10);
-		} else {
-			end = "";
-		}
-		if (numericsid) {
-			free(numericsid);
-			numericsid = NULL;
-		}
+		*ridp = strtoull(cp, &end, 10);
+		free(numericsid);
+
 		if (errno != 0 || *end != '\0')
 			return (EINVAL);
-	} else if (!isdigit(*cp)) {
-		/*
-		 * It's a user/group name (eg "user") that needs to be
-		 * turned into a uid/gid
-		 */
-		if (zoned && getzoneid() == GLOBAL_ZONEID)
-			return (ENOENT);
-		if (isuser) {
-			struct passwd *pw;
-			pw = getpwnam(cp);
-			if (pw == NULL)
-				return (ENOENT);
-			*ridp = pw->pw_uid;
-		} else {
-			struct group *gr;
-			gr = getgrnam(cp);
-			if (gr == NULL)
-				return (ENOENT);
-			*ridp = gr->gr_gid;
-		}
 	} else {
-		/* It's a user/group ID (eg "12345"). */
+		/* It's a user/group/project ID (eg "12345"). */
+		char *end;
 		uid_t id = strtoul(cp, &end, 10);
-		idmap_rid_t rid;
-		char *mapdomain;
-
 		if (*end != '\0')
 			return (EINVAL);
-		if (id > MAXUID) {
+		if (id > MAXUID && !isproject) {
 			/* It's an ephemeral ID. */
+			idmap_rid_t rid;
+			char *mapdomain;
+
 			if (idmap_id_to_numeric_domain_rid(id, isuser,
 			    &mapdomain, &rid) != 0)
 				return (ENOENT);
@@ -3090,7 +3140,6 @@ userquota_propname_decode(const char *propname, boolean_t zoned,
 		}
 	}
 
-	ASSERT3P(numericsid, ==, NULL);
 	return (0);
 }
 
@@ -3145,8 +3194,14 @@ zfs_prop_get_userquota(zfs_handle_t *zhp, const char *propname,
 	if (literal) {
 		(void) snprintf(propbuf, proplen, "%llu", propvalue);
 	} else if (propvalue == 0 &&
-	    (type == ZFS_PROP_USERQUOTA || type == ZFS_PROP_GROUPQUOTA)) {
+	    (type == ZFS_PROP_USERQUOTA || type == ZFS_PROP_GROUPQUOTA ||
+	    type == ZFS_PROP_USEROBJQUOTA || type == ZFS_PROP_GROUPOBJQUOTA ||
+	    type == ZFS_PROP_PROJECTQUOTA || ZFS_PROP_PROJECTOBJQUOTA)) {
 		(void) strlcpy(propbuf, "none", proplen);
+	} else if (type == ZFS_PROP_USERQUOTA || type == ZFS_PROP_GROUPQUOTA ||
+	    type == ZFS_PROP_USERUSED || type == ZFS_PROP_GROUPUSED ||
+	    type == ZFS_PROP_PROJECTUSED || type == ZFS_PROP_PROJECTQUOTA) {
+		zfs_nicenum(propvalue, propbuf, proplen);
 	} else {
 		zfs_nicenum(propvalue, propbuf, proplen);
 	}
@@ -3272,6 +3327,12 @@ parent_name(const char *path, char *buf, size_t buflen)
 	*slashp = '\0';
 
 	return (0);
+}
+
+int
+zfs_parent_name(zfs_handle_t *zhp, char *buf, size_t buflen)
+{
+	return (parent_name(zfs_get_name(zhp), buf, buflen));
 }
 
 /*
@@ -3506,7 +3567,10 @@ zfs_create(libzfs_handle_t *hdl, const char *path, zfs_type_t type,
 	int ret;
 	uint64_t size = 0;
 	uint64_t blocksize = zfs_prop_default_numeric(ZFS_PROP_VOLBLOCKSIZE);
+	uint8_t *wkeydata = NULL;
+	uint_t wkeylen = 0;
 	char errbuf[1024];
+	char parent[MAXNAMELEN];
 	uint64_t zoned;
 	enum lzc_dataset_type ost;
 	zpool_handle_t *zpool_handle;
@@ -3559,7 +3623,7 @@ zfs_create(libzfs_handle_t *hdl, const char *path, zfs_type_t type,
 		return (-1);
 
 	if (props && (props = zfs_valid_proplist(hdl, type, props,
-	    zoned, NULL, zpool_handle, errbuf)) == 0) {
+	    zoned, NULL, zpool_handle, B_TRUE, errbuf)) == 0) {
 		zpool_close(zpool_handle);
 		return (-1);
 	}
@@ -3611,15 +3675,21 @@ zfs_create(libzfs_handle_t *hdl, const char *path, zfs_type_t type,
 		}
 	}
 
+	(void) parent_name(path, parent, sizeof (parent));
+	if (zfs_crypto_create(hdl, parent, props, NULL, B_TRUE,
+	    &wkeydata, &wkeylen) != 0) {
+		nvlist_free(props);
+		return (zfs_error(hdl, EZFS_CRYPTOFAILED, errbuf));
+	}
+
 	/* create the dataset */
-	ret = lzc_create(path, ost, props);
+	ret = lzc_create(path, ost, props, wkeydata, wkeylen);
 	nvlist_free(props);
+	if (wkeydata != NULL)
+		free(wkeydata);
 
 	/* check for failure */
 	if (ret != 0) {
-		char parent[ZFS_MAX_DATASET_NAME_LEN];
-		(void) parent_name(path, parent, sizeof (parent));
-
 		switch (errno) {
 		case ENOENT:
 			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
@@ -3640,6 +3710,12 @@ zfs_create(libzfs_handle_t *hdl, const char *path, zfs_type_t type,
 			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 			    "invalid property value(s) specified"));
 			return (zfs_error(hdl, EZFS_BADPROP, errbuf));
+		case EACCES:
+			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+			    "encryption root's key is not loaded "
+			    "or provided"));
+			return (zfs_error(hdl, EZFS_CRYPTOFAILED, errbuf));
+
 #ifdef _ILP32
 		case EOVERFLOW:
 			/*
@@ -3835,12 +3911,17 @@ zfs_clone(zfs_handle_t *zhp, const char *target, nvlist_t *props)
 			type = ZFS_TYPE_FILESYSTEM;
 		}
 		if ((props = zfs_valid_proplist(hdl, type, props, zoned,
-		    zhp, zhp->zpool_hdl, errbuf)) == NULL)
+		    zhp, zhp->zpool_hdl, B_TRUE, errbuf)) == NULL)
 			return (-1);
 		if (zfs_fix_auto_resv(zhp, props) == -1) {
 			nvlist_free(props);
 			return (-1);
 		}
+	}
+
+	if (zfs_crypto_clone_check(hdl, zhp, parent, props) != 0) {
+		nvlist_free(props);
+		return (zfs_error(hdl, EZFS_CRYPTOFAILED, errbuf));
 	}
 
 	ret = lzc_clone(target, zhp->zfs_name, props);
@@ -4021,7 +4102,7 @@ zfs_snapshot_nvl(libzfs_handle_t *hdl, nvlist_t *snaps, nvlist_t *props)
 
 	if (props != NULL &&
 	    (props = zfs_valid_proplist(hdl, ZFS_TYPE_SNAPSHOT,
-	    props, B_FALSE, NULL, zpool_hdl, errbuf)) == NULL) {
+	    props, B_FALSE, NULL, zpool_hdl, B_FALSE, errbuf)) == NULL) {
 		zpool_close(zpool_hdl);
 		return (-1);
 	}
@@ -4412,6 +4493,11 @@ zfs_rename(zfs_handle_t *zhp, const char *target, boolean_t recursive,
 			    "a child dataset already has a snapshot "
 			    "with the new name"));
 			(void) zfs_error(hdl, EZFS_EXISTS, errbuf);
+		} else if (errno == EACCES) {
+			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+			    "cannot move encrypted child outside of "
+			    "its encryption root"));
+			(void) zfs_error(hdl, EZFS_CRYPTOFAILED, errbuf);
 		} else {
 			(void) zfs_standard_error(zhp->zfs_hdl, errno, errbuf);
 		}
@@ -4719,6 +4805,17 @@ zfs_userspace(zfs_handle_t *zhp, zfs_userquota_prop_t type,
 		zc.zc_nvlist_dst_size = sizeof (buf);
 		if (zfs_ioctl(hdl, ZFS_IOC_USERSPACE_MANY, &zc) != 0) {
 			char errbuf[1024];
+
+			if ((errno == ENOTSUP &&
+			    (type == ZFS_PROP_USEROBJUSED ||
+			    type == ZFS_PROP_GROUPOBJUSED ||
+			    type == ZFS_PROP_USEROBJQUOTA ||
+			    type == ZFS_PROP_GROUPOBJQUOTA ||
+			    type == ZFS_PROP_PROJECTOBJUSED ||
+			    type == ZFS_PROP_PROJECTOBJQUOTA ||
+			    type == ZFS_PROP_PROJECTUSED ||
+			    type == ZFS_PROP_PROJECTQUOTA)))
+				break;
 
 			(void) snprintf(errbuf, sizeof (errbuf),
 			    dgettext(TEXT_DOMAIN,

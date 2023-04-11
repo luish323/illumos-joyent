@@ -21,7 +21,7 @@
 #
 # Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
 #
-# Copyright (c) 2018, Joyent, Inc.
+# Copyright 2019 Joyent, Inc.
 
 PROG= savecore
 SRCS= ../savecore.c ../../../uts/common/os/compress.c
@@ -44,7 +44,7 @@ SMATCH=off
 # savecore.c it will compile, but trying to call that function
 # will jump to 0.  So we use -ztext to avoid that.
 #
-LDFLAGS += -ztext
+LDFLAGS += $(ZTEXT)
 
 BZIP2OBJS =	bz2blocksort.o	\
 		bz2compress.o	\
@@ -54,33 +54,18 @@ BZIP2OBJS =	bz2blocksort.o	\
 		bz2crctable.o	\
 		bz2huffman.o
 
+CHACHAOBJ =	chacha.o
+
 .KEEP_STATE:
 
 all: $(PROG)
 
-$(PROG): $(OBJS) $(BZIP2OBJS)
-	$(LINK.c) -o $(PROG) $(OBJS) $(BZIP2OBJS) $(LDLIBS)
+$(PROG): $(OBJS) $(BZIP2OBJS) $(CHACHAOBJ)
+	$(LINK.c) -o $(PROG) $(OBJS) $(BZIP2OBJS) $(CHACHAOBJ) $(LDLIBS)
 	$(POST_PROCESS)
 
 clean:
 	$(RM) $(OBJS) $(BZIP2OBJS)
-
-lint := CPPFLAGS += -I$(SRC)/common
-
-#
-# Linting the usr/src/common/bzip2 source produces reams of complaints.
-# So we only lint regular SRCS, but we need to excuse two complaints
-# related to bz_internal_error.
-#
-
-lint := BZ2LINTCOPOUTS = -erroff=E_NAME_USED_NOT_DEF2
-lint := BZ2LINTCOPOUTS += -erroff=E_NAME_DEF_NOT_USED2
-
-lint := LINTFLAGS += $(BZ2LINTCOPOUTS)
-lint := LINTFLAGS64 += $(BZ2LINTCOPOUTS)
-
-lint:	$(LINTSRCS)
-	$(LINT.c) $(SRCS) $(LDLIBS)
 
 include ../../Makefile.targ
 
@@ -95,3 +80,8 @@ include ../../Makefile.targ
 bz2%.o: ../../../common/bzip2/%.c
 	$(COMPILE.c) -o $@ -I$(SRC)/common -I$(SRC)/common/bzip2 $<
 	$(POST_PROCESS_O)
+
+%.o: ../../../common/crypto/chacha/%.c
+	$(COMPILE.c) -o $@ -I$(SRC)/common -I$(SRC)/common/crypto/chacha $<
+	$(POST_PROCESS_O)
+

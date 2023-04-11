@@ -1,4 +1,4 @@
-#!@TOOLS_PYTHON@
+#!@TOOLS_PYTHON@ -Es
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License version 2
@@ -17,11 +17,11 @@
 #
 # Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
 # Copyright 2008, 2012 Richard Lowe
-# Copyright 2014 Garrett D'Amore <garrett@damore.org>
+# Copyright 2019 Garrett D'Amore <garrett@damore.org>
 # Copyright (c) 2015, 2016 by Delphix. All rights reserved.
 # Copyright 2016 Nexenta Systems, Inc.
 # Copyright (c) 2019, Joyent, Inc.
-# Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
 #
 
 from __future__ import print_function
@@ -57,6 +57,7 @@ sys.path.insert(2, os.path.join(os.path.dirname(__file__), ".."))
 from onbld.Scm import Ignore
 from onbld.Checks import Comments, Copyright, CStyle, HdrChk, WsCheck
 from onbld.Checks import JStyle, Keywords, ManLint, Mapfile, SpellCheck
+from onbld.Checks import ShellLint, PkgFmt
 
 class GitError(Exception):
     pass
@@ -171,14 +172,17 @@ def not_check(root, cmd):
     should be excluded from the check named by 'cmd'"""
 
     ignorefiles = list(filter(os.path.exists,
-                         [os.path.join(root, ".git", "%s.NOT" % cmd),
+                         [os.path.join(root, ".git/info", "%s.NOT" % cmd),
                           os.path.join(root, "exception_lists", cmd)]))
     return Ignore.ignore(root, ignorefiles)
 
-def gen_files(root, parent, paths, exclude):
+def gen_files(root, parent, paths, exclude, filter=None):
     """Return a function producing file names, relative to the current
     directory, of any file changed on this branch (limited to 'paths' if
     requested), and excluding files for which exclude returns a true value """
+
+    if filter is None:
+        filter = lambda x: os.path.isfile(x)
 
     # Taken entirely from Python 2.6's os.path.relpath which we would use if we
     # could.
@@ -204,10 +208,17 @@ def gen_files(root, parent, paths, exclude):
                 # will be caught by other invocations of git().
                 continue
             empty = not res
-            if (os.path.isfile(path) and not empty and
+            if (filter(path) and not empty and
                 select(path) and not exclude(abspath)):
                 yield path
     return ret
+
+def gen_links(root, parent, paths, exclude):
+    """Return a function producing symbolic link names, relative to the current
+    directory, of any file changed on this branch (limited to 'paths' if
+    requested), and excluding files for which exclude returns a true value """
+
+    return gen_files(root, parent, paths, exclude, lambda x: os.path.islink(x))
 
 def comchk(root, parent, flist, output):
     output.write("Comments:\n")
@@ -270,7 +281,7 @@ def jstyle(root, parent, flist, output):
     ret = 0
     output.write("Java style:\n")
     for f in flist(lambda x: x.endswith('.java')):
-        with io.open(f, encoding='utf-8', errors='replace') as fh:
+        with io.open(f, mode='rb') as fh:
             ret |= JStyle.jstyle(fh, output=output, picky=True)
     return ret
 
@@ -282,6 +293,36 @@ def manlint(root, parent, flist, output):
         with io.open(f, mode='rb') as fh:
             ret |= ManLint.manlint(fh, output=output, picky=True)
             ret |= SpellCheck.spellcheck(fh, output=output)
+    return ret
+
+def shelllint(root, parent, flist, output):
+    ret = 0
+    output.write("Shell lint:\n")
+
+    def isshell(x):
+        (_, ext) = os.path.splitext(x)
+        if ext in ['.sh', '.ksh']:
+            return True
+        if ext == '':
+            with io.open(x, mode='r', errors='ignore') as fh:
+                if re.match(r'^#.*\bk?sh\b', fh.readline()):
+                    return True
+        return False
+
+    for f in flist(isshell):
+        with io.open(f, mode='rb') as fh:
+            ret |= ShellLint.lint(fh, output=output)
+
+    return ret
+
+def pkgfmt(root, parent, flist, output):
+    ret = 0
+    output.write("Package manifests:\n")
+
+    for f in flist(lambda x: x.endswith('.p5m')):
+        with io.open(f, mode='rb') as fh:
+            ret |= PkgFmt.check(fh, output=output)
+
     return ret
 
 def keywords(root, parent, flist, output):
@@ -300,7 +341,53 @@ def wscheck(root, parent, flist, output):
             ret |= WsCheck.wscheck(fh, output=output)
     return ret
 
-def run_checks(root, parent, cmds, paths='', opts={}):
+def symlinks(root, parent, flist, output):
+    ret = 0
+    output.write("Symbolic links:\n")
+    for f in flist():
+        output.write("  "+f+"\n")
+        ret |= 1
+    return ret
+
+def iswinreserved(name):
+    reserved = [
+        'con', 'prn', 'aux', 'nul',
+        'com1', 'com2', 'com3', 'com4', 'com5',
+        'com6', 'com7', 'com8', 'com9', 'com0',
+        'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5',
+        'lpt6', 'lpt7', 'lpt8', 'lpt9', 'lpt0' ]
+    l = name.lower()
+    for r in reserved:
+        if l == r or l.startswith(r+"."):
+            return True
+    return False
+
+def haswinspecial(name):
+    specials = '<>:"\\|?*'
+    for c in name:
+        if c in specials:
+            return True
+    return False
+
+def winnames(root, parent, flist, output):
+    ret = 0
+    output.write("Illegal filenames (Windows):\n")
+    for f in flist():
+        if haswinspecial(f):
+            output.write("  "+f+": invalid character in name\n")
+            ret |= 1
+            continue
+
+        parts = f.split('/')
+        for p in parts:
+            if iswinreserved(p):
+                output.write("  "+f+": reserved file name\n")
+                ret |= 1
+                break
+
+    return ret
+
+def run_checks(root, parent, cmds, scmds, paths='', opts={}):
     """Run the checks given in 'cmds', expected to have well-known signatures,
     and report results for any which fail.
 
@@ -322,6 +409,17 @@ def run_checks(root, parent, cmds, paths='', opts={}):
         if result != 0:
             print(s.getvalue())
 
+    for cmd in scmds:
+        s = StringIO()
+
+        exclude = not_check(root, cmd.__name__)
+        result = cmd(root, parent, gen_links(root, parent, paths, exclude),
+                     output=s)
+        ret |= result
+
+        if result != 0:
+            print(s.getvalue())
+
     return ret
 
 def nits(root, parent, paths):
@@ -332,8 +430,12 @@ def nits(root, parent, paths):
             keywords,
             manlint,
             mapfilechk,
+            shelllint,
+            pkgfmt,
+            winnames,
             wscheck]
-    run_checks(root, parent, cmds, paths)
+    scmds = [symlinks]
+    run_checks(root, parent, cmds, scmds, paths)
 
 def pbchk(root, parent, paths):
     cmds = [comchk,
@@ -344,8 +446,12 @@ def pbchk(root, parent, paths):
             keywords,
             manlint,
             mapfilechk,
+            shelllint,
+            pkgfmt,
+            winnames,
             wscheck]
-    run_checks(root, parent, cmds)
+    scmds = [symlinks]
+    run_checks(root, parent, cmds, scmds)
 
 def main(cmd, args):
     parent_branch = None

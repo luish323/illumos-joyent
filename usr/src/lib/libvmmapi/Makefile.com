@@ -27,15 +27,12 @@ include ../../Makefile.rootfs
 
 SRCDIR		= ../common
 
-LIBS		= $(DYNLIB) $(LINTLIB)
+LIBS		= $(DYNLIB)
 
-CPPFLAGS	= -I$(COMPAT)/freebsd -I$(CONTRIB)/freebsd \
-	$(CPPFLAGS.master) -I$(SRC)/uts/i86pc
+CPPFLAGS	= -I$(COMPAT)/bhyve -I$(CONTRIB)/bhyve \
+	$(CPPFLAGS.master) -I$(SRC)/uts/intel
 
-# not linted
-SMATCH=off
-
-$(LINTLIB) :=	SRCS = $(SRCDIR)/$(LINTSRC)
+SMOFF += all_func_returns
 
 LDLIBS		+= -lc
 
@@ -43,9 +40,7 @@ LDLIBS		+= -lc
 
 all: $(LIBS)
 
-lint: lintcheck
-
-pics/%.o: $(CONTRIB)/freebsd/lib/libutil/%.c
+pics/%.o: $(CONTRIB)/bhyve/lib/libutil/%.c
 	$(COMPILE.c) -o $@ $<
 	$(POST_PROCESS_O)
 

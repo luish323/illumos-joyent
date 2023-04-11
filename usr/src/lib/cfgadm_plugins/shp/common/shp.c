@@ -69,7 +69,7 @@ extern int class_pci_items;
 #define	MSG_HOTPLUG_DISABLED \
 	"Error: hotplug service is probably not running, " \
 	"please use 'svcadm enable hotplug' to enable the service. " \
-	"See cfgadm_shp(1M) for more details."
+	"See cfgadm_shp(8) for more details."
 
 #define	DEVICES_DIR		"/devices"
 #define	SLASH			"/"
@@ -91,7 +91,7 @@ int cfga_version = CFGA_HSL_V2;
 /*
  *	DEBUGING LEVEL
  *
- * 	External routines:  1 - 2
+ *	External routines:  1 - 2
  *	Internal routines:  3 - 4
  */
 #ifdef	SHP_DBG
@@ -354,7 +354,7 @@ static int
 error_sizeup_cb(hp_node_t node, void *arg)
 {
 	error_size_cb_arg_t	*sizearg = (error_size_cb_arg_t *)arg;
-	size_t 			len;
+	size_t			len;
 
 	/* Only process USAGE nodes */
 	if (hp_type(node) != HP_NODE_USAGE)
@@ -954,7 +954,7 @@ cfga_private_func(const char *function, const char *ap_id,
 				if ((strncmp(str, func_strs[MODE], len) == 0) &&
 				    (*(str+(len)) == '=')) {
 					for (str = (str+(++len)), i = 0;
-					    *str != NULL; i++, str++) {
+					    *str != '\0'; i++, str++) {
 						buf[i] = *str;
 					}
 				}
@@ -1163,7 +1163,7 @@ find_physical_slot_names(const char *devcomp, struct searcharg *slotarg)
 
 	di_prom_fini(slotarg->promp);
 	di_fini(root_node);
-	if (slotarg->slotnames[0] != NULL)
+	if (*slotarg->slotnames[0] != '\0')
 		return (0);
 	else
 		return (-1);
@@ -1535,6 +1535,7 @@ cfga_list_ext(const char *ap_id, cfga_list_data_t **cs,
 
 	if ((*cs)->ap_info[0] == '\0') {
 		/* slot_names of bus node  */
+		memset(&slotname_arg, 0, sizeof (slotname_arg));
 		if (find_physical_slot_names(ap_id, &slotname_arg) != -1)
 			(void) strcpy((*cs)->ap_info,
 			    slotname_arg.slotnames[slotname_arg.minor]);

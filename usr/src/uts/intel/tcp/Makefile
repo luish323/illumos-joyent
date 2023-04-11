@@ -36,7 +36,6 @@ UTSBASE	= ../..
 #
 MODULE		= tcp
 OBJECTS		= $(TCP_OBJS:%=$(OBJS_DIR)/%)
-LINTS		= $(TCP_OBJS:%.o=$(LINTS_DIR)/%.ln)
 ROOTMODULE	= $(ROOT_DRV_DIR)/$(MODULE)
 ROOTLINK	= $(ROOT_STRMOD_DIR)/$(MODULE) $(ROOT_SOCK_DIR)/$(MODULE)
 CONF_SRCDIR	= $(UTSBASE)/common/inet/tcp
@@ -57,21 +56,20 @@ include $(UTSBASE)/intel/Makefile.intel
 #	Define targets
 #
 ALL_TARGET	= $(BINARY) $(SRC_CONFFILE)
-LINT_TARGET	= $(MODULE).lint
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE) $(ROOTLINK) $(ROOT_CONFFILE)
 
 #
 # Inline functions, this probably needs to be changed when compiling with
 # -xO4.
 #
-CINLINES 	= -xinline=tcp_set_ws_value,tcp_fill_header
+CINLINES	= -xinline=tcp_set_ws_value,tcp_fill_header
 
 CFLAGS		+= $(CINLINES)
 
 #
 #	depends on ip, md5 and sockfs
 #
-LDFLAGS		+= -dy -Ndrv/ip -Ncrypto/md5 -Nfs/sockfs
+LDFLAGS		+= -Ndrv/ip -Ncrypto/md5 -Nfs/sockfs
 
 # needs work
 $(OBJS_DIR)/tcpddi.o := SMOFF += index_overflow
@@ -88,12 +86,6 @@ all:		$(ALL_DEPS)
 clean:		$(CLEAN_DEPS)
 
 clobber:	$(CLOBBER_DEPS)
-
-lint:		$(LINT_DEPS)
-
-modlintlib:	$(MODLINTLIB_DEPS)
-
-clean.lint:	$(CLEAN_LINT_DEPS)
 
 install:	$(INSTALL_DEPS)
 

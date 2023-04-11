@@ -26,7 +26,8 @@
 /*	Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T	*/
 /*	  All Rights Reserved	*/
 /*
- * Copyright (c) 2018, Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Company
  */
 
 
@@ -197,14 +198,14 @@ typedef struct {		/* kernel syscall set type */
  * for the portions of the kernel that care about aux vectors.
  *
  * Applications that need to know how many aux vectors the kernel
- * supplies should use the proc(4) interface to read /proc/PID/auxv.
+ * supplies should use the proc(5) interface to read /proc/PID/auxv.
  *
  * This value should not be changed in a patch.
  */
 #if defined(__sparc)
 #define	__KERN_NAUXV_IMPL 24
 #elif defined(__i386) || defined(__amd64)
-#define	__KERN_NAUXV_IMPL 28
+#define	__KERN_NAUXV_IMPL 29
 #endif
 
 struct execsw;
@@ -227,7 +228,11 @@ typedef	struct	user {
 	char	u_psargs[PSARGSZ];	/* arguments from exec */
 	int	u_argc;			/* value of argc passed to main() */
 	uintptr_t u_argv;		/* value of argv passed to main() */
+	uintptr_t u_argvstrs;		/* argv string space pointer */
+	size_t u_argvstrsize;		/* size of argv string space */
 	uintptr_t u_envp;		/* value of envp passed to main() */
+	uintptr_t u_envstrs;		/* env string space pointer */
+	size_t u_envstrsize;		/* size of env string space */
 	uintptr_t u_commpagep;		/* address of mapped comm page */
 
 	/*

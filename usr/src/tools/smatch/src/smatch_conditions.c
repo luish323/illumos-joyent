@@ -78,12 +78,12 @@ static int handle_zero_comparisons(struct expression *expr)
 	struct expression *zero;
 
 	// if left is zero or right is zero
-	if (is_zero(expr->left)) {
+	if (expr_is_zero(expr->left)) {
 		zero = strip_expr(expr->left);
 		if (zero->type != EXPR_VALUE)
 			__split_expr(expr->left);
 		tmp = expr->right;
-	} else if (is_zero(expr->right)) {
+	} else if (expr_is_zero(expr->right)) {
 		zero = strip_expr(expr->left);
 		if (zero->type != EXPR_VALUE)
 			__split_expr(expr->right);
@@ -420,6 +420,8 @@ static void split_conditions(struct expression *expr)
 	 * too complicated to deal with.
 	 */
 	if (expr->type == EXPR_BINOP && expr->op == '|') {
+		expr_set_parent_expr(expr->left, expr);
+		expr_set_parent_expr(expr->right, expr);
 		handle_logical(expr);
 		return;
 	}

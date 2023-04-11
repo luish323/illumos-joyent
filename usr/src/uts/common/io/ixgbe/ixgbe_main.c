@@ -25,11 +25,12 @@
 
 /*
  * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2018 Joyent, Inc.
+ * Copyright 2020 Joyent, Inc.
  * Copyright 2012 Nexenta Systems, Inc. All rights reserved.
  * Copyright (c) 2013 Saso Kiselkov. All rights reserved.
  * Copyright (c) 2013 OSN Online Service Nuernberg GmbH. All rights reserved.
  * Copyright 2016 OmniTI Computer Consulting, Inc. All rights reserved.
+ * Copyright 2020 Oxide Computer Company
  */
 
 #include "ixgbe_sw.h"
@@ -133,6 +134,13 @@ static int ixgbe_fm_error_cb(dev_info_t *dip, ddi_fm_error_t *err,
     const void *impl_data);
 static void ixgbe_fm_init(ixgbe_t *);
 static void ixgbe_fm_fini(ixgbe_t *);
+static int ixgbe_ufm_fill_image(ddi_ufm_handle_t *, void *arg, uint_t,
+    ddi_ufm_image_t *);
+static int ixgbe_ufm_fill_slot(ddi_ufm_handle_t *, void *, uint_t, uint_t,
+    ddi_ufm_slot_t *);
+static int ixgbe_ufm_getcaps(ddi_ufm_handle_t *, void *, ddi_ufm_cap_t *);
+static int ixgbe_ufm_readimg(ddi_ufm_handle_t *, void *, uint_t, uint_t,
+    uint64_t, uint64_t, void *, uint64_t *);
 
 char *ixgbe_priv_props[] = {
 	"_tx_copy_thresh",
@@ -354,6 +362,14 @@ static adapter_info_t ixgbe_X550_cap = {
 	| IXGBE_FLAG_VMDQ_CAPABLE
 	| IXGBE_FLAG_RSC_CAPABLE) /* capability flags */
 };
+
+static ddi_ufm_ops_t ixgbe_ufm_ops = {
+	.ddi_ufm_op_fill_image = ixgbe_ufm_fill_image,
+	.ddi_ufm_op_fill_slot = ixgbe_ufm_fill_slot,
+	.ddi_ufm_op_getcaps = ixgbe_ufm_getcaps,
+	.ddi_ufm_op_readimg = ixgbe_ufm_readimg
+};
+
 
 /*
  * Module Initialization Functions.
@@ -650,6 +666,16 @@ ixgbe_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	}
 	ixgbe->attach_progress |= ATTACH_PROGRESS_ENABLE_INTR;
 
+	if (ixgbe->hw.bus.func == 0) {
+		if (ddi_ufm_init(devinfo, DDI_UFM_CURRENT_VERSION,
+		    &ixgbe_ufm_ops, &ixgbe->ixgbe_ufmh, ixgbe) != 0) {
+			ixgbe_error(ixgbe, "Failed to enable DDI UFM support");
+			goto attach_fail;
+		}
+		ixgbe->attach_progress |= ATTACH_PROGRESS_UFM;
+		ddi_ufm_update(ixgbe->ixgbe_ufmh);
+	}
+
 	ixgbe_log(ixgbe, "%s", ixgbe_ident);
 	atomic_or_32(&ixgbe->ixgbe_state, IXGBE_INITIALIZED);
 
@@ -795,6 +821,13 @@ ixgbe_unconfigure(dev_info_t *devinfo, ixgbe_t *ixgbe)
 			ddi_periodic_delete(ixgbe->periodic_id);
 			ixgbe->periodic_id = NULL;
 		}
+	}
+
+	/*
+	 * Clean up the UFM subsystem. Note this only is set on function 0.
+	 */
+	if (ixgbe->attach_progress & ATTACH_PROGRESS_UFM) {
+		ddi_ufm_fini(ixgbe->ixgbe_ufmh);
 	}
 
 	/*
@@ -1013,19 +1046,29 @@ ixgbe_identify_hardware(ixgbe_t *ixgbe)
 
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		IXGBE_DEBUGLOG_0(ixgbe, "identify X550 adapter\n");
 		ixgbe->capab = &ixgbe_X550_cap;
 
-		if (hw->device_id == IXGBE_DEV_ID_X550EM_X_SFP)
+		if (hw->device_id == IXGBE_DEV_ID_X550EM_X_SFP ||
+		    hw->device_id == IXGBE_DEV_ID_X550EM_A_SFP ||
+		    hw->device_id == IXGBE_DEV_ID_X550EM_A_SFP_N ||
+		    hw->device_id == IXGBE_DEV_ID_X550EM_A_QSFP ||
+		    hw->device_id == IXGBE_DEV_ID_X550EM_A_QSFP_N) {
 			ixgbe->capab->flags |= IXGBE_FLAG_SFP_PLUG_CAPABLE;
+		}
 
 		/*
 		 * Link detection on X552 SFP+ and X552/X557-AT
 		 */
 		if (hw->device_id == IXGBE_DEV_ID_X550EM_X_SFP ||
+		    hw->device_id == IXGBE_DEV_ID_X550EM_A_SFP ||
+		    hw->device_id == IXGBE_DEV_ID_X550EM_A_SFP_N ||
 		    hw->device_id == IXGBE_DEV_ID_X550EM_X_10G_T) {
 			ixgbe->capab->other_intr |=
 			    IXGBE_EIMS_GPI_SDP0_BY_MAC(hw);
+		}
+		if (hw->phy.type == ixgbe_phy_x550em_ext_t) {
 			ixgbe->capab->other_gpie |= IXGBE_SDP0_GPIEN_X540;
 		}
 		break;
@@ -1269,10 +1312,12 @@ ixgbe_led_init(ixgbe_t *ixgbe)
 	/*
 	 * If we couldn't determine this, we use the default for various MACs
 	 * based on information Intel has inserted into other drivers over the
-	 * years.  Note, when we have support for the X553 which should add the
-	 * ixgbe_x550_em_a mac type, that should be at index 0.
+	 * years.
 	 */
 	switch (hw->mac.type) {
+	case ixgbe_mac_X550EM_a:
+		ixgbe->ixgbe_led_index = 0;
+		break;
 	case ixgbe_mac_X550EM_x:
 		ixgbe->ixgbe_led_index = 1;
 		break;
@@ -1560,9 +1605,7 @@ ixgbe_chip_start(ixgbe_t *ixgbe)
 	 * Due to issues with EEE in e1000g/igb, we disable this by default
 	 * as a precautionary measure.
 	 *
-	 * Currently, the only known adapter which supports EEE in the ixgbe
-	 * line is 8086,15AB (IXGBE_DEV_ID_X550EM_X_KR), and only after the
-	 * first revision of it, as well as any X550 with MAC type 6 (non-EM)
+	 * Currently, this is present on a number of the X550 family parts.
 	 */
 	(void) ixgbe_setup_eee(hw, B_FALSE);
 
@@ -1891,6 +1934,7 @@ ixgbe_start(ixgbe_t *ixgbe, boolean_t alloc_buffer)
 	 * 1Gb link to 10Gb (cable and link partner permitting.)
 	 */
 	if (hw->mac.type == ixgbe_mac_X550 ||
+	    hw->mac.type == ixgbe_mac_X550EM_a ||
 	    hw->mac.type == ixgbe_mac_X550EM_x) {
 		(void) ixgbe_driver_setup_link(ixgbe, B_TRUE);
 		ixgbe_get_hw_state(ixgbe);
@@ -2428,7 +2472,8 @@ ixgbe_setup_rx_ring(ixgbe_rx_ring_t *rx_ring)
 	if (hw->mac.type == ixgbe_mac_82599EB ||
 	    hw->mac.type == ixgbe_mac_X540 ||
 	    hw->mac.type == ixgbe_mac_X550 ||
-	    hw->mac.type == ixgbe_mac_X550EM_x) {
+	    hw->mac.type == ixgbe_mac_X550EM_x ||
+	    hw->mac.type == ixgbe_mac_X550EM_a) {
 		reg_val = IXGBE_READ_REG(hw, IXGBE_RDRXCTL);
 		reg_val |= (IXGBE_RDRXCTL_CRCSTRIP | IXGBE_RDRXCTL_AGGDIS);
 		IXGBE_WRITE_REG(hw, IXGBE_RDRXCTL, reg_val);
@@ -2450,8 +2495,7 @@ ixgbe_setup_rx(ixgbe_t *ixgbe)
 	ixgbe_rx_ring_t *rx_ring;
 	struct ixgbe_hw *hw = &ixgbe->hw;
 	uint32_t reg_val;
-	uint32_t ring_mapping;
-	uint32_t i, index;
+	uint32_t i;
 	uint32_t psrtype_rss_bit;
 
 	/*
@@ -2566,14 +2610,23 @@ ixgbe_setup_rx(ixgbe_t *ixgbe)
 	}
 
 	/*
-	 * Setup the per-ring statistics mapping.
+	 * The 82598 controller gives us the RNBC (Receive No Buffer
+	 * Count) register to determine the number of frames dropped
+	 * due to no available descriptors on the destination queue.
+	 * However, this register was removed starting with 82599 and
+	 * it was replaced with the RQSMR/QPRDC registers. The nice
+	 * thing about the new registers is that they allow you to map
+	 * groups of queues to specific stat registers. The bad thing
+	 * is there are only 16 slots in the stat registers, so this
+	 * won't work when we have 32 Rx groups. Instead, we map all
+	 * queues to the zero slot of the stat registers, giving us a
+	 * global counter at QPRDC[0] (with the equivalent semantics
+	 * of RNBC). Perhaps future controllers will have more slots
+	 * and we can implement per-group counters.
 	 */
-	ring_mapping = 0;
 	for (i = 0; i < ixgbe->num_rx_rings; i++) {
-		index = ixgbe->rx_rings[i].hw_index;
-		ring_mapping = IXGBE_READ_REG(hw, IXGBE_RQSMR(index >> 2));
-		ring_mapping |= (i & 0xF) << (8 * (index & 0x3));
-		IXGBE_WRITE_REG(hw, IXGBE_RQSMR(index >> 2), ring_mapping);
+		uint32_t index = ixgbe->rx_rings[i].hw_index;
+		IXGBE_WRITE_REG(hw, IXGBE_RQSMR(index >> 2), 0);
 	}
 
 	/*
@@ -2730,7 +2783,6 @@ ixgbe_setup_tx(ixgbe_t *ixgbe)
 	struct ixgbe_hw *hw = &ixgbe->hw;
 	ixgbe_tx_ring_t *tx_ring;
 	uint32_t reg_val;
-	uint32_t ring_mapping;
 	int i;
 
 	for (i = 0; i < ixgbe->num_tx_rings; i++) {
@@ -2739,47 +2791,17 @@ ixgbe_setup_tx(ixgbe_t *ixgbe)
 	}
 
 	/*
-	 * Setup the per-ring statistics mapping.
+	 * Setup the per-ring statistics mapping. We map all Tx queues
+	 * to slot 0 to stay consistent with Rx.
 	 */
-	ring_mapping = 0;
 	for (i = 0; i < ixgbe->num_tx_rings; i++) {
-		ring_mapping |= (i & 0xF) << (8 * (i & 0x3));
-		if ((i & 0x3) == 0x3) {
-			switch (hw->mac.type) {
-			case ixgbe_mac_82598EB:
-				IXGBE_WRITE_REG(hw, IXGBE_TQSMR(i >> 2),
-				    ring_mapping);
-				break;
-
-			case ixgbe_mac_82599EB:
-			case ixgbe_mac_X540:
-			case ixgbe_mac_X550:
-			case ixgbe_mac_X550EM_x:
-				IXGBE_WRITE_REG(hw, IXGBE_TQSM(i >> 2),
-				    ring_mapping);
-				break;
-
-			default:
-				break;
-			}
-
-			ring_mapping = 0;
-		}
-	}
-	if (i & 0x3) {
 		switch (hw->mac.type) {
 		case ixgbe_mac_82598EB:
-			IXGBE_WRITE_REG(hw, IXGBE_TQSMR(i >> 2), ring_mapping);
-			break;
-
-		case ixgbe_mac_82599EB:
-		case ixgbe_mac_X540:
-		case ixgbe_mac_X550:
-		case ixgbe_mac_X550EM_x:
-			IXGBE_WRITE_REG(hw, IXGBE_TQSM(i >> 2), ring_mapping);
+			IXGBE_WRITE_REG(hw, IXGBE_TQSMR(i >> 2), 0);
 			break;
 
 		default:
+			IXGBE_WRITE_REG(hw, IXGBE_TQSM(i >> 2), 0);
 			break;
 		}
 	}
@@ -2797,7 +2819,8 @@ ixgbe_setup_tx(ixgbe_t *ixgbe)
 	if (hw->mac.type == ixgbe_mac_82599EB ||
 	    hw->mac.type == ixgbe_mac_X540 ||
 	    hw->mac.type == ixgbe_mac_X550 ||
-	    hw->mac.type == ixgbe_mac_X550EM_x) {
+	    hw->mac.type == ixgbe_mac_X550EM_x ||
+	    hw->mac.type == ixgbe_mac_X550EM_a) {
 		/* DMATXCTL.TE must be set after all Tx config is complete */
 		reg_val = IXGBE_READ_REG(hw, IXGBE_DMATXCTL);
 		reg_val |= IXGBE_DMATXCTL_TE;
@@ -2882,6 +2905,7 @@ ixgbe_setup_vmdq(ixgbe_t *ixgbe)
 	case ixgbe_mac_X540:
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		/*
 		 * Enable VMDq-only.
 		 */
@@ -2969,6 +2993,7 @@ ixgbe_setup_vmdq_rss(ixgbe_t *ixgbe)
 	case ixgbe_mac_X540:
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		/*
 		 * Enable RSS & Setup RSS Hash functions
 		 */
@@ -3007,7 +3032,8 @@ ixgbe_setup_vmdq_rss(ixgbe_t *ixgbe)
 	if (hw->mac.type == ixgbe_mac_82599EB ||
 	    hw->mac.type == ixgbe_mac_X540 ||
 	    hw->mac.type == ixgbe_mac_X550 ||
-	    hw->mac.type == ixgbe_mac_X550EM_x) {
+	    hw->mac.type == ixgbe_mac_X550EM_x ||
+	    hw->mac.type == ixgbe_mac_X550EM_a) {
 		/*
 		 * Enable Virtualization and Replication.
 		 */
@@ -3064,6 +3090,7 @@ ixgbe_setup_rss_table(ixgbe_t *ixgbe)
 		break;
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		table_size = 512;
 		break;
 	default:
@@ -3372,6 +3399,7 @@ ixgbe_setup_vmdq_rss_conf(ixgbe_t *ixgbe)
 	case ixgbe_mac_X540:
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		/*
 		 * 82599 supports the following combination:
 		 * vmdq no. x rss no.
@@ -3548,7 +3576,8 @@ ixgbe_get_conf(ixgbe_t *ixgbe)
 	if (hw->mac.type == ixgbe_mac_82599EB ||
 	    hw->mac.type == ixgbe_mac_X540 ||
 	    hw->mac.type == ixgbe_mac_X550 ||
-	    hw->mac.type == ixgbe_mac_X550EM_x) {
+	    hw->mac.type == ixgbe_mac_X550EM_x ||
+	    hw->mac.type == ixgbe_mac_X550EM_a) {
 		ixgbe->tx_head_wb_enable = B_FALSE;
 	}
 
@@ -3607,7 +3636,8 @@ ixgbe_get_conf(ixgbe_t *ixgbe)
 	if (hw->mac.type == ixgbe_mac_82599EB ||
 	    hw->mac.type == ixgbe_mac_X540 ||
 	    hw->mac.type == ixgbe_mac_X550 ||
-	    hw->mac.type == ixgbe_mac_X550EM_x)
+	    hw->mac.type == ixgbe_mac_X550EM_x ||
+	    hw->mac.type == ixgbe_mac_X550EM_a)
 		ixgbe->intr_throttling[0] = ixgbe->intr_throttling[0] & 0xFF8;
 
 	hw->allow_unsupported_sfp = ixgbe_get_prop(ixgbe,
@@ -4406,6 +4436,7 @@ ixgbe_enable_adapter_interrupts(ixgbe_t *ixgbe)
 	case ixgbe_mac_X540:
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		gpie |= ixgbe->capab->other_gpie;
 
 		/* Enable RSC Delay 8us when LRO enabled  */
@@ -4602,6 +4633,7 @@ ixgbe_set_internal_mac_loopback(ixgbe_t *ixgbe)
 	case ixgbe_mac_X540:
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		reg = IXGBE_READ_REG(&ixgbe->hw, IXGBE_AUTOC);
 		reg |= (IXGBE_AUTOC_FLU |
 		    IXGBE_AUTOC_10G_KX4);
@@ -4841,6 +4873,7 @@ ixgbe_intr_legacy(void *arg1, void *arg2)
 			case ixgbe_mac_X540:
 			case ixgbe_mac_X550:
 			case ixgbe_mac_X550EM_x:
+			case ixgbe_mac_X550EM_a:
 				ixgbe->eimc = IXGBE_82599_OTHER_INTR;
 				IXGBE_WRITE_REG(hw, IXGBE_EIMC, ixgbe->eimc);
 				break;
@@ -4937,6 +4970,7 @@ ixgbe_intr_msi(void *arg1, void *arg2)
 		case ixgbe_mac_X540:
 		case ixgbe_mac_X550:
 		case ixgbe_mac_X550EM_x:
+		case ixgbe_mac_X550EM_a:
 			ixgbe->eimc = IXGBE_82599_OTHER_INTR;
 			IXGBE_WRITE_REG(hw, IXGBE_EIMC, ixgbe->eimc);
 			break;
@@ -5019,6 +5053,7 @@ ixgbe_intr_msix(void *arg1, void *arg2)
 			case ixgbe_mac_X540:
 			case ixgbe_mac_X550:
 			case ixgbe_mac_X550EM_x:
+			case ixgbe_mac_X550EM_a:
 				ixgbe->eims |= IXGBE_EICR_RTX_QUEUE;
 				ixgbe_intr_other_work(ixgbe, eicr);
 				break;
@@ -5118,8 +5153,10 @@ ixgbe_alloc_intrs(ixgbe_t *ixgbe)
 		 */
 		if (ixgbe->hw.mac.type == ixgbe_mac_X550 ||
 		    ixgbe->hw.mac.type == ixgbe_mac_X550EM_x ||
+		    ixgbe->hw.mac.type == ixgbe_mac_X550EM_a ||
 		    ixgbe->hw.mac.type == ixgbe_mac_X550_vf ||
-		    ixgbe->hw.mac.type == ixgbe_mac_X550EM_x_vf) {
+		    ixgbe->hw.mac.type == ixgbe_mac_X550EM_x_vf ||
+		    ixgbe->hw.mac.type == ixgbe_mac_X550EM_a_vf) {
 			ixgbe_log(ixgbe,
 			    "Legacy interrupts are not supported on this "
 			    "adapter. Please use MSI or MSI-X instead.");
@@ -5439,6 +5476,7 @@ ixgbe_setup_ivar(ixgbe_t *ixgbe, uint16_t intr_alloc_entry, uint8_t msix_vector,
 	case ixgbe_mac_X540:
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		if (cause == -1) {
 			/* other causes */
 			msix_vector |= IXGBE_IVAR_ALLOC_VAL;
@@ -5495,6 +5533,7 @@ ixgbe_enable_ivar(ixgbe_t *ixgbe, uint16_t intr_alloc_entry, int8_t cause)
 	case ixgbe_mac_X540:
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		if (cause == -1) {
 			/* other causes */
 			index = (intr_alloc_entry & 1) * 8;
@@ -5547,6 +5586,7 @@ ixgbe_disable_ivar(ixgbe_t *ixgbe, uint16_t intr_alloc_entry, int8_t cause)
 	case ixgbe_mac_X540:
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		if (cause == -1) {
 			/* other causes */
 			index = (intr_alloc_entry & 1) * 8;
@@ -5592,6 +5632,7 @@ ixgbe_get_hw_rx_index(ixgbe_t *ixgbe, uint32_t sw_rx_index)
 		case ixgbe_mac_X540:
 		case ixgbe_mac_X550:
 		case ixgbe_mac_X550EM_x:
+		case ixgbe_mac_X550EM_a:
 			return (sw_rx_index * 2);
 
 		default:
@@ -5610,6 +5651,7 @@ ixgbe_get_hw_rx_index(ixgbe_t *ixgbe, uint32_t sw_rx_index)
 		case ixgbe_mac_X540:
 		case ixgbe_mac_X550:
 		case ixgbe_mac_X550EM_x:
+		case ixgbe_mac_X550EM_a:
 			if (ixgbe->num_rx_groups > 32) {
 				hw_rx_index = (sw_rx_index /
 				    rx_ring_per_group) * 2 +
@@ -5717,6 +5759,7 @@ ixgbe_setup_adapter_vector(ixgbe_t *ixgbe)
 	case ixgbe_mac_X540:
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		for (v_idx = 0; v_idx < 64; v_idx++)
 			IXGBE_WRITE_REG(hw, IXGBE_IVAR(v_idx), 0);
 		IXGBE_WRITE_REG(hw, IXGBE_IVAR_MISC, 0);
@@ -5902,6 +5945,7 @@ ixgbe_get_hw_state(ixgbe_t *ixgbe)
 
 	/* check for link, don't wait */
 	(void) ixgbe_check_link(hw, &speed, &link_up, B_FALSE);
+	ixgbe->phys_supported = ixgbe_get_supported_physical_layer(hw);
 
 	/*
 	 * Update the observed Link Partner's capabilities. Not all adapters
@@ -6536,8 +6580,10 @@ ixgbe_remvlan(mac_group_driver_t gdriver, uint16_t vid)
 	}
 
 	vlp = ixgbe_find_vlan(rx_group, vid);
-	if (vlp == NULL)
+	if (vlp == NULL) {
+		mutex_exit(&ixgbe->gen_lock);
 		return (ENOENT);
+	}
 
 	/*
 	 * See the comment in ixgbe_addvlan() about is_def_grp and
@@ -6591,8 +6637,10 @@ ixgbe_remvlan(mac_group_driver_t gdriver, uint16_t vid)
 			/* This shouldn't fail, but if it does return EIO. */
 			ret = ixgbe_set_vfta(hw, vid, rx_group->index, B_TRUE,
 			    B_TRUE);
-			if (ret != IXGBE_SUCCESS)
+			if (ret != IXGBE_SUCCESS) {
+				mutex_exit(&ixgbe->gen_lock);
 				return (EIO);
+			}
 		}
 	}
 
@@ -6697,4 +6745,136 @@ ixgbe_remmac(void *arg, const uint8_t *mac_addr)
 	mutex_exit(&ixgbe->gen_lock);
 
 	return (0);
+}
+
+static int
+ixgbe_ufm_fill_image(ddi_ufm_handle_t *ufmh, void *arg, uint_t imgno,
+    ddi_ufm_image_t *imgp)
+{
+	ixgbe_t *ixgbe = arg;
+	const char *type;
+
+	if (imgno != 0) {
+		return (EINVAL);
+	}
+
+	ddi_ufm_image_set_desc(imgp, "NVM");
+	ddi_ufm_image_set_nslots(imgp, 1);
+	switch (ixgbe->hw.eeprom.type) {
+	case ixgbe_eeprom_spi:
+		type = "SPI EEPROM";
+		break;
+	case ixgbe_flash:
+		type = "Flash";
+		break;
+	default:
+		type = NULL;
+		break;
+	}
+
+	if (type != NULL) {
+		nvlist_t *nvl;
+
+		nvl = fnvlist_alloc();
+		fnvlist_add_string(nvl, "image-type", type);
+		/*
+		 * The DDI takes ownership of the nvlist_t at this point.
+		 */
+		ddi_ufm_image_set_misc(imgp, nvl);
+	}
+
+	return (0);
+}
+
+static int
+ixgbe_ufm_fill_slot(ddi_ufm_handle_t *ufmh, void *arg, uint_t imgno,
+    uint_t slotno, ddi_ufm_slot_t *slotp)
+{
+	ixgbe_t *ixgbe = arg;
+
+	if (imgno != 0 || slotno != 0) {
+		return (EINVAL);
+	}
+
+	/*
+	 * Unfortunately there is no generic versioning in the ixgbe family
+	 * eeprom parts.
+	 */
+	ddi_ufm_slot_set_version(slotp, "unknown");
+	ddi_ufm_slot_set_attrs(slotp, DDI_UFM_ATTR_ACTIVE |
+	    DDI_UFM_ATTR_READABLE | DDI_UFM_ATTR_WRITEABLE);
+	ddi_ufm_slot_set_imgsize(slotp, ixgbe->hw.eeprom.word_size * 2);
+
+	return (0);
+}
+
+static int
+ixgbe_ufm_getcaps(ddi_ufm_handle_t *ufmh, void *arg, ddi_ufm_cap_t *caps)
+{
+	ixgbe_t *ixgbe = arg;
+
+	*caps = 0;
+	switch (ixgbe->hw.eeprom.type) {
+	case ixgbe_eeprom_spi:
+	case ixgbe_flash:
+		*caps |= DDI_UFM_CAP_REPORT;
+		if (ixgbe->hw.eeprom.ops.read_buffer != NULL) {
+			*caps |= DDI_UFM_CAP_READIMG;
+		}
+		break;
+	default:
+		break;
+	}
+
+	return (0);
+}
+
+static int
+ixgbe_ufm_readimg(ddi_ufm_handle_t *ufmh, void *arg, uint_t imgno,
+    uint_t slotno, uint64_t len, uint64_t offset, void *buf, uint64_t *nread)
+{
+	int ret;
+	uint16_t wordoff, nwords, *buf16 = buf;
+	ixgbe_t *ixgbe = arg;
+	uint32_t imgsize = ixgbe->hw.eeprom.word_size * 2;
+
+	if (imgno != 0 || slotno != 0) {
+		return (EINVAL);
+	}
+
+	if (len > imgsize || offset > imgsize || len + offset > imgsize) {
+		return (EINVAL);
+	}
+
+	if (ixgbe->hw.eeprom.ops.read_buffer == NULL) {
+		return (ENOTSUP);
+	}
+
+	/*
+	 * Hardware provides us a means to read 16-bit words. For the time
+	 * being, restrict offset and length to be 2 byte aligned. We should
+	 * probably reduce this restriction. We could probably just use a bounce
+	 * buffer.
+	 */
+	if ((offset % 2) != 0 || (len % 2) != 0) {
+		return (EINVAL);
+	}
+
+	wordoff = offset >> 1;
+	nwords = len >> 1;
+	mutex_enter(&ixgbe->gen_lock);
+	ret = ixgbe_read_eeprom_buffer(&ixgbe->hw, wordoff, nwords, buf16);
+	mutex_exit(&ixgbe->gen_lock);
+
+	if (ret == 0) {
+		uint16_t i;
+		*nread = len;
+		for (i = 0; i < nwords; i++) {
+			buf16[i] = LE_16(buf16[i]);
+		}
+	} else {
+		ret = EIO;
+	}
+
+	return (ret);
 }

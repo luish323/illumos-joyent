@@ -25,6 +25,7 @@
  * Copyright (c) 2013, OmniTI Computer Consulting, Inc. All rights reserved.
  * Copyright 2016 Joyent, Inc.
  * Copyright (c) 2018, Joyent, Inc.
+ * Copyright 2020 Oxide Computer Company
  */
 
 /*	Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T	*/
@@ -88,9 +89,9 @@ int	getloadavg(int *, int);
 int	rusagesys(int, void *, void *, void *, void *);
 int	getpagesizes(int, size_t *, int);
 int	gtty(int, intptr_t);
-#if defined(__i386) || defined(__amd64)
+#if defined(__x86)
 int	hrtsys(struct hrtsysa *, rval_t *);
-#endif /* __i386 || __amd64 */
+#endif /* __x86 */
 int	ioctl(int, int, intptr_t);
 int	kill();
 int	labelsys(int, void *, void *, void *, void *, void *);
@@ -184,7 +185,7 @@ int	statvfs(char *, struct statvfs *);
 int	fstatvfs(int, struct statvfs *);
 offset_t llseek32(int32_t, uint32_t, uint32_t, int);
 
-#if (defined(__i386) && !defined(__amd64)) || defined(__i386_COMPAT)
+#if defined(__i386_COMPAT)
 int	sysi86(short, uintptr_t, uintptr_t, uintptr_t);
 #endif
 
@@ -205,7 +206,7 @@ int	getpmsg(int, struct strbuf *, struct strbuf *, int *, int *);
 int	putpmsg(int, struct strbuf *, struct strbuf *, int, int);
 int	memcntl(caddr_t, size_t, int, caddr_t, int, int);
 long	sysconfig(int);
-int	adjtime(struct timeval *, struct timeval *);
+int	adjtime(const struct timeval *, struct timeval *);
 long	systeminfo(int, char *, long);
 int	setegid(gid_t);
 int	seteuid(uid_t);
@@ -330,6 +331,7 @@ int	setsockopt(int, int, int, void *, socklen_t *, int);
 int	sockconfig(int, void *, void *, void *, void *);
 ssize_t	sendfilev(int, int, const struct sendfilevec *, int, size_t *);
 ssize_t	getrandom(void *, size_t, unsigned int);
+void	upanic(void *, size_t);
 
 typedef int64_t	(*llfcn_t)();	/* for casting one-word returns */
 
@@ -390,19 +392,15 @@ typedef int64_t	(*llfcn_t)();	/* for casting one-word returns */
 #define	IF_sparc(true, false)	false
 #endif
 
-#if defined(__i386) && !defined(__amd64)
-#define	IF_i386(true, false)	true
-#else
 #define	IF_i386(true, false)	false
-#endif
 
-#if defined(__i386) || defined(__amd64)
+#if defined(__x86)
 #define	IF_x86(true, false)	true
 #else
 #define	IF_x86(true, false)	false
 #endif
 
-#if (defined(__i386) && !defined(__amd64)) || defined(__i386_COMPAT)
+#if defined(__i386_COMPAT)
 #define	IF_386_ABI(true, false)	true
 #else
 #define	IF_386_ABI(true, false)	false
@@ -583,7 +581,7 @@ struct sysent sysent[NSYSCALL] =
 	/* 122 */ SYSENT_CL("writev",		writev,		3),
 	/* 123 */ SYSENT_CL("preadv",		preadv,		5),
 	/* 124 */ SYSENT_CL("pwritev",		pwritev,	5),
-	/* 125 */ SYSENT_LOADABLE(),			/* (was fxstat) */
+	/* 125 */ SYSENT_CI("upanic",		upanic,		2),
 	/* 126 */ SYSENT_CL("getrandom",	getrandom,	3),
 	/* 127 */ SYSENT_CI("mmapobj",		mmapobjsys,	5),
 	/* 128 */ IF_LP64(
@@ -948,7 +946,7 @@ struct sysent sysent32[NSYSCALL] =
 	/* 122 */ SYSENT_CI("writev",		writev32,	3),
 	/* 123 */ SYSENT_CI("preadv",		preadv,		5),
 	/* 124 */ SYSENT_CI("pwritev",		pwritev,	5),
-	/* 125 */ SYSENT_LOADABLE32(),		/*	was fxstat32	*/
+	/* 125 */ SYSENT_CI("upanic",		upanic,		2),
 	/* 126 */ SYSENT_CI("getrandom",	getrandom,	3),
 	/* 127 */ SYSENT_CI("mmapobj",		mmapobjsys,	5),
 	/* 128 */ SYSENT_CI("setrlimit",	setrlimit32,	2),

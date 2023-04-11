@@ -416,6 +416,7 @@ modctl_modinfo(modid_t id, struct modinfo *umodi)
 	struct modinfo32 modi32;
 #endif
 
+	nobase = 0;
 	if (get_udatamodel() == DATAMODEL_NATIVE) {
 		if (copyin(umodi, &modi, sizeof (struct modinfo)) != 0)
 			return (EFAULT);
@@ -502,6 +503,7 @@ modctl_update_driver_aliases(int add, int *data)
 		int	alias_resid;
 	} *aliases, *aip;
 
+	aliases = NULL;
 	bzero(&mc, sizeof (struct modconfig));
 	if (get_udatamodel() == DATAMODEL_NATIVE) {
 		if (copyin(data, &mc, sizeof (struct modconfig)) != 0)
@@ -2692,7 +2694,7 @@ modrload(const char *subdir, const char *filename, struct modctl **rmodp)
 		CPU_STATS_ADDQ(CPU, sys, modload, 1);
 	}
 
-done:	if (subdir != NULL)
+	if (subdir != NULL)
 		kmem_free(fullname, size);
 	return (rmodp ? retval : id);
 }
@@ -2801,6 +2803,7 @@ modloadonly(const char *subdir, const char *filename)
 		fullname = (char *)filename;
 	}
 
+	id = -1;
 	modp = mod_hold_loaded_mod(NULL, fullname, &retval);
 	if (modp) {
 		id = modp->mod_id;

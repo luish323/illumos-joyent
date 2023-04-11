@@ -22,6 +22,8 @@
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2013 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2019 Joyent, Inc.
+ * Copyright 2021 RackTop Systems, Inc.
  */
 
 #ifndef _SATA_DEFS_H
@@ -343,6 +345,9 @@ typedef struct sata_id {
 /* Identify (Packet) Device Word 88 */
 #define	SATA_UDMA_SUP_MASK		0x007f	/* UDMA modes supported */
 #define	SATA_UDMA_SEL_MASK	0x7f00	/* UDMA modes selected */
+
+/* Data Set Management: word 169 */
+#define	SATA_DSM_TRIM		0x0001	/* Set when TRIM is supported */
 
 /* Identify Device: command set supported/enabled bits - word 206 */
 
@@ -823,10 +828,13 @@ struct mode_acoustic_management {
 	(x = (x & ~SCONTROL_IPM) | \
 	((new_val << SCONTROL_IPM_SHIFT) & SCONTROL_IPM))
 
+/* NB: IPM disable value is a bit-field (though not described) */
 #define	SCONTROL_IPM_NORESTRICT		0 /* No PM limit */
 #define	SCONTROL_IPM_DISABLE_PARTIAL	1 /* Disable partial */
 #define	SCONTROL_IPM_DISABLE_SLUMBER	2 /* Disable slumber */
 #define	SCONTROL_IPM_DISABLE_BOTH	3 /* Disable both */
+#define	SCONTROL_IPM_DISABLE_DEVSLEEP	4 /* Disable devsleep */
+#define	SCONTROL_IPM_DISABLE_ALL	7 /* Disable all PM */
 
 #define	SCONTROL_SPM_NORESTRICT		0 /* No PM limits */
 #define	SCONTROL_SPM_DO_PARTIAL		1 /* Go to partial */

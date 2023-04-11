@@ -11,7 +11,7 @@
 
 /*
  * Copyright 2017 Jason King
- * Copyright 2018, Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
  */
 
 #ifndef _DEMANGLE_SYS_H
@@ -26,7 +26,7 @@ extern "C" {
 typedef enum sysdem_lang_e {
 	SYSDEM_LANG_AUTO,
 	SYSDEM_LANG_CPP,
-	SYSDEM_LANG_RUST
+	SYSDEM_LANG_RUST,
 } sysdem_lang_t;
 
 typedef struct sysdem_alloc_s {
@@ -34,6 +34,7 @@ typedef struct sysdem_alloc_s {
 	void (*free)(void *, size_t);
 } sysdem_ops_t;
 
+boolean_t sysdem_parse_lang(const char *, sysdem_lang_t *);
 char *sysdemangle(const char *, sysdem_lang_t, sysdem_ops_t *);
 
 #ifdef __cplusplus

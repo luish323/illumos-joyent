@@ -250,12 +250,12 @@ smb_vop_other_opens(vnode_t *vp, int mode)
  */
 
 int
-smb_vop_read(vnode_t *vp, uio_t *uiop, cred_t *cr)
+smb_vop_read(vnode_t *vp, uio_t *uiop, int ioflag, cred_t *cr)
 {
 	int error;
 
 	(void) VOP_RWLOCK(vp, V_WRITELOCK_FALSE, &smb_ct);
-	error = VOP_READ(vp, uiop, 0, cr, &smb_ct);
+	error = VOP_READ(vp, uiop, ioflag, cr, &smb_ct);
 	VOP_RWUNLOCK(vp, V_WRITELOCK_FALSE, &smb_ct);
 	return (error);
 }
@@ -277,6 +277,23 @@ smb_vop_write(vnode_t *vp, uio_t *uiop, int ioflag, uint32_t *lcount,
 	*lcount -= uiop->uio_resid;
 
 	return (error);
+}
+
+int
+smb_vop_ioctl(vnode_t *vp, int cmd, void *arg, cred_t *cr)
+{
+	int error, rval = 0;
+	uint_t flags = 0;
+
+#ifdef	FKIOCTL
+	flags |= FKIOCTL;
+#endif
+	error = VOP_IOCTL(vp, cmd, (intptr_t)arg, (int)flags, cr,
+	    &rval, &smb_ct);
+	if (error != 0)
+		rval = error;
+
+	return (rval);
 }
 
 /*
@@ -591,8 +608,14 @@ smb_vop_lookup(
 	char *np = name;
 	char namebuf[MAXNAMELEN];
 
-	if (*name == '\0')
-		return (EINVAL);
+	if (*name == '\0') {
+		/*
+		 * This happens creating named streams at the share root.
+		 */
+		VN_HOLD(dvp);
+		*vpp = dvp;
+		return (0);
+	}
 
 	ASSERT(vpp);
 	*vpp = NULL;

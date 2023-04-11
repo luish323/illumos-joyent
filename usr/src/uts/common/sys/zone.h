@@ -18,11 +18,12 @@
  *
  * CDDL HEADER END
  */
+
 /*
  * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2018 Joyent, Inc.
- * Copyright 2019 Nexenta Systems, Inc. All rights reserved.
  * Copyright 2014 Igor Kozhukhov <ikozhukhov@gmail.com>.
+ * Copyright 2019 Nexenta Systems, Inc. All rights reserved.
+ * Copyright 2020 Joyent, Inc.
  */
 
 #ifndef _SYS_ZONE_H
@@ -52,6 +53,7 @@
 #include <sys/nvpair.h>
 #include <sys/list.h>
 #include <sys/loadavg.h>
+#include <sys/vnode.h>
 #endif	/* _KERNEL */
 
 #ifdef	__cplusplus
@@ -109,7 +111,13 @@ extern "C" {
 #define	ZONE_CHECK_DATALINK	12
 #define	ZONE_LIST_DATALINK	13
 
-/* zone attributes */
+/*
+ * zone attributes
+ *
+ * Note that values up to ZONE_ATTR_HOSTID are baked into things like Solaris
+ * 10 which can be run under the s10 brand; don't renumber or change them. Ones
+ * which are no longer used are commented out.
+ */
 #define	ZONE_ATTR_ROOT		1
 #define	ZONE_ATTR_NAME		2
 #define	ZONE_ATTR_STATUS	3
@@ -121,18 +129,23 @@ extern "C" {
 #define	ZONE_ATTR_INITNAME	9
 #define	ZONE_ATTR_BOOTARGS	10
 #define	ZONE_ATTR_BRAND		11
-#define	ZONE_ATTR_SCHED_CLASS	12
-#define	ZONE_ATTR_FLAGS		13
-#define	ZONE_ATTR_HOSTID	14
-#define	ZONE_ATTR_FS_ALLOWED	15
-#define	ZONE_ATTR_NETWORK	16
-#define	ZONE_ATTR_DID		17
-#define	ZONE_ATTR_INITNORESTART	18
-#define	ZONE_ATTR_APP_SVC_CT	19
-#define	ZONE_ATTR_SCHED_FIXEDHI	20
+/* #define	ZONE_ATTR_PHYS_MCAP	12 */
+#define	ZONE_ATTR_SCHED_CLASS	13
+#define	ZONE_ATTR_FLAGS		14
+#define	ZONE_ATTR_HOSTID	15
+#define	ZONE_ATTR_FS_ALLOWED	16
+#define	ZONE_ATTR_NETWORK	17
+
+/* illumos extensions */
+#define	ZONE_ATTR_INITNORESTART	20
 #define	ZONE_ATTR_SECFLAGS	21
 #define	ZONE_ATTR_INITRESTART0	22
 #define	ZONE_ATTR_INITREBOOT	23
+
+/* OmniOS/SmartOS extensions */
+#define	ZONE_ATTR_DID		30
+#define	ZONE_ATTR_APP_SVC_CT	31
+#define	ZONE_ATTR_SCHED_FIXEDHI	32
 
 /* Start of the brand-specific attribute namespace */
 #define	ZONE_ATTR_BRAND_ATTRS	32768
@@ -247,7 +260,7 @@ typedef struct {
 /*
  * zone_status values
  *
- * You must modify zone_status_names in mdb(1M)'s genunix module
+ * You must modify zone_status_names in mdb(1)'s genunix module
  * (genunix/zone.c) when you modify this enum.
  */
 typedef enum {
@@ -308,7 +321,7 @@ typedef struct zone_cmd_rval {
 #define	GLOBAL_ZONENAME		"global"
 
 /*
- * Extended Regular expression (see regex(5)) which matches all valid zone
+ * Extended Regular expression (see regex(7)) which matches all valid zone
  * names.
  */
 #define	ZONENAME_REGEXP		"[a-zA-Z0-9][-_.a-zA-Z0-9]{0,62}"
@@ -789,7 +802,6 @@ typedef enum zone_pageout_op {
  */
 #define	ZONE_PS_INVAL	PS_MYID
 
-
 extern zone_t zone0;
 extern zone_t *global_zone;
 extern uint_t maxzones;
@@ -930,6 +942,26 @@ struct zsd_entry {
  * Special processes visible in all zones.
  */
 #define	ZONE_SPECIALPID(x)	 ((x) == 0 || (x) == 1)
+
+/*
+ * A root vnode of the current zone.
+ *
+ * NOTE: It may be necessary (initialization time for file sharing where an
+ * NGZ loads a file-sharing kernel module that does zsd initialization) to NOT
+ * use this macro. One should ASSERT() that curzone == active ZSD (an
+ * ASSERTion that's not always true at ZSD initialization time) during regular
+ * use of this macro.
+ */
+#define	ZONE_ROOTVP()	(curzone->zone_rootvp)
+
+/*
+ * Since a zone's root isn't necessarily an actual filesystem boundary
+ * (i.e. VROOT may not be set on zone->zone_rootvp) we need to not assume it.
+ * This macro helps in checking if a vnode is the current zone's rootvp.
+ * NOTE:  Using the VN_ prefix, even though it's defined here in zone.h.
+ * NOTE2: See above warning about ZONE_ROOTVP().
+ */
+#define	VN_IS_CURZONEROOT(vp)	(VN_CMP(vp, ZONE_ROOTVP()))
 
 /*
  * Zone-safe version of thread_create() to be used when the caller wants to

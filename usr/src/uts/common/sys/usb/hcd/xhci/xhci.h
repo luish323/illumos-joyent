@@ -11,6 +11,8 @@
 
 /*
  * Copyright (c) 2018, Joyent, Inc.
+ * Copyright (c) 2019 by Western Digital Corporation
+ * Copyright 2022 Oxide Computer Company
  */
 
 #ifndef _SYS_USB_XHCI_XHCI_H
@@ -496,28 +498,54 @@ typedef enum xhci_endpoint_state {
 	XHCI_ENDPOINT_QUIESCE		= 0x04,
 	XHCI_ENDPOINT_TIMED_OUT		= 0x08,
 	/*
-	 * This is a composite of states that we need to watch for. We don't
-	 * want to allow ourselves to set one of these flags while one of them
-	 * is currently active.
-	 */
-	XHCI_ENDPOINT_SERIALIZE		= 0x0c,
-	/*
-	 * This is a composite of states that we need to make sure that if set,
-	 * we do not schedule activity on the ring.
-	 */
-	XHCI_ENDPOINT_DONT_SCHEDULE	= 0x0e,
-	/*
 	 * This enpdoint is being torn down and should make sure it de-schedules
 	 * itself.
 	 */
-	XHCI_ENDPOINT_TEARDOWN		= 0x10
+	XHCI_ENDPOINT_TEARDOWN		= 0x10,
+	/*
+	 * This endpoint is currently used in polled I/O mode by the
+	 * kernel debugger.
+	 */
+	XHCI_ENDPOINT_POLLED		= 0x20,
+	/*
+	 * This endpoint is open and in use by a pipe.
+	 */
+	XHCI_ENDPOINT_OPEN		= 0x40,
 } xhci_endpoint_state_t;
+
+/*
+ * This is a composite of states that we need to watch for. We don't
+ * want to allow ourselves to set one of these flags while one of them
+ * is currently active.
+ */
+#define	XHCI_ENDPOINT_SERIALIZE		(XHCI_ENDPOINT_QUIESCE |	\
+					XHCI_ENDPOINT_TIMED_OUT)
+
+/*
+ * This is a composite of states that we need to make sure that if set, we do
+ * not schedule activity on the ring.
+ */
+#define	XHCI_ENDPOINT_DONT_SCHEDULE	(XHCI_ENDPOINT_HALTED |		\
+					XHCI_ENDPOINT_QUIESCE |		\
+					XHCI_ENDPOINT_TIMED_OUT)
 
 /*
  * Forwards required for the endpoint
  */
 struct xhci_device;
 struct xhci;
+
+typedef struct xhci_endpoint_params {
+	boolean_t		xepp_configured;
+	uint_t			xepp_eptype;
+	uint_t			xepp_burst;
+	uint_t			xepp_ival;
+	uint_t			xepp_max_esit;
+	uint_t			xepp_avgtrb;
+	uint_t			xepp_mps;
+	uint_t			xepp_mult;
+	uint_t			xepp_cerr;
+} xhci_endpoint_params_t;
 
 typedef struct xhci_endpoint {
 	struct xhci		*xep_xhci;
@@ -530,6 +558,7 @@ typedef struct xhci_endpoint {
 	list_t			xep_transfers;
 	usba_pipe_handle_data_t	*xep_pipe;
 	xhci_ring_t		xep_ring;
+	xhci_endpoint_params_t	xep_params;
 } xhci_endpoint_t;
 
 typedef struct xhci_device {
@@ -644,6 +673,53 @@ typedef enum xhci_reg_type {
 } xhci_reg_type_t;
 
 /*
+ * Polled I/O data structure
+ */
+typedef struct xhci_polled {
+	/*
+	 * Pointer to the xhcip structure for the device that is to  be
+	 * used as input in polled mode.
+	 */
+	xhci_t			*xhci_polled_xhci;
+
+	/*
+	 * Pipe handle for the pipe that is to be used as input device
+	 * in POLLED mode.
+	 */
+	usba_pipe_handle_data_t	*xhci_polled_input_pipe_handle;
+
+	/* Endpoint for the above */
+	xhci_endpoint_t		*xhci_polled_endpoint;
+
+	/*
+	 * The buffer that the USB HDI scan codes are copied into.
+	 * A USB keyboard will report up to 8 bytes consisting of the
+	 * modifier status, a reserved byte and up to 6 key presses.
+	 * This buffer is sized to be large enough for one such report.
+	 */
+	uchar_t			xhci_polled_buf[8];
+
+	/*
+	 * Track how many times xhci_polled_input_enter() and
+	 * xhci_polled_input_exit() have been called so that the host
+	 * controller isn't switched back to OS mode prematurely.
+	 */
+	uint_t			xhci_polled_entry;
+
+	/*
+	 * Remember persistent errors that will prevent us from reading
+	 * further input to avoid repeatedly polling to no avail
+	 */
+	int			xhci_polled_persistent_error;
+} xhci_polled_t;
+
+/*
+ * Helper functions
+ */
+extern xhci_t *xhci_hcdi_get_xhcip_from_dev(usba_device_t *);
+extern xhci_device_t *xhci_device_lookup_by_slot(xhci_t *, int);
+
+/*
  * Quirks related functions
  */
 extern void xhci_quirks_populate(xhci_t *);
@@ -718,6 +794,7 @@ extern int xhci_command_stop_endpoint(xhci_t *, xhci_device_t *,
  */
 extern int xhci_event_init(xhci_t *);
 extern void xhci_event_fini(xhci_t *);
+extern boolean_t xhci_event_process_trb(xhci_t *, xhci_trb_t *);
 extern boolean_t xhci_event_process(xhci_t *);
 
 /*
@@ -774,9 +851,13 @@ extern void xhci_fm_runtime_reset(xhci_t *);
  */
 extern int xhci_endpoint_init(xhci_t *, xhci_device_t *,
     usba_pipe_handle_data_t *);
+extern int xhci_endpoint_reinit(xhci_t *, xhci_device_t *,
+    xhci_endpoint_t *, usba_pipe_handle_data_t *);
+extern void xhci_endpoint_release(xhci_t *, xhci_endpoint_t *);
 extern void xhci_endpoint_fini(xhci_device_t *, int);
 extern int xhci_endpoint_update_default(xhci_t *, xhci_device_t *,
     xhci_endpoint_t *);
+extern void xhci_endpoint_timeout_cancel(xhci_t *, xhci_endpoint_t *);
 
 extern int xhci_endpoint_setup_default_context(xhci_t *, xhci_device_t *,
     xhci_endpoint_t *);
@@ -784,11 +865,15 @@ extern int xhci_endpoint_setup_default_context(xhci_t *, xhci_device_t *,
 extern uint_t xhci_endpoint_pipe_to_epid(usba_pipe_handle_data_t *);
 extern boolean_t xhci_endpoint_is_periodic_in(xhci_endpoint_t *);
 
+extern void xhci_endpoint_serialize(xhci_t *, xhci_endpoint_t *);
 extern int xhci_endpoint_quiesce(xhci_t *, xhci_device_t *, xhci_endpoint_t *);
 extern int xhci_endpoint_schedule(xhci_t *, xhci_device_t *, xhci_endpoint_t *,
     xhci_transfer_t *, boolean_t);
 extern int xhci_endpoint_ring(xhci_t *, xhci_device_t *, xhci_endpoint_t *);
 extern boolean_t xhci_endpoint_transfer_callback(xhci_t *, xhci_trb_t *);
+
+extern xhci_transfer_t *xhci_endpoint_determine_transfer(xhci_t *,
+    xhci_endpoint_t *, xhci_trb_t *, uint_t *);
 
 /*
  * USB Framework related functions
@@ -807,6 +892,23 @@ extern void xhci_root_hub_psc_callback(xhci_t *);
 extern int xhci_root_hub_intr_root_enable(xhci_t *, usba_pipe_handle_data_t *,
     usb_intr_req_t *);
 extern void xhci_root_hub_intr_root_disable(xhci_t *);
+
+/*
+ * Polled I/O functions
+ */
+extern int xhci_hcdi_console_input_init(usba_pipe_handle_data_t *, uchar_t **,
+    usb_console_info_impl_t *);
+extern int xhci_hcdi_console_input_fini(usb_console_info_impl_t *);
+extern int xhci_hcdi_console_input_enter(usb_console_info_impl_t *);
+extern int xhci_hcdi_console_read(usb_console_info_impl_t *, uint_t *);
+extern int xhci_hcdi_console_input_exit(usb_console_info_impl_t *);
+extern int xhci_hcdi_console_output_init(usba_pipe_handle_data_t *,
+    usb_console_info_impl_t *);
+extern int xhci_hcdi_console_output_fini(usb_console_info_impl_t *);
+extern int xhci_hcdi_console_output_enter(usb_console_info_impl_t *);
+extern int xhci_hcdi_console_write(usb_console_info_impl_t *, uchar_t *,
+    uint_t, uint_t *);
+extern int xhci_hcdi_console_output_exit(usb_console_info_impl_t *);
 
 /*
  * Logging functions

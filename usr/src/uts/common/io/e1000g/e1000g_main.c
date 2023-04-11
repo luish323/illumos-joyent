@@ -26,6 +26,7 @@
  * Copyright 2012 DEY Storage Systems, Inc.  All rights reserved.
  * Copyright 2013 Nexenta Systems, Inc.  All rights reserved.
  * Copyright (c) 2018, Joyent, Inc.
+ * Copyright 2022 Oxide Computer Company
  */
 
 /*
@@ -51,7 +52,7 @@
 
 static char ident[] = "Intel PRO/1000 Ethernet";
 /* LINTED E_STATIC_UNUSED */
-static char e1000g_version[] = "Driver Ver. 5.3.24";
+static char e1000g_version[] = "Driver Ver. 5.4.00";
 
 /*
  * Proto types for DDI entry points
@@ -65,8 +66,8 @@ static int e1000g_quiesce(dev_info_t *);
  */
 static int e1000g_resume(dev_info_t *);
 static int e1000g_suspend(dev_info_t *);
-static uint_t e1000g_intr_pciexpress(caddr_t);
-static uint_t e1000g_intr(caddr_t);
+static uint_t e1000g_intr_pciexpress(caddr_t, caddr_t);
+static uint_t e1000g_intr(caddr_t, caddr_t);
 static void e1000g_intr_work(struct e1000g *, uint32_t);
 #pragma inline(e1000g_intr_work)
 static int e1000g_init(struct e1000g *);
@@ -712,6 +713,11 @@ e1000g_regs_map(struct e1000g *Adapter)
 		break;
 	case e1000_pch_spt:
 	case e1000_pch_cnp:
+	case e1000_pch_tgp:
+	case e1000_pch_adp:
+	case e1000_pch_mtp:
+	case e1000_pch_lnp:
+	case e1000_pch_rpl:
 		/*
 		 * On the SPT, the device flash is actually in BAR0, not a
 		 * separate BAR. Therefore we end up setting the
@@ -911,6 +917,11 @@ e1000g_setup_max_mtu(struct e1000g *Adapter)
 	case e1000_pch_lpt:
 	case e1000_pch_spt:
 	case e1000_pch_cnp:
+	case e1000_pch_tgp:
+	case e1000_pch_adp:
+	case e1000_pch_mtp:
+	case e1000_pch_lnp:
+	case e1000_pch_rpl:
 		Adapter->max_mtu = MAXIMUM_MTU_9K;
 		break;
 	/* types with a special limit */
@@ -1490,6 +1501,16 @@ e1000g_init(struct e1000g *Adapter)
 		pba = E1000_PBA_26K;
 	} else if (hw->mac.type == e1000_pch_cnp) {
 		pba = E1000_PBA_26K;
+	} else if (hw->mac.type == e1000_pch_tgp) {
+		pba = E1000_PBA_26K;
+	} else if (hw->mac.type == e1000_pch_adp) {
+		pba = E1000_PBA_26K;
+	} else if (hw->mac.type == e1000_pch_mtp) {
+		pba = E1000_PBA_26K;
+	} else if (hw->mac.type == e1000_pch_lnp) {
+		pba = E1000_PBA_26K;
+	} else if (hw->mac.type == e1000_pch_rpl) {
+		pba = E1000_PBA_26K;
 	} else {
 		/*
 		 * Total FIFO is 40K
@@ -1866,7 +1887,7 @@ static mblk_t *e1000g_poll_ring(void *arg, int bytes_to_pickup)
 	e1000g_rx_ring_t	*rx_ring = (e1000g_rx_ring_t *)arg;
 	mblk_t			*mp = NULL;
 	mblk_t			*tail;
-	struct e1000g 		*adapter;
+	struct e1000g		*adapter;
 
 	adapter = rx_ring->adapter;
 
@@ -2301,7 +2322,7 @@ e1000g_global_reset(struct e1000g *Adapter)
  * bit is set.
  */
 static uint_t
-e1000g_intr_pciexpress(caddr_t arg)
+e1000g_intr_pciexpress(caddr_t arg, caddr_t arg1 __unused)
 {
 	struct e1000g *Adapter;
 	uint32_t icr;
@@ -2339,7 +2360,7 @@ e1000g_intr_pciexpress(caddr_t arg)
  * bit is set or not.
  */
 static uint_t
-e1000g_intr(caddr_t arg)
+e1000g_intr(caddr_t arg, caddr_t arg1 __unused)
 {
 	struct e1000g *Adapter;
 	uint32_t icr;
@@ -2915,8 +2936,8 @@ static int
 e1000g_rx_ring_intr_enable(mac_intr_handle_t intrh)
 {
 	e1000g_rx_ring_t	*rx_ring = (e1000g_rx_ring_t *)intrh;
-	struct e1000g 		*adapter = rx_ring->adapter;
-	struct e1000_hw 	*hw = &adapter->shared;
+	struct e1000g		*adapter = rx_ring->adapter;
+	struct e1000_hw		*hw = &adapter->shared;
 	uint32_t		intr_mask;
 
 	rw_enter(&adapter->chip_lock, RW_READER);
@@ -2948,8 +2969,8 @@ static int
 e1000g_rx_ring_intr_disable(mac_intr_handle_t intrh)
 {
 	e1000g_rx_ring_t	*rx_ring = (e1000g_rx_ring_t *)intrh;
-	struct e1000g 		*adapter = rx_ring->adapter;
-	struct e1000_hw 	*hw = &adapter->shared;
+	struct e1000g		*adapter = rx_ring->adapter;
+	struct e1000_hw		*hw = &adapter->shared;
 
 	rw_enter(&adapter->chip_lock, RW_READER);
 
@@ -3474,6 +3495,7 @@ reset:
 		case MAC_PROP_STATUS:
 		case MAC_PROP_SPEED:
 		case MAC_PROP_DUPLEX:
+		case MAC_PROP_MEDIA:
 			err = ENOTSUP; /* read-only prop. Can't set this. */
 			break;
 		case MAC_PROP_MTU:
@@ -3571,6 +3593,7 @@ e1000g_m_getprop(void *arg, const char *pr_name, mac_prop_id_t pr_num,
     uint_t pr_valsize, void *pr_val)
 {
 	struct e1000g *Adapter = arg;
+	struct e1000_hw *hw = &Adapter->shared;
 	struct e1000_fc_info *fc = &Adapter->shared.fc;
 	int err = 0;
 	link_flowctrl_t flowctrl;
@@ -3647,6 +3670,10 @@ e1000g_m_getprop(void *arg, const char *pr_name, mac_prop_id_t pr_num,
 		case MAC_PROP_ADV_100T4_CAP:
 		case MAC_PROP_EN_100T4_CAP:
 			*(uint8_t *)pr_val = Adapter->param_adv_100t4;
+			break;
+		case MAC_PROP_MEDIA:
+			*(mac_ether_media_t *)pr_val = e1000_link_to_media(hw,
+			    Adapter->link_speed);
 			break;
 		case MAC_PROP_PRIVATE:
 			err = e1000g_get_priv_prop(Adapter, pr_name,
@@ -6207,9 +6234,9 @@ e1000g_intr_add(struct e1000g *Adapter, int intr_type)
 	 * devices.
 	 */
 	if (Adapter->shared.mac.type < e1000_82571)
-		intr_handler = (ddi_intr_handler_t *)e1000g_intr;
+		intr_handler = e1000g_intr;
 	else
-		intr_handler = (ddi_intr_handler_t *)e1000g_intr_pciexpress;
+		intr_handler = e1000g_intr_pciexpress;
 
 	/* Call ddi_intr_add_handler() */
 	for (x = 0; x < actual; x++) {

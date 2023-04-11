@@ -11,6 +11,7 @@
 
 /*
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2021 Oxide Computer Company
  */
 
 /*
@@ -109,11 +110,16 @@ static cpc_whitelist_t cpcgen_intel_whitelist[] = {
 	{ "SKX", "skx", CPC_FILE_CORE },
 	/* Cascade Lake */
 	{ "CLX", "clx", CPC_FILE_CORE },
+	/* Ice Lake */
+	{ "ICL", "icl", CPC_FILE_CORE },
+	/* Tiger Lake */
+	{ "TGL", "tgl", CPC_FILE_CORE },
 	/* Atom */
 	{ "BNL", "bnl", CPC_FILE_CORE },
 	{ "SLM", "slm", CPC_FILE_CORE },
 	{ "GLM", "glm", CPC_FILE_CORE },
 	{ "GLP", "glp", CPC_FILE_CORE },
+	{ "SNR", "snr", CPC_FILE_CORE },
 	{ NULL }
 };
 
@@ -332,11 +338,11 @@ static const char *cpcgen_manual_amd_header = ""
 ".Os\n"
 ".Sh NAME\n"
 ".Nm amd_%s_events\n"
-".Nd AMD family %s processor performance monitoring events\n"
+".Nd AMD Family %s processor performance monitoring events\n"
 ".Sh DESCRIPTION\n"
-"This manual page describes events specfic to AMD family %s processors.\n"
+"This manual page describes events specfic to AMD Family %s processors.\n"
 "For more information, please consult the appropriate AMD BIOS and Kernel\n"
-"Developer's guide or Open-Source Register Reference manual.\n"
+"Developer's guide or Open-Source Register Reference.\n"
 ".Pp\n"
 "Each of the events listed below includes the AMD mnemonic which matches\n"
 "the name found in the AMD manual and a brief summary of the event.\n"
@@ -630,7 +636,7 @@ cpcgen_determine_vendor(const char *datadir)
  * Read in all the data files that exist for AMD.
  *
  * Our family names for AMD systems are based on the family and type so a given
- * name will look like f17h_core.json.
+ * name will look like f17h_<core>_core.json.
  */
 static void
 cpcgen_read_amd(const char *datadir, const char *platform)
@@ -660,16 +666,26 @@ cpcgen_read_amd(const char *datadir, const char *platform)
 			continue;
 		}
 
+		/*
+		 * Chop off the .json. Next, make sure we have both _ present.
+		 */
 		if (*(c + slen) != '\0') {
 			free(name);
 			continue;
 		}
-
 		*c = '\0';
+
 		c = strchr(name, '_');
 		if (c == NULL) {
-			free(name);
-			continue;
+			errx(EXIT_FAILURE, "unexpected AMD JSON file name: %s",
+			    d->d_name);
+		}
+
+		c++;
+		c = strchr(c, '_');
+		if (c == NULL) {
+			errx(EXIT_FAILURE, "unexpected AMD JSON file name: %s",
+			    d->d_name);
 		}
 		*c = '\0';
 		c++;
@@ -1058,6 +1074,13 @@ cpcgen_cfile_intel_event(FILE *f, nvlist_t *nvl, const char *path, uint_t ent)
 		cmask = "C0|C1|C2";
 	} else if (strcmp(counter, "0,1,2,3") == 0) {
 		cmask = "C0|C1|C2|C3";
+	} else if (strcmp(counter, "0,1,2,3,4,5,6,7") == 0) {
+		/*
+		 * We don't support the larger number of counters on some
+		 * platforms right now, so just truncate it to the supported
+		 * set.
+		 */
+		cmask = "C0|C1|C2|C3";
 	} else if (strcmp(counter, "0,2,3") == 0) {
 		cmask = "C0|C2|C3";
 	} else if (strcmp(counter, "1,2,3") == 0) {
@@ -1335,7 +1358,8 @@ cpcgen_common_intel_files(int dirfd)
  *   another field.
  * - Offcore is one, indicating that it is off the core and we need to figure
  *   out if we can support this.
- * - If the counter is fixed, don't use it for now.
+ * - If the counter is fixed, don't use it for now. "32"-"35" is another name
+ *    for the fixed counters.
  * - If more than one value is specified in the EventCode or UMask values
  */
 static boolean_t
@@ -1388,6 +1412,9 @@ cpcgen_skip_intel_entry(nvlist_t *nvl, const char *path, uint_t ent)
 
 	if (strncasecmp(counter, "fixed", strlen("fixed")) == 0)
 		return (B_TRUE);
+	if (strcmp(counter, "32") == 0 || strcmp(counter, "33") == 0 ||
+	    strcmp(counter, "34") == 0 || strcmp(counter, "35") == 0)
+		return (B_TRUE);
 
 	return (B_FALSE);
 }
@@ -1408,11 +1435,16 @@ static boolean_t
 cpcgen_manual_amd_file_before(FILE *f, cpc_map_t *map)
 {
 	size_t i;
-	char *upper;
-	const char *family;
+	char *upper, *desc, *c;
 
 	if ((upper = strdup(map->cmap_name)) == NULL) {
 		warn("failed to duplicate manual name for %s", map->cmap_name);
+		return (B_FALSE);
+	}
+
+	if ((desc = strdup(map->cmap_name + 1)) == NULL) {
+		warn("failed to duplicate manual name for %s", map->cmap_name);
+		free(upper);
 		return (B_FALSE);
 	}
 
@@ -1420,17 +1452,24 @@ cpcgen_manual_amd_file_before(FILE *f, cpc_map_t *map)
 		upper[i] = toupper(upper[i]);
 	}
 
-	family = map->cmap_name + 1;
+	c = strchr(desc, '_');
+	if (c != NULL) {
+		*c = ' ';
+		c++;
+		*c = toupper(*c);
+	}
 
 	if (fprintf(f, cpcgen_manual_amd_header, map->cmap_path, upper,
-	    family, family, family) == -1) {
+	    map->cmap_name, desc, desc) == -1) {
 		warn("failed to write out manual header for %s",
 		    map->cmap_name);
 		free(upper);
+		free(desc);
 		return (B_FALSE);
 	}
 
 	free(upper);
+	free(desc);
 	return (B_TRUE);
 }
 

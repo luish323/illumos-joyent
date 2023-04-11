@@ -115,8 +115,8 @@ static int
 drvinstpart2dev(char *driver, int instance, char *part,
     char **devpathp, char **adevpathp, char **devidp)
 {
-	minor_match_t	*mm, **mma = mma_disk_tape_misc;
-	char		*devpath;
+	minor_match_t	*mm = NULL, **mma = mma_disk_tape_misc;
+	char		*devpath = NULL;
 	char		*devid;
 	char		*devicespath;
 	di_node_t	node;
@@ -291,7 +291,7 @@ lookup_ks_name(char *ks_name, int want_devid)
 		goto fail;
 
 	part = strchr(ks_name, ',');		/* start of ",<partition>" */
-	p = strchr(ks_name, ':'); 		/* start of ":<partition>" */
+	p = strchr(ks_name, ':');		/* start of ":<partition>" */
 	if (part != NULL && p != NULL)
 		goto fail;			/* can't have both */
 	if (p != NULL)
@@ -508,7 +508,7 @@ again:
 	if (*cp == ',') {
 		cp++;
 		while (*cp != ':') {
-			if (*cp == NULL)
+			if (*cp == '\0')
 				return (NULL);
 			cp++;
 		}
@@ -520,7 +520,7 @@ again:
 	 */
 	while (*cp) {
 		if (isspace(*cp) || *cp == ',') {
-			*cp = NULL;
+			*cp = '\0';
 			return (path);
 		}
 		cp++;

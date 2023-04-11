@@ -23,9 +23,6 @@
 #
 
 #
-#	This makefile drives the production of the nca driver 
-#	kernel module.
-#
 #	sparc architecture dependent
 #
 
@@ -39,7 +36,6 @@ UTSBASE	= ../..
 #
 MODULE		= sockrds
 OBJECTS		= $(RDS_SOCK_MOD_OBJS:%=$(OBJS_DIR)/%)
-LINTS		= $(RDS_SOCK_MOD_OBJS:%.o=$(LINTS_DIR)/%.ln)
 ROOTMODULE	= $(ROOT_SOCK_DIR)/$(MODULE)
 
 #
@@ -51,15 +47,11 @@ include $(UTSBASE)/sparc/Makefile.sparc
 #	Define targets
 #
 ALL_TARGET	= $(BINARY)
-LINT_TARGET	= $(MODULE).lint
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 
-#
-# lint pass one enforcement and OS version
-#
 CFLAGS += $(CCVERBOSE)
 
-LDFLAGS += -dy -Nfs/sockfs -Ndrv/ip -Ndrv/rdsv3
+LDFLAGS += -Nfs/sockfs -Ndrv/ip -Ndrv/rdsv3
 
 #
 #	Default build targets.
@@ -73,12 +65,6 @@ all:		$(ALL_DEPS)
 clean:		$(CLEAN_DEPS)
 
 clobber:	$(CLOBBER_DEPS)
-
-lint:		$(LINT_DEPS)
-
-modlintlib:	$(MODLINTLIB_DEPS)
-
-clean.lint:	$(CLEAN_LINT_DEPS)
 
 install:	$(INSTALL_DEPS)
 

@@ -24,7 +24,7 @@
  */
 
 /*
- * Copyright (c) 2018, Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
  * Copyright (c) 2013, 2015 by Delphix. All rights reserved.
  */
 
@@ -927,7 +927,7 @@ umem_read_magazines(umem_cache_t *cp, uintptr_t addr,
 	 * list plus at most two magazines per CPU (the loaded and the
 	 * spare).  Toss in 100 magazines as a fudge factor in case this
 	 * is live (the number "100" comes from the same fudge factor in
-	 * crash(1M)).
+	 * crash(8)).
 	 */
 	magmax = (cp->cache_full.ml_total + 2 * umem_max_ncpus + 100) * magsize;
 	magbsize = offsetof(umem_magazine_t, mag_round[magsize]);
@@ -1119,7 +1119,7 @@ umem_walk_init_common(mdb_walk_state_t *wsp, int type)
 
 	size_t magmax, magcnt;
 	void **maglist = NULL;
-	uint_t chunksize, slabsize;
+	uint_t chunksize = 1, slabsize = 1;
 	int status = WALK_ERR;
 	uintptr_t addr = wsp->walk_addr;
 	const char *layered;
@@ -3543,7 +3543,7 @@ umalog(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 }
 
 /*
- * As the final lure for die-hard crash(1M) users, we provide ::umausers here.
+ * As the final lure for die-hard crash(8) users, we provide ::umausers here.
  * The first piece is a structure which we use to accumulate umem_cache_t
  * addresses of interest.  The umc_add is used as a callback for the umem_cache
  * walker; we either add all caches, or ones named explicitly as arguments.
@@ -4089,7 +4089,7 @@ umem_malloc_dist(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	    'g', MDB_OPT_SETBITS, TRUE, &geometric,
 	    'b', MDB_OPT_UINTPTR, &maxbuckets,
 	    'B', MDB_OPT_UINTPTR, &minbucketsize,
-	    0) != argc)
+	    NULL) != argc)
 		return (DCMD_USAGE);
 
 	bzero(&mi, sizeof (mi));
@@ -4165,7 +4165,7 @@ umem_malloc_info(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	    'g', MDB_OPT_SETBITS, TRUE, &geometric,
 	    'b', MDB_OPT_UINTPTR, &maxbuckets,
 	    'B', MDB_OPT_UINTPTR, &minbucketsize,
-	    0) != argc)
+	    NULL) != argc)
 		return (DCMD_USAGE);
 
 	if (dump || geometric || (maxbuckets != 0) || (minbucketsize != 0))

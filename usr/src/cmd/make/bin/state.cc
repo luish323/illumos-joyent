@@ -93,7 +93,7 @@ static char * escape_target_name(Name np)
 	}
 }
 
-static	void		print_auto_depes(register Dependency dependency, register FILE *fd, register Boolean built_this_run, register int *line_length, register char *target_name, jmp_buf long_jump);
+static	void		print_auto_depes(Dependency dependency, FILE *fd, Boolean built_this_run, int *line_length, char *target_name, jmp_buf long_jump);
 
 /*
  *	write_state_file(report_recursive, exiting)
@@ -120,21 +120,21 @@ static	void		print_auto_depes(register Dependency dependency, register FILE *fd,
 void
 write_state_file(int, Boolean exiting)
 {
-	register FILE		*fd;
+	FILE		*fd;
 	int			lock_err;
 	char			buffer[MAXPATHLEN];
 	char			make_state_tempfile[MAXPATHLEN];
 	jmp_buf			long_jump;
-	register int		attempts = 0;
+	int		attempts = 0;
 	Name_set::iterator	np, e;
-	register Property	lines;
-	register int		m;
+	Property	lines;
+	int		m;
 	Dependency		dependency;
-	register Boolean	name_printed;
+	Boolean	name_printed;
 	Boolean			built_this_run = false;
 	char			*target_name;
 	int			line_length;
-	register Cmd_line	cp;
+	Cmd_line	cp;
 
 
 	if (!rewrite_statefile ||
@@ -145,22 +145,22 @@ write_state_file(int, Boolean exiting)
 		return;
 	}
 	/* Lock the file for writing. */
- 	make_state_lockfile = getmem(strlen(make_state->string_mb) + strlen(".lock") + 1);
- 	(void) sprintf(make_state_lockfile,
- 	               "%s.lock",
- 	               make_state->string_mb);
-	if (lock_err = file_lock(make_state->string_mb, 
-				 make_state_lockfile, 
+	make_state_lockfile = getmem(strlen(make_state->string_mb) + strlen(".lock") + 1);
+	(void) sprintf(make_state_lockfile,
+	               "%s.lock",
+	               make_state->string_mb);
+	if (lock_err = file_lock(make_state->string_mb,
+				 make_state_lockfile,
 				 (int *) &make_state_locked, 0)) {
- 		retmem_mb(make_state_lockfile);
+		retmem_mb(make_state_lockfile);
 		make_state_lockfile = NULL;
-		
+
 		/*
 		 * We need to make sure that we are not being
 		 * called by the exit handler so we don't call
 		 * it again.
 		 */
-		
+
 		if (exiting) {
 			(void) sprintf(buffer, "%s/.make.state.%d.XXXXXX", tmpdir, getpid());
 			report_pwd = true;
@@ -187,7 +187,7 @@ write_state_file(int, Boolean exiting)
 	if ((fd = fopen(make_state_tempfile, "w")) == NULL) {
 		lock_err = errno; /* Save it! unlink() can change errno */
 		(void) unlink(make_state_lockfile);
- 		retmem_mb(make_state_lockfile);
+		retmem_mb(make_state_lockfile);
 		make_state_lockfile = NULL;
 		make_state_locked = false;
 		fatal(gettext("Could not open temporary statefile `%s': %s"),
@@ -204,7 +204,7 @@ write_state_file(int, Boolean exiting)
 			if ((make_state_lockfile != NULL) &&
 			    make_state_locked) {
 				(void) unlink(make_state_lockfile);
- 				retmem_mb(make_state_lockfile);
+				retmem_mb(make_state_lockfile);
 				make_state_lockfile = NULL;
 				make_state_locked = false;
 			}
@@ -362,7 +362,7 @@ write_state_file(int, Boolean exiting)
 			/* Delete temporary statefile */
 			(void) unlink(make_state_tempfile);
 			(void) unlink(make_state_lockfile);
-	 		retmem_mb(make_state_lockfile);
+			retmem_mb(make_state_lockfile);
 			make_state_lockfile = NULL;
 			make_state_locked = false;
 			fatal(gettext("Could not delete old statefile `%s': %s"),
@@ -374,7 +374,7 @@ write_state_file(int, Boolean exiting)
 			/* Delete temporary statefile */
 			(void) unlink(make_state_tempfile);
 			(void) unlink(make_state_lockfile);
-	 		retmem_mb(make_state_lockfile);
+			retmem_mb(make_state_lockfile);
 			make_state_lockfile = NULL;
 			make_state_locked = false;
 			fatal(gettext("Could not rename `%s' to `%s': %s"),
@@ -385,7 +385,7 @@ write_state_file(int, Boolean exiting)
 	}
 	if ((make_state_lockfile != NULL) && make_state_locked) {
 		(void) unlink(make_state_lockfile);
- 		retmem_mb(make_state_lockfile);
+		retmem_mb(make_state_lockfile);
 		make_state_lockfile = NULL;
 		make_state_locked = false;
 	}
@@ -410,14 +410,14 @@ write_state_file(int, Boolean exiting)
  *		force		The Name " FORCE", compared against
  */
 static void
-print_auto_depes(register Dependency dependency, register FILE *fd, register Boolean built_this_run, register int *line_length, register char *target_name, jmp_buf long_jump)
+print_auto_depes(Dependency dependency, FILE *fd, Boolean built_this_run, int *line_length, char *target_name, jmp_buf long_jump)
 {
 	if (!dependency->automatic ||
 	    dependency->stale ||
 	    (dependency->name == force)) {
 		return;
 	}
-	XFWRITE(dependency->name->string_mb, 
+	XFWRITE(dependency->name->string_mb,
 		strlen(dependency->name->string_mb),
 		fd);
 	/*

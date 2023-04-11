@@ -38,6 +38,8 @@ clean	:=	TARGET = clean
 clobber	:=	TARGET = clobber
 lint	:=	TARGET = lint
 
+CFLAGS += $(CCVERBOSE)
+
 XGETFLAGS += -a -x zoneadmd.xcl
 
 ROOTUSRLIBZONES			= $(ROOT)/usr/lib/zones
@@ -58,7 +60,8 @@ install: $(SUBDIRS)
 
 $(POFILE):
 
-clean clobebr lint:	$(SUBDIRS)
+clean:
+	$(RM) $(OBJS)
 
 check:
 	$(CSTYLE) -p -P *.c

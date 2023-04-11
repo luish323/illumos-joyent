@@ -39,8 +39,8 @@ include ../../../common/modules/zfs/Makefile.zfs
 
 CPPFLAGS += -I../../../../../uts/common/fs/zfs
 CPPFLAGS += -I../../../../../uts/common/fs/zfs/lua
+CPPFLAGS += -I../../../../../common/zfs
 
 CSTD=	$(CSTD_GNU99)
-C99LMODE=	-Xc99=%all
 
 CERRWARN 	+= -_gcc=-Wno-type-limits

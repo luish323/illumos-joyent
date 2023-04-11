@@ -72,7 +72,10 @@
 #include "sys/stat.h"
 #include "debug.h"
 
+
 #define	OLD_DEBUG(x)
+
+OLD_DEBUG(static int debug_value);
 
 #define	Print	(void) printf
 #define	Fprint	(void) fprintf
@@ -206,7 +209,6 @@ struct snymEntry {
 };
 
 
-#define	AOUTHSZ		(filhdr.f_opthdr)
 PROF_FILE	filhdr;			/* profile file descriptor */
 Elf32_Shdr	*scnhdrp;	/* pointer to first section header */
 					/* (space by _prof_Malloc) */

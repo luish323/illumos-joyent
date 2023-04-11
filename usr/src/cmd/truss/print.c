@@ -21,11 +21,13 @@
 
 /*
  * Copyright (c) 1989, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2017, Joyent, Inc. All rights reserved.
+ * Copyright 2020 Joyent, Inc.
+ * Copyright 2022 Garrett D'Amore
+ * Copyright 2022 Oxide Computer Company
  */
 
 /*	Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T	*/
-/*	  All Rights Reserved  	*/
+/*	  All Rights Reserved	*/
 
 /* Copyright (c) 2013, OmniTI Computer Consulting, Inc. All rights reserved. */
 
@@ -75,6 +77,8 @@
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 #include <netinet/sctp.h>
+#include <netinet/ip_mroute.h>
+#include <netinet/icmp6.h>
 #include <net/route.h>
 #include <sys/utrap.h>
 #include <sys/lgrp_user.h>
@@ -1495,7 +1499,7 @@ print_pck(private_t *pri, int raw, long val)
 		return;
 	}
 
-	if (pri->sys_args[3] == NULL) {
+	if (pri->sys_args[3] == 0) {
 		if (val == PC_KY_CLNAME) {
 			s = "PC_KY_CLNAME";
 			outstring(pri, s);
@@ -1511,20 +1515,20 @@ print_pck(private_t *pri, int raw, long val)
 
 	if (strcmp(clname, "TS") == 0) {
 		switch (val) {
-		case TS_KY_UPRILIM: 	s = "TS_KY_UPRILIM";	break;
+		case TS_KY_UPRILIM:	s = "TS_KY_UPRILIM";	break;
 		case TS_KY_UPRI:	s = "TS_KY_UPRI";	break;
 		default:					break;
 		}
 	} else if (strcmp(clname, "IA") == 0) {
 		switch (val) {
-		case IA_KY_UPRILIM: 	s = "IA_KY_UPRILIM";	break;
+		case IA_KY_UPRILIM:	s = "IA_KY_UPRILIM";	break;
 		case IA_KY_UPRI:	s = "IA_KY_UPRI";	break;
 		case IA_KY_MODE:	s = "IA_KY_MODE";	break;
 		default:					break;
 		}
 	} else if (strcmp(clname, "RT") == 0) {
 		switch (val) {
-		case RT_KY_PRI: 	s = "RT_KY_PRI";	break;
+		case RT_KY_PRI:		s = "RT_KY_PRI";	break;
 		case RT_KY_TQSECS:	s = "RT_KY_TQSECS";	break;
 		case RT_KY_TQNSECS:	s = "RT_KY_TQNSECS";	break;
 		case RT_KY_TQSIG:	s = "RT_KY_TQSIG";	break;
@@ -1532,13 +1536,13 @@ print_pck(private_t *pri, int raw, long val)
 		}
 	} else if (strcmp(clname, "FSS") == 0) {
 		switch (val) {
-		case FSS_KY_UPRILIM: 	s = "FSS_KY_UPRILIM";	break;
+		case FSS_KY_UPRILIM:	s = "FSS_KY_UPRILIM";	break;
 		case FSS_KY_UPRI:	s = "FSS_KY_UPRI";	break;
 		default:					break;
 		}
 	} else if (strcmp(clname, "FX") == 0) {
 		switch (val) {
-		case FX_KY_UPRILIM: 	s = "FX_KY_UPRILIM";	break;
+		case FX_KY_UPRILIM:	s = "FX_KY_UPRILIM";	break;
 		case FX_KY_UPRI:	s = "FX_KY_UPRI";	break;
 		case FX_KY_TQSECS:	s = "FX_KY_TQSECS";	break;
 		case FX_KY_TQNSECS:	s = "FX_KY_TQNSECS";	break;
@@ -1610,6 +1614,8 @@ prt_pc5(private_t *pri, int raw, long val)
 void
 prt_psflags(private_t *pri, secflagset_t val)
 {
+	size_t len;
+	char *ptr;
 	char str[1024];
 
 	if (val == 0) {
@@ -1633,8 +1639,11 @@ prt_psflags(private_t *pri, secflagset_t val)
 		secflag_clear(&val, PROC_SEC_NOEXECSTACK);
 	}
 
-	if (val != 0)
-		(void) snprintf(str, sizeof (str), "%s|%#x", str, val);
+	if (val != 0) {
+		len = strlen(str);
+		ptr = str + len;
+		(void) snprintf(ptr, sizeof (str) - len, "|%#x", val);
+	}
 
 	outstring(pri, str + 1);
 }
@@ -1858,13 +1867,14 @@ prt_skp(private_t *pri, int raw, long val)
 	switch (pri->sys_args[0]) {
 	case PF_INET6:
 	case PF_INET:
-	case PF_NCA:	if ((s = ipprotos((int)val)) != NULL) {
-				outstring(pri, s);
-				break;
-			}
-			/* FALLTHROUGH */
-	default:	prt_dec(pri, 0, val);
+		if ((s = ipprotos((int)val)) != NULL) {
+			outstring(pri, s);
 			break;
+		}
+		/* FALLTHROUGH */
+	default:
+		prt_dec(pri, 0, val);
+		break;
 	}
 }
 
@@ -2044,6 +2054,7 @@ tcp_optname(private_t *pri, long val)
 	case TCP_KEEPIDLE:		return ("TCP_KEEPIDLE");
 	case TCP_KEEPCNT:		return ("TCP_KEEPCNT");
 	case TCP_KEEPINTVL:		return ("TCP_KEEPINTVL");
+	case TCP_CONGESTION:		return ("TCP_CONGESTION");
 
 	default:			(void) snprintf(pri->code_buf,
 					    sizeof (pri->code_buf),
@@ -2107,6 +2118,127 @@ udp_optname(private_t *pri, long val)
 }
 
 
+const char *
+ip_optname(private_t *pri, long val)
+{
+	switch (val) {
+	case IP_OPTIONS:		return ("IP_OPTIONS");
+	case IP_HDRINCL:		return ("IP_HDRINCL");
+	case IP_TOS:			return ("IP_TOS");
+	case IP_TTL:			return ("IP_TTL");
+	case IP_RECVOPTS:		return ("IP_RECVOPTS");
+	case IP_RECVRETOPTS:		return ("IP_RECVRETOPTS");
+	case IP_RECVDSTADDR:		return ("IP_RECVDSTADDR");
+	case IP_RETOPTS:		return ("IP_RETOPTS");
+	case IP_RECVIF:			return ("IP_RECVIF");
+	case IP_RECVSLLA:		return ("IP_RECVSLLA");
+	case IP_RECVTTL:		return ("IP_RECVTTL");
+	case IP_RECVTOS:		return ("IP_RECVTOS");
+	case IP_MULTICAST_IF:		return ("IP_MULTICAST_IF");
+	case IP_MULTICAST_TTL:		return ("IP_MULTICAST_TTL");
+	case IP_MULTICAST_LOOP:		return ("IP_MULTICAST_LOOP");
+	case IP_ADD_MEMBERSHIP:		return ("IP_ADD_MEMBERSHIP");
+	case IP_DROP_MEMBERSHIP:	return ("IP_DROP_MEMBERSHIP");
+	case IP_BLOCK_SOURCE:		return ("IP_BLOCK_SOURCE");
+	case IP_UNBLOCK_SOURCE:		return ("IP_UNBLOCK_SOURCE");
+	case IP_ADD_SOURCE_MEMBERSHIP:	return ("IP_ADD_SOURCE_MEMBERSHIP");
+	case IP_DROP_SOURCE_MEMBERSHIP:	return ("IP_DROP_SOURCE_MEMBERSHIP");
+	case IP_NEXTHOP:		return ("IP_NEXTHOP");
+	/* IP_PKTINFO and IP_RECVPKTINFO share the same code */
+	case IP_PKTINFO:		return ("IP_PKTINFO/IP_RECVPKTINFO");
+	case IP_DONTFRAG:		return ("IP_DONTFRAG");
+	case IP_SEC_OPT:		return ("IP_SEC_OPT");
+	case MCAST_JOIN_GROUP:		return ("MCAST_JOIN_GROUP");
+	case MCAST_LEAVE_GROUP:		return ("MCAST_LEAVE_GROUP");
+	case MCAST_BLOCK_SOURCE:	return ("MCAST_BLOCK_SOURCE");
+	case MCAST_UNBLOCK_SOURCE:	return ("MCAST_UNBLOCK_SOURCE");
+	case MCAST_JOIN_SOURCE_GROUP:	return ("MCAST_JOIN_SOURCE_GROUP");
+	case MCAST_LEAVE_SOURCE_GROUP:	return ("MCAST_LEAVE_SOURCE_GROUP");
+	case MRT_INIT:			return ("MRT_INIT");
+	case MRT_DONE:			return ("MRT_DONE");
+	case MRT_ADD_VIF:		return ("MRT_ADD_VIF");
+	case MRT_DEL_VIF:		return ("MRT_DEL_VIF");
+	case MRT_ADD_MFC:		return ("MRT_ADD_MFC");
+	case MRT_DEL_MFC:		return ("MRT_DEL_MFC");
+	case MRT_VERSION:		return ("MRT_VERSION");
+	case MRT_ASSERT:		return ("MRT_ASSERT");
+	case IP_BOUND_IF:		return ("IP_BOUND_IF");
+	case IP_UNSPEC_SRC:		return ("IP_UNSPEC_SRC");
+	case IP_BROADCAST_TTL:		return ("IP_BROADCAST_TTL");
+	case IP_DHCPINIT_IF:		return ("IP_DHCPINIT_IF");
+	case IP_REUSEADDR:		return ("IP_REUSEADDR");
+	case IP_DONTROUTE:		return ("IP_DONTROUTE");
+	case IP_BROADCAST:		return ("IP_BROADCAST");
+
+	default:			(void) snprintf(pri->code_buf,
+					    sizeof (pri->code_buf), "0x%lx",
+					    val);
+					return (pri->code_buf);
+	}
+}
+
+const char *
+ipv6_optname(private_t *pri, long val)
+{
+	switch (val) {
+	case IPV6_UNICAST_HOPS:		return ("IPV6_UNICAST_HOPS");
+	case IPV6_MULTICAST_IF:		return ("IPV6_MULTICAST_IF");
+	case IPV6_MULTICAST_HOPS:	return ("IPV6_MULTICAST_HOPS");
+	case IPV6_MULTICAST_LOOP:	return ("IPV6_MULTICAST_LOOP");
+	case IPV6_JOIN_GROUP:		return ("IPV6_JOIN_GROUP");
+	case IPV6_LEAVE_GROUP:		return ("IPV6_LEAVE_GROUP");
+	case IPV6_PKTINFO:		return ("IPV6_PKTINFO");
+	case IPV6_HOPLIMIT:		return ("IPV6_HOPLIMIT");
+	case IPV6_NEXTHOP:		return ("IPV6_NEXTHOP");
+	case IPV6_HOPOPTS:		return ("IPV6_HOPOPTS");
+	case IPV6_DSTOPTS:		return ("IPV6_DSTOPTS");
+	case IPV6_RTHDR:		return ("IPV6_RTHDR");
+	case IPV6_RTHDRDSTOPTS:		return ("IPV6_RTHDRDSTOPTS");
+	case IPV6_RECVPKTINFO:		return ("IPV6_RECVPKTINFO");
+	case IPV6_RECVHOPLIMIT:		return ("IPV6_RECVHOPLIMIT");
+	case IPV6_RECVHOPOPTS:		return ("IPV6_RECVHOPOPTS");
+	case _OLD_IPV6_RECVDSTOPTS:	return ("_OLD_IPV6_RECVDSTOPTS");
+	case IPV6_RECVRTHDR:		return ("IPV6_RECVRTHDR");
+	case IPV6_RECVRTHDRDSTOPTS:	return ("IPV6_RECVRTHDRDSTOPTS");
+	case IPV6_CHECKSUM:		return ("IPV6_CHECKSUM");
+	case IPV6_RECVTCLASS:		return ("IPV6_RECVTCLASS");
+	case IPV6_USE_MIN_MTU:		return ("IPV6_USE_MIN_MTU");
+	case IPV6_DONTFRAG:		return ("IPV6_DONTFRAG");
+	case IPV6_SEC_OPT:		return ("IPV6_SEC_OPT");
+	case IPV6_SRC_PREFERENCES:	return ("IPV6_SRC_PREFERENCES");
+	case IPV6_RECVPATHMTU:		return ("IPV6_RECVPATHMTU");
+	case IPV6_PATHMTU:		return ("IPV6_PATHMTU");
+	case IPV6_TCLASS:		return ("IPV6_TCLASS");
+	case IPV6_V6ONLY:		return ("IPV6_V6ONLY");
+	case IPV6_RECVDSTOPTS:		return ("IPV6_RECVDSTOPTS");
+	case MCAST_JOIN_GROUP:		return ("MCAST_JOIN_GROUP");
+	case MCAST_LEAVE_GROUP:		return ("MCAST_LEAVE_GROUP");
+	case MCAST_BLOCK_SOURCE:	return ("MCAST_BLOCK_SOURCE");
+	case MCAST_UNBLOCK_SOURCE:	return ("MCAST_UNBLOCK_SOURCE");
+	case MCAST_JOIN_SOURCE_GROUP:	return ("MCAST_JOIN_SOURCE_GROUP");
+	case MCAST_LEAVE_SOURCE_GROUP:	return ("MCAST_LEAVE_SOURCE_GROUP");
+
+	default:			(void) snprintf(pri->code_buf,
+					    sizeof (pri->code_buf), "0x%lx",
+					    val);
+					return (pri->code_buf);
+	}
+}
+
+
+const char *
+icmpv6_optname(private_t *pri, long val)
+{
+	switch (val) {
+	case ICMP6_FILTER:		return ("ICMP6_FILTER");
+	default:			(void) snprintf(pri->code_buf,
+					    sizeof (pri->code_buf), "0x%lx",
+					    val);
+					return (pri->code_buf);
+	}
+}
+
+
 /*
  * Print setsockopt()/getsockopt() 3rd argument.
  */
@@ -2119,6 +2251,12 @@ prt_son(private_t *pri, int raw, long val)
 	case SOL_SOCKET:	outstring(pri, sol_optname(pri, val));
 				break;
 	case SOL_ROUTE:		outstring(pri, route_optname(pri, val));
+				break;
+	case IPPROTO_IP:	outstring(pri, ip_optname(pri, val));
+				break;
+	case IPPROTO_IPV6:	outstring(pri, ipv6_optname(pri, val));
+				break;
+	case IPPROTO_ICMPV6:	outstring(pri, icmpv6_optname(pri, val));
 				break;
 	case IPPROTO_TCP:	outstring(pri, tcp_optname(pri, val));
 				break;
@@ -2545,8 +2683,21 @@ prt_zga(private_t *pri, int raw, long val)
 		case ZONE_ATTR_INITNAME:	s = "ZONE_ATTR_INITNAME"; break;
 		case ZONE_ATTR_BOOTARGS:	s = "ZONE_ATTR_BOOTARGS"; break;
 		case ZONE_ATTR_BRAND:	s = "ZONE_ATTR_BRAND"; break;
+		case ZONE_ATTR_SCHED_CLASS: s = "ZONE_ATTR_SCHED_CLASS"; break;
 		case ZONE_ATTR_FLAGS:	s = "ZONE_ATTR_FLAGS"; break;
-		case ZONE_ATTR_DID:	s = "ZONE_ATTR_DID"; break;
+		case ZONE_ATTR_HOSTID:	s = "ZONE_ATTR_HOSTID"; break;
+		case ZONE_ATTR_FS_ALLOWED: s = "ZONE_ATTR_FS_ALLOWED"; break;
+		case ZONE_ATTR_NETWORK:	s = "ZONE_ATTR_NETWORK"; break;
+		case ZONE_ATTR_INITNORESTART: s = "ZONE_ATTR_INITNORESTART";
+			break;
+		case ZONE_ATTR_SECFLAGS: s = "ZONE_ATTR_SECFLAGS"; break;
+		case ZONE_ATTR_INITRESTART0: s = "ZONE_ATTR_INITRESTART0";
+			break;
+		case ZONE_ATTR_INITREBOOT: s = "ZONE_ATTR_INITREBOOT"; break;
+		case ZONE_ATTR_DID: s = "ZONE_ATTR_DID"; break;
+		case ZONE_ATTR_APP_SVC_CT: s = "ZONE_ATTR_APP_SVC_CT"; break;
+		case ZONE_ATTR_SCHED_FIXEDHI: s = "ZONE_ATTR_SCHED_FIXEDHI";
+			break;
 		}
 	}
 

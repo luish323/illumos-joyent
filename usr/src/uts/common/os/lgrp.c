@@ -848,6 +848,7 @@ lgrp_create(void)
 	int		i;
 
 	ASSERT(!lgrp_initialized || MUTEX_HELD(&cpu_lock));
+	lgrpid = 0;
 
 	/*
 	 * Find an open slot in the lgroup table and recycle unused lgroup
@@ -1346,6 +1347,10 @@ lgrp_mem_init(int mnode, lgrp_handle_t hand, boolean_t is_copy_rename)
 			klgrpset_add(changed, lgrp->lgrp_id);
 			count++;
 		}
+	} else {
+		if (drop_lock)
+			mutex_exit(&cpu_lock);
+		return;
 	}
 
 	/*
@@ -1444,8 +1449,8 @@ lgrp_mem_fini(int mnode, lgrp_handle_t hand, boolean_t is_copy_rename)
 		 * Remove memory node from lgroup.
 		 */
 		lgrp->lgrp_mnodes &= ~mnodes_mask;
+		ASSERT(lgrp->lgrp_nmnodes > 0);
 		lgrp->lgrp_nmnodes--;
-		ASSERT(lgrp->lgrp_nmnodes >= 0);
 	}
 	ASSERT(lgrp_root->lgrp_nmnodes > 0);
 
@@ -2155,8 +2160,8 @@ lpl_topo_verify(cpupart_t *cpupart)
 
 		/* do the parent lgroups exist and do they match? */
 		if (lgrp->lgrp_parent) {
-			ASSERT(lpl->lpl_parent);
-			ASSERT(lgrp->lgrp_parent->lgrp_id ==
+			ASSERT(lpl->lpl_parent != NULL &&
+			    lgrp->lgrp_parent->lgrp_id ==
 			    lpl->lpl_parent->lpl_lgrpid);
 
 			if (!lpl->lpl_parent) {
@@ -3570,6 +3575,8 @@ lgrp_shm_policy_get(struct anon_map *amp, ulong_t anon_index, vnode_t *vp,
 	avl_tree_t		*tree;
 	avl_index_t		where;
 
+	shm_locality = NULL;
+	tree = NULL;
 	/*
 	 * Get policy segment tree from anon_map or vnode and use specified
 	 * anon index or vnode offset as offset
@@ -4093,12 +4100,13 @@ lgrp_shm_policy_split(avl_tree_t *tree, lgrp_shm_policy_seg_t *seg,
 	lgrp_shm_policy_seg_t	*newseg;
 	avl_index_t		where;
 
-	ASSERT(seg != NULL);
-	ASSERT(off >= seg->shm_off && off <= seg->shm_off + seg->shm_size);
+	ASSERT(seg != NULL && (off >= seg->shm_off &&
+	    off <= seg->shm_off + seg->shm_size));
 
-	if (!seg || off < seg->shm_off || off > seg->shm_off +
-	    seg->shm_size)
+	if (!seg || off < seg->shm_off ||
+	    off > seg->shm_off + seg->shm_size) {
 		return (NULL);
+	}
 
 	if (off == seg->shm_off || off == seg->shm_off + seg->shm_size)
 		return (seg);

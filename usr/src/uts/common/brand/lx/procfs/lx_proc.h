@@ -21,7 +21,8 @@
 /*
  * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Copyright 2017 Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
+ * Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
  */
 
 #ifndef	_LX_PROC_H
@@ -135,6 +136,8 @@ typedef enum lxpr_nodetype {
 	LXPR_PID_TASK_IDDIR,	/* /proc/<pid>/task/<tid>		*/
 	LXPR_PID_FDDIR,		/* /proc/<pid>/fd	*/
 	LXPR_PID_FD_FD,		/* /proc/<pid>/fd/nn	*/
+	LXPR_PID_FDINFODIR,	/* /proc/<pid>/fdinfo	*/
+	LXPR_PID_FDINFO_FD,	/* /proc/<pid>/fdinfo/nn	*/
 	LXPR_PID_UIDMAP,	/* /proc/<pid>/uid_map	*/
 	LXPR_PID_TID_AUXV,	/* /proc/<pid>/task/<tid>/auxv		*/
 	LXPR_PID_TID_CGROUP,	/* /proc/<pid>/task/<tid>/cgroup	*/
@@ -158,6 +161,8 @@ typedef enum lxpr_nodetype {
 	LXPR_PID_TID_STATUS,	/* /proc/<pid>/task/<tid>/status	*/
 	LXPR_PID_TID_FDDIR,	/* /proc/<pid>/task/<tid>/fd		*/
 	LXPR_PID_TID_FD_FD,	/* /proc/<pid>/task/<tid>/fd/nn		*/
+	LXPR_PID_TID_FDINFODIR,	/* /proc/<pid>/task/<tid>/fdinfo	*/
+	LXPR_PID_TID_FDINFO_FD,	/* /proc/<pid>/task/<tid>/fdinfo/nn	*/
 	LXPR_PID_TID_UIDMAP,	/* /proc/<pid>/task/<tid>/uid_map	*/
 	LXPR_CGROUPS,		/* /proc/cgroups	*/
 	LXPR_CMDLINE,		/* /proc/cmdline	*/
@@ -225,6 +230,7 @@ typedef enum lxpr_nodetype {
 	LXPR_SYS_KERNEL_RANDDIR,	/* /proc/sys/kernel/random */
 	LXPR_SYS_KERNEL_RAND_BOOTID, /* /proc/sys/kernel/random/boot_id */
 	LXPR_SYS_KERNEL_RAND_ENTAVL, /* /proc/sys/kernel/random/entropy_avail */
+	LXPR_SYS_KERNEL_RAND_UUID, /* /proc/sys/kernel/random/uuid */
 	LXPR_SYS_KERNEL_SEM,		/* /proc/sys/kernel/sem		*/
 	LXPR_SYS_KERNEL_SHMALL,		/* /proc/sys/kernel/shmall	*/
 	LXPR_SYS_KERNEL_SHMMAX,		/* /proc/sys/kernel/shmmax	*/
@@ -237,6 +243,12 @@ typedef enum lxpr_nodetype {
 	LXPR_SYS_NET_IPV4_ICMP_EIB,	/* .../icmp_echo_ignore_broadcasts */
 	LXPR_SYS_NET_IPV4_IP_FORWARD,	/* .../net/ipv4/ip_forward */
 	LXPR_SYS_NET_IPV4_IP_LPORT_RANGE, /* .../net/ipv4/ip_local_port_range */
+	/* .../tcp_allowed_congestion_control */
+	LXPR_SYS_NET_IPV4_TCP_CC_ALLOW,
+	/* .../tcp_available_congestion_control */
+	LXPR_SYS_NET_IPV4_TCP_CC_AVAIL,
+	/* .../tcp_congestion_control */
+	LXPR_SYS_NET_IPV4_TCP_CC_CURR,
 	LXPR_SYS_NET_IPV4_TCP_FIN_TO,	/* /proc/sys/net/ipv4/tcp_fin_timeout */
 	LXPR_SYS_NET_IPV4_TCP_KA_INT,	/* .../net/ipv4/tcp_keepalive_intvl */
 	LXPR_SYS_NET_IPV4_TCP_KA_TIM,	/* .../net/ipv4/tcp_keepalive_time */
@@ -291,7 +303,7 @@ typedef struct {
  * which is attached to v_data in the vnode structure
  */
 typedef struct lxpr_node {
-	lxpr_nodetype_t	lxpr_type;	/* type of this node 		*/
+	lxpr_nodetype_t	lxpr_type;	/* type of this node		*/
 	vnode_t		*lxpr_vnode;	/* vnode for the node		*/
 	vnode_t		*lxpr_parent;	/* parent directory		*/
 	vnode_t		*lxpr_realvp;	/* real vnode, file in dirs	*/
@@ -301,7 +313,7 @@ typedef struct lxpr_node {
 	gid_t		lxpr_gid;	/* file group owner		*/
 	pid_t		lxpr_pid;	/* pid of proc referred to	*/
 	uint_t		lxpr_desc;	/* addl. descriptor (fd or tid)	*/
-	ino_t		lxpr_ino;	/* node id 			*/
+	ino_t		lxpr_ino;	/* node id			*/
 } lxpr_node_t;
 
 struct zone;    /* forward declaration */
@@ -331,6 +343,8 @@ extern lxpr_node_t *lxpr_getnode(vnode_t *, lxpr_nodetype_t, proc_t *, int);
 extern void lxpr_freenode(lxpr_node_t *);
 extern vnode_t *lxpr_lookup_fdnode(vnode_t *, const char *);
 extern int lxpr_readlink_fdnode(lxpr_node_t *, char *, size_t);
+extern vnode_t *lxpr_lookup_fdinfonode(vnode_t *, const char *);
+extern int lxpr_open_flags_convert(offset_t, uint32_t);
 
 typedef struct lxpr_uiobuf {
 	uio_t *uiop;
@@ -363,6 +377,8 @@ extern proc_t *lxpr_lock_pid(lxpr_node_t *, pid_t, zombok_t, kthread_t **);
 extern void lxpr_unlock(proc_t *);
 extern netstack_t *lxpr_netstack(lxpr_node_t *);
 extern void lxpr_fixpid(zone_t *, proc_t *, pid_t *, pid_t *);
+extern file_t *lxpr_getf(proc_t *, uint_t, short *);
+extern void lxpr_releasef(proc_t *, uint_t);
 
 #ifdef	__cplusplus
 }

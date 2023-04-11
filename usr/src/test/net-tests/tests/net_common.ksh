@@ -11,6 +11,7 @@
 
 #
 # Copyright 2019 Joyent, Inc.
+# Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
 #
 
 #
@@ -178,10 +179,13 @@ function vnic_exists
 		fail "$0: incorrect number of args provided"
 	fi
 
-	if dladm show-vnic -z $zone $name > /dev/null 2>&1; then
-		typeset avid=$(dladm show-vnic -z $zone -p -o vid $name)
-		typeset aover=$(dladm show-vnic -z $zone -p -o over $name)
-		if (($avid == $vid)) && [ $aover == $over ]; then
+	if dladm show-vnic $name > /dev/null 2>&1; then
+		typeset avid=$(dladm show-vnic -p -o vid $name)
+		typeset aover=$(dladm show-vnic -p -o over $name)
+		typeset azone=$(dladm show-linkprop -cp zone -o value $name)
+		if (($avid == $vid)) && [ $aover == $over ] && \
+			   [ $azone == $zone ]
+		then
 			return 0
 		else
 			return 1
@@ -211,8 +215,8 @@ function create_vnic
 	fi
 
 	dbg "creating VNIC: $vnic_info"
-	if dladm create-vnic -t -p zone=$zone -l $over \
-		 $vid_opt $name > /dev/null 2>&1
+	if dladm create-vnic -l $over $vid_opt $name > /dev/null 2>&1 && \
+	    dladm set-linkprop -t -p zone=$zone $name > /dev/null 2>&1
 	then
 		dbg "created VNIC: $vnic_info"
 		return 0
@@ -224,24 +228,18 @@ function create_vnic
 function delete_vnic
 {
 	typeset name=$1
-	typeset over=$2
-	typeset vid=$3
-	typeset zone=$4
-	typeset vnic_info="$name, vid: $vid, over: $over, zone: $zone"
+	typeset vid=$2
+	typeset zone=$3
+	typeset vnic_info="$name, vid: $vid, zone: $zone"
 	typeset err1="failed to assign VNIC $name from $zone to GZ"
 	typeset err2="failed to delete VNIC: $vnic_info"
 
-	if (($# != 4)); then
+	if (($# != 3)); then
 		fail "$0: incorrect number of args provided"
 	fi
 
-	if ! vnic_exists $name $vid $over $zone; then
-		dbg "VNIC doesn't exist: $vnic_info"
-		return 0
-	fi
-
 	dbg "assigning VNIC $name from $zone to GZ"
-	if ! dladm set-linkprop -t -z $zone -p zone=global $name; then
+	if ! dladm set-linkprop -t -p zone=global $name; then
 		maybe_fail "$err1"
 		return 1
 	fi

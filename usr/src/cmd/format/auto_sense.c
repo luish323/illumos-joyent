@@ -172,11 +172,6 @@ static struct default_partitions {
  */
 #define	SUN_MIN_CYL		3
 
-
-
-/*
- * ANSI prototypes for local static functions
- */
 static struct disk_type	*generic_disk_sense(
 				int		fd,
 				int		can_prompt,
@@ -226,7 +221,7 @@ static char		*strcopy(
 				int	n);
 static	int		adjust_disk_geometry(diskaddr_t capacity, uint_t *cyl,
 				uint_t *nsect, uint_t *nhead);
-static void 		compute_chs_values(diskaddr_t total_capacity,
+static void		compute_chs_values(diskaddr_t total_capacity,
 				diskaddr_t usable_capacity, uint_t *pcylp,
 				uint_t *nheadp, uint_t *nsectp);
 #if defined(_SUNOS_VTOC_8)
@@ -254,6 +249,8 @@ auto_efi_sense(int fd, struct efi_info *label)
 	struct ctlr_info *ctlr;
 	struct dk_cinfo dkinfo;
 	struct partition_info *part;
+	uint64_t reserved;
+	uint16_t type;
 
 	if (ioctl(fd, DKIOCINFO, &dkinfo) == -1) {
 		if (option_msg && diag_msg) {
@@ -261,11 +258,14 @@ auto_efi_sense(int fd, struct efi_info *label)
 		}
 		return (NULL);
 	}
-	if ((cur_ctype != NULL) && (cur_ctype->ctype_ctype == DKC_DIRECT ||
-	    cur_ctype->ctype_ctype == DKC_VBD ||
-	    cur_ctype->ctype_ctype == DKC_BLKDEV)) {
-		ctlr = find_ctlr_info(&dkinfo, cur_ctype->ctype_ctype);
-		disk_info = find_disk_info(&dkinfo, cur_ctype->ctype_ctype);
+	if (cur_ctype != NULL)
+		type = cur_ctype->ctype_ctype;
+	else
+		type = dkinfo.dki_ctype;
+
+	if (type == DKC_DIRECT || type == DKC_VBD || type == DKC_BLKDEV) {
+		ctlr = find_ctlr_info(&dkinfo, type);
+		disk_info = find_disk_info(&dkinfo, type);
 	} else {
 		ctlr = find_scsi_ctlr_info(&dkinfo);
 		disk_info = find_scsi_disk_info(&dkinfo);
@@ -275,17 +275,18 @@ auto_efi_sense(int fd, struct efi_info *label)
 	 * get vendor, product, revision and capacity info.
 	 */
 	if (get_disk_info(fd, label, disk_info) == -1) {
-		return ((struct disk_type *)NULL);
+		return (NULL);
 	}
 	/*
 	 * Now build the default partition table
 	 */
 	if (efi_alloc_and_init(fd, EFI_NUMPAR, &vtoc) != 0) {
 		err_print("efi_alloc_and_init failed. \n");
-		return ((struct disk_type *)NULL);
+		return (NULL);
 	}
 
 	label->e_parts = vtoc;
+	reserved = efi_reserved_sectors(vtoc);
 
 	/*
 	 * Create a whole hog EFI partition table:
@@ -295,7 +296,7 @@ auto_efi_sense(int fd, struct efi_info *label)
 	vtoc->efi_parts[0].p_tag = V_USR;
 	vtoc->efi_parts[0].p_start = vtoc->efi_first_u_lba;
 	vtoc->efi_parts[0].p_size = vtoc->efi_last_u_lba - vtoc->efi_first_u_lba
-	    - EFI_MIN_RESV_SIZE + 1;
+	    - reserved + 1;
 
 	/*
 	 * S1-S6 are unassigned slices.
@@ -311,8 +312,8 @@ auto_efi_sense(int fd, struct efi_info *label)
 	 */
 	vtoc->efi_parts[vtoc->efi_nparts - 1].p_tag = V_RESERVED;
 	vtoc->efi_parts[vtoc->efi_nparts - 1].p_start =
-	    vtoc->efi_last_u_lba - EFI_MIN_RESV_SIZE + 1;
-	vtoc->efi_parts[vtoc->efi_nparts - 1].p_size = EFI_MIN_RESV_SIZE;
+	    vtoc->efi_last_u_lba - reserved + 1;
+	vtoc->efi_parts[vtoc->efi_nparts - 1].p_size = reserved;
 
 	/*
 	 * Now stick all of it into the disk_type struct
@@ -393,7 +394,7 @@ find_ctlr_type(ushort_t type)
 
 	impossible("no DIRECT/VBD/BLKDEV controller type");
 
-	return ((struct ctlr_type *)NULL);
+	return (NULL);
 }
 
 static struct ctlr_info *
@@ -415,7 +416,7 @@ find_ctlr_info(struct dk_cinfo *dkinfo, ushort_t type)
 
 	impossible("no DIRECT/VBD/BLKDEV controller info");
 	/*NOTREACHED*/
-	return ((struct ctlr_info *)NULL);
+	return (NULL);
 }
 
 static  struct disk_info *
@@ -440,7 +441,7 @@ find_disk_info(struct dk_cinfo *dkinfo, ushort_t type)
 
 	impossible("No DIRECT/VBD/BLKDEV disk info instance\n");
 	/*NOTREACHED*/
-	return ((struct disk_info *)NULL);
+	return (NULL);
 }
 
 /*
@@ -462,7 +463,7 @@ auto_label_init(struct dk_label *label)
 	efi_gpt_t	*databack = NULL;
 	struct dk_geom	disk_geom;
 	struct dk_minfo	disk_info;
-	efi_gpt_t 	*backsigp;
+	efi_gpt_t	*backsigp;
 	int		fd = cur_file;
 	int		rval = -1;
 	int		efisize = EFI_LABEL_SIZE * 2;
@@ -803,7 +804,7 @@ auto_sense(
 	 * no hope for this disk, so give up.
 	 */
 	if (uscsi_inquiry(fd, (char *)&inquiry, sizeof (inquiry))) {
-		return ((struct disk_type *)NULL);
+		return (NULL);
 	}
 	if (option_msg && diag_msg) {
 		err_print("Product id: ");
@@ -815,7 +816,7 @@ auto_sense(
 	 * Get the Read Capacity
 	 */
 	if (uscsi_read_capacity(fd, &capacity)) {
-		return ((struct disk_type *)NULL);
+		return (NULL);
 	}
 
 	/*
@@ -831,7 +832,7 @@ auto_sense(
 		if (option_msg && diag_msg) {
 			err_print("Invalid capacity\n");
 		}
-		return ((struct disk_type *)NULL);
+		return (NULL);
 	}
 	if (option_msg && diag_msg) {
 		err_print("blocks:  %llu (0x%llx)\n",
@@ -851,7 +852,7 @@ auto_sense(
 	if (scsi_rdwr(DIR_READ, fd, (diskaddr_t)0, 1, (caddr_t)buf,
 	    F_SILENT, NULL)) {
 		free(buf);
-		return ((struct disk_type *)NULL);
+		return (NULL);
 	}
 	free(buf);
 
@@ -1712,7 +1713,7 @@ find_scsi_disk_type(
 		}
 	}
 
-	return ((struct disk_type *)NULL);
+	return (NULL);
 }
 
 
@@ -1736,7 +1737,7 @@ find_scsi_disk_by_name(
 		}
 	}
 
-	return ((struct disk_type *)NULL);
+	return (NULL);
 }
 
 
@@ -1747,7 +1748,7 @@ find_scsi_disk_by_name(
  * totally mangles the code.
  */
 static struct ctlr_type *
-find_scsi_ctlr_type()
+find_scsi_ctlr_type(void)
 {
 	struct	mctlr_list	*mlp;
 
@@ -1762,7 +1763,7 @@ find_scsi_ctlr_type()
 
 	impossible("no SCSI controller type");
 
-	return ((struct ctlr_type *)NULL);
+	return (NULL);
 }
 
 
@@ -1792,7 +1793,7 @@ find_scsi_ctlr_info(
 
 	impossible("no SCSI controller info");
 
-	return ((struct ctlr_info *)NULL);
+	return (NULL);
 }
 
 
@@ -2018,7 +2019,7 @@ find_scsi_disk_info(
 
 	impossible("No SCSI disk info instance\n");
 
-	return ((struct disk_info *)NULL);
+	return (NULL);
 }
 
 
@@ -2190,7 +2191,7 @@ square_box(
 	}
 
 	if (((*dim1) > lim1) || ((*dim2) > lim2) || ((*dim3) > lim3)) {
-		double 	d[4];
+		double	d[4];
 
 		/*
 		 * Second:
@@ -2269,15 +2270,15 @@ compute_chs_values(diskaddr_t total_capacity, diskaddr_t usable_capacity,
 	 * The following table (in order) illustrates some end result
 	 * calculations:
 	 *
-	 * Maximum number of blocks 		nhead	nsect
+	 * Maximum number of blocks		nhead	nsect
 	 *
 	 * 2097152 (1GB)			64	32
 	 * 16777216 (8GB)			128	32
-	 * 1052819775 (502.02GB)		255  	63
+	 * 1052819775 (502.02GB)		255	63
 	 * 2105639550 (0.98TB)			255	126
-	 * 3158459325 (1.47TB)			255  	189
-	 * 4211279100 (1.96TB)			255  	252
-	 * 5264098875 (2.45TB)			255  	315
+	 * 3158459325 (1.47TB)			255	189
+	 * 4211279100 (1.96TB)			255	252
+	 * 5264098875 (2.45TB)			255	315
 	 * ...
 	 */
 

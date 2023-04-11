@@ -11,7 +11,8 @@
 
 /*
  * Copyright (c) 2014 by Chunwei Chen. All rights reserved.
- * Copyright (c) 2016 by Delphix. All rights reserved.
+ * Copyright (c) 2019 by Delphix. All rights reserved.
+ * Copyright 2020 Joyent, Inc.
  */
 
 /*
@@ -141,6 +142,30 @@ static abd_stats_t abd_stats = {
 boolean_t zfs_abd_scatter_enabled = B_TRUE;
 
 /*
+ * zfs_abd_scatter_min_size is the minimum allocation size to use scatter
+ * ABD's.  Smaller allocations will use linear ABD's which uses
+ * zio_[data_]buf_alloc().
+ *
+ * Scatter ABD's use at least one page each, so sub-page allocations waste
+ * some space when allocated as scatter (e.g. 2KB scatter allocation wastes
+ * half of each page).  Using linear ABD's for small allocations means that
+ * they will be put on slabs which contain many allocations.  This can
+ * improve memory efficiency, but it also makes it much harder for ARC
+ * evictions to actually free pages, because all the buffers on one slab need
+ * to be freed in order for the slab (and underlying pages) to be freed.
+ * Typically, 512B and 1KB kmem caches have 16 buffers per slab, so it's
+ * possible for them to actually waste more memory than scatter (one page per
+ * buf = wasting 3/4 or 7/8th; one buf per slab = wasting 15/16th).
+ *
+ * Spill blocks are typically 512B and are heavily used on systems running
+ * selinux with the default dnode size and the `xattr=sa` property set.
+ *
+ * By default we use linear allocations for 512B and 1KB, and scatter
+ * allocations for larger (1.5KB and up).
+ */
+int zfs_abd_scatter_min_size = 512 * 3;
+
+/*
  * The size of the chunks ABD allocates. Because the sizes allocated from the
  * kmem_cache can't change, this tunable can only be modified at boot. Changing
  * it at runtime would cause ABD iteration to work incorrectly for ABDs which
@@ -194,7 +219,7 @@ abd_init(void)
 	 * Since ABD chunks do not appear in crash dumps, we pass KMC_NOTOUCH
 	 * so that no allocator metadata is stored with the buffers.
 	 */
-	abd_chunk_cache = kmem_cache_create("abd_chunk", zfs_abd_chunk_size, 0,
+	abd_chunk_cache = kmem_cache_create("abd_chunk", zfs_abd_chunk_size, 64,
 	    NULL, NULL, NULL, NULL, data_alloc_arena, KMC_NOTOUCH);
 
 	abd_ksp = kstat_create("zfs", 0, "abdstats", "misc", KSTAT_TYPE_NAMED,
@@ -280,7 +305,8 @@ abd_free_struct(abd_t *abd)
 abd_t *
 abd_alloc(size_t size, boolean_t is_metadata)
 {
-	if (!zfs_abd_scatter_enabled)
+	/* see the comment above zfs_abd_scatter_min_size */
+	if (!zfs_abd_scatter_enabled || size < zfs_abd_scatter_min_size)
 		return (abd_alloc_linear(size, is_metadata));
 
 	VERIFY3U(size, <=, SPA_MAXBLOCKSIZE);
@@ -430,8 +456,9 @@ abd_alloc_for_io(size_t size, boolean_t is_metadata)
  * buffer data with sabd. Use abd_put() to free. sabd must not be freed while
  * any derived ABDs exist.
  */
-abd_t *
-abd_get_offset(abd_t *sabd, size_t off)
+/* ARGSUSED */
+static inline abd_t *
+abd_get_offset_impl(abd_t *sabd, size_t off, size_t size)
 {
 	abd_t *abd;
 
@@ -482,6 +509,25 @@ abd_get_offset(abd_t *sabd, size_t off)
 
 	return (abd);
 }
+
+abd_t *
+abd_get_offset(abd_t *sabd, size_t off)
+{
+	size_t size = sabd->abd_size > off ? sabd->abd_size - off : 0;
+
+	VERIFY3U(size, >, 0);
+
+	return (abd_get_offset_impl(sabd, off, size));
+}
+
+abd_t *
+abd_get_offset_size(abd_t *sabd, size_t off, size_t size)
+{
+	ASSERT3U(off + size, <=, sabd->abd_size);
+
+	return (abd_get_offset_impl(sabd, off, size));
+}
+
 
 /*
  * Allocate a linear ABD structure for buf. You must free this with abd_put()
@@ -719,7 +765,8 @@ abd_iter_map(struct abd_iter *aiter)
 	} else {
 		size_t index = abd_iter_scatter_chunk_index(aiter);
 		offset = abd_iter_scatter_chunk_offset(aiter);
-		aiter->iter_mapsize = zfs_abd_chunk_size - offset;
+		aiter->iter_mapsize = MIN(zfs_abd_chunk_size - offset,
+		    aiter->iter_abd->abd_size - aiter->iter_pos);
 		paddr = aiter->iter_abd->abd_u.abd_scatter.abd_chunks[index];
 	}
 	aiter->iter_mapaddr = (char *)paddr + offset;
@@ -947,4 +994,181 @@ int
 abd_cmp(abd_t *dabd, abd_t *sabd, size_t size)
 {
 	return (abd_iterate_func2(dabd, sabd, 0, 0, size, abd_cmp_cb, NULL));
+}
+
+/*
+ * Iterate over code ABDs and a data ABD and call @func_raidz_gen.
+ *
+ * @cabds          parity ABDs, must have equal size
+ * @dabd           data ABD. Can be NULL (in this case @dsize = 0)
+ * @func_raidz_gen should be implemented so that its behaviour
+ *                 is the same when taking linear and when taking scatter
+ */
+void
+abd_raidz_gen_iterate(abd_t **cabds, abd_t *dabd,
+    ssize_t csize, ssize_t dsize, const unsigned parity,
+    void (*func_raidz_gen)(void **, const void *, size_t, size_t))
+{
+	int i;
+	ssize_t len, dlen;
+	struct abd_iter caiters[3];
+	struct abd_iter daiter = {0};
+	void *caddrs[3];
+
+	ASSERT3U(parity, <=, 3);
+
+	for (i = 0; i < parity; i++)
+		abd_iter_init(&caiters[i], cabds[i]);
+
+	if (dabd)
+		abd_iter_init(&daiter, dabd);
+
+	ASSERT3S(dsize, >=, 0);
+
+#ifdef _KERNEL
+	kpreempt_disable();
+#endif
+	while (csize > 0) {
+		len = csize;
+
+		if (dabd && dsize > 0)
+			abd_iter_map(&daiter);
+
+		for (i = 0; i < parity; i++) {
+			abd_iter_map(&caiters[i]);
+			caddrs[i] = caiters[i].iter_mapaddr;
+		}
+
+		switch (parity) {
+			case 3:
+				len = MIN(caiters[2].iter_mapsize, len);
+				/* falls through */
+			case 2:
+				len = MIN(caiters[1].iter_mapsize, len);
+				/* falls through */
+			case 1:
+				len = MIN(caiters[0].iter_mapsize, len);
+		}
+
+		/* must be progressive */
+		ASSERT3S(len, >, 0);
+
+		if (dabd && dsize > 0) {
+			/* this needs precise iter.length */
+			len = MIN(daiter.iter_mapsize, len);
+			len = MIN(dsize, len);
+			dlen = len;
+		} else
+			dlen = 0;
+
+		/* must be progressive */
+		ASSERT3S(len, >, 0);
+		/*
+		 * The iterated function likely will not do well if each
+		 * segment except the last one is not multiple of 512 (raidz).
+		 */
+		ASSERT3U(((uint64_t)len & 511ULL), ==, 0);
+
+		func_raidz_gen(caddrs, daiter.iter_mapaddr, len, dlen);
+
+		for (i = parity-1; i >= 0; i--) {
+			abd_iter_unmap(&caiters[i]);
+			abd_iter_advance(&caiters[i], len);
+		}
+
+		if (dabd && dsize > 0) {
+			abd_iter_unmap(&daiter);
+			abd_iter_advance(&daiter, dlen);
+			dsize -= dlen;
+		}
+
+		csize -= len;
+
+		ASSERT3S(dsize, >=, 0);
+		ASSERT3S(csize, >=, 0);
+	}
+#ifdef _KERNEL
+	kpreempt_enable();
+#endif
+}
+
+/*
+ * Iterate over code ABDs and data reconstruction target ABDs and call
+ * @func_raidz_rec. Function maps at most 6 pages atomically.
+ *
+ * @cabds           parity ABDs, must have equal size
+ * @tabds           rec target ABDs, at most 3
+ * @tsize           size of data target columns
+ * @func_raidz_rec  expects syndrome data in target columns. Function
+ *                  reconstructs data and overwrites target columns.
+ */
+void
+abd_raidz_rec_iterate(abd_t **cabds, abd_t **tabds,
+    ssize_t tsize, const unsigned parity,
+    void (*func_raidz_rec)(void **t, const size_t tsize, void **c,
+    const unsigned *mul),
+    const unsigned *mul)
+{
+	int i;
+	ssize_t len;
+	struct abd_iter citers[3];
+	struct abd_iter xiters[3];
+	void *caddrs[3], *xaddrs[3];
+
+	ASSERT3U(parity, <=, 3);
+
+	for (i = 0; i < parity; i++) {
+		abd_iter_init(&citers[i], cabds[i]);
+		abd_iter_init(&xiters[i], tabds[i]);
+	}
+
+#ifdef _KERNEL
+	kpreempt_disable();
+#endif
+	while (tsize > 0) {
+
+		for (i = 0; i < parity; i++) {
+			abd_iter_map(&citers[i]);
+			abd_iter_map(&xiters[i]);
+			caddrs[i] = citers[i].iter_mapaddr;
+			xaddrs[i] = xiters[i].iter_mapaddr;
+		}
+
+		len = tsize;
+		switch (parity) {
+			case 3:
+				len = MIN(xiters[2].iter_mapsize, len);
+				len = MIN(citers[2].iter_mapsize, len);
+				/* falls through */
+			case 2:
+				len = MIN(xiters[1].iter_mapsize, len);
+				len = MIN(citers[1].iter_mapsize, len);
+				/* falls through */
+			case 1:
+				len = MIN(xiters[0].iter_mapsize, len);
+				len = MIN(citers[0].iter_mapsize, len);
+		}
+		/* must be progressive */
+		ASSERT3S(len, >, 0);
+		/*
+		 * The iterated function likely will not do well if each
+		 * segment except the last one is not multiple of 512 (raidz).
+		 */
+		ASSERT3U(((uint64_t)len & 511ULL), ==, 0);
+
+		func_raidz_rec(xaddrs, len, caddrs, mul);
+
+		for (i = parity-1; i >= 0; i--) {
+			abd_iter_unmap(&xiters[i]);
+			abd_iter_unmap(&citers[i]);
+			abd_iter_advance(&xiters[i], len);
+			abd_iter_advance(&citers[i], len);
+		}
+
+		tsize -= len;
+		ASSERT3S(tsize, >=, 0);
+	}
+#ifdef _KERNEL
+	kpreempt_enable();
+#endif
 }

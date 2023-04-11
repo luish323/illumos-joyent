@@ -13,6 +13,8 @@
  * Copyright 2015 OmniTI Computer Consulting, Inc. All rights reserved.
  * Copyright 2019 Joyent, Inc.
  * Copyright 2017 Tegile Systems, Inc.  All rights reserved.
+ * Copyright 2020 Ryan Zezeski
+ * Copyright 2020 RackTop Systems, Inc.
  */
 
 /*
@@ -89,6 +91,16 @@ extern "C" {
 #define	I40E_MAX_TX_RING_SIZE	4096
 #define	I40E_DEF_TX_RING_SIZE	1024
 
+/*
+ * Place an artificial limit on the max number of groups. The X710
+ * series supports up to 384 VSIs to be partitioned across PFs as the
+ * driver sees fit. But until we support more interrupts this seems
+ * like a good place to start.
+ */
+#define	I40E_MIN_NUM_RX_GROUPS	1
+#define	I40E_MAX_NUM_RX_GROUPS	32
+#define	I40E_DEF_NUM_RX_GROUPS	16
+
 #define	I40E_MIN_RX_RING_SIZE	64
 #define	I40E_MAX_RX_RING_SIZE	4096
 #define	I40E_DEF_RX_RING_SIZE	1024
@@ -149,7 +161,7 @@ typedef enum i40e_itr_index {
 	I40E_ITR_INDEX_RX	= 0x0,
 	I40E_ITR_INDEX_TX	= 0x1,
 	I40E_ITR_INDEX_OTHER	= 0x2,
-	I40E_ITR_INDEX_NONE 	= 0x3
+	I40E_ITR_INDEX_NONE	= 0x3
 } i40e_itr_index_t;
 
 /*
@@ -269,14 +281,6 @@ typedef enum i40e_itr_index {
  */
 #define	I40E_DDI_PROP_LEN	64
 
-/*
- * Place an artificial limit on the max number of groups. The X710
- * series supports up to 384 VSIs to be partitioned across PFs as the
- * driver sees fit. But until we support more interrupts this seems
- * like a good place to start.
- */
-#define	I40E_GROUP_MAX		32
-
 #define	I40E_GROUP_NOMSIX	1
 #define	I40E_TRQPAIR_NOMSIX	1
 
@@ -301,6 +305,7 @@ typedef enum i40e_itr_index {
  */
 #define	I40E_RING_WAIT_NTRIES	10
 #define	I40E_RING_WAIT_PAUSE	10	/* ms */
+#define	I40E_RING_ENABLE_GAP	50	/* ms */
 
 /*
  * Printed Board Assembly (PBA) length. These are derived from Table 6-2.
@@ -336,7 +341,7 @@ typedef enum i40e_attach_state {
 	I40E_ATTACH_ALLOC_INTR	= 0x0008,	/* Interrupts allocated */
 	I40E_ATTACH_ALLOC_RINGSLOCKS	= 0x0010, /* Rings & locks allocated */
 	I40E_ATTACH_ADD_INTR	= 0x0020,	/* Intr handlers added */
-	I40E_ATTACH_COMMON_CODE	= 0x0040, 	/* Intel code initialized */
+	I40E_ATTACH_COMMON_CODE	= 0x0040,	/* Intel code initialized */
 	I40E_ATTACH_INIT	= 0x0080,	/* Device initialized */
 	I40E_ATTACH_STATS	= 0x0200,	/* Kstats created */
 	I40E_ATTACH_MAC		= 0x0800,	/* MAC registered */
@@ -355,12 +360,12 @@ typedef enum i40e_attach_state {
  * I40E_INITIALIZED:	The device has been fully attached.
  * I40E_STARTED:	The device has come out of the GLDV3 start routine.
  * I40E_SUSPENDED:	The device is suspended and I/O among other things
- * 			should not occur. This happens because of an actual
- * 			DDI_SUSPEND or interrupt adjustments.
+ *			should not occur. This happens because of an actual
+ *			DDI_SUSPEND or interrupt adjustments.
  * I40E_STALL:		The tx stall detection logic has found a stall.
  * I40E_OVERTEMP:	The device has encountered a temperature alarm.
  * I40E_INTR_ADJUST:	Our interrupts are being manipulated and therefore we
- * 			shouldn't be manipulating their state.
+ *			shouldn't be manipulating their state.
  * I40E_ERROR:		We've detected an FM error and degraded the device.
  */
 typedef enum i40e_state {
@@ -563,6 +568,14 @@ typedef struct i40e_txq_stat {
 typedef struct i40e_trqpair {
 	struct i40e *itrq_i40e;
 
+	/* interrupt control structures */
+	kmutex_t itrq_intr_lock;
+	kcondvar_t itrq_intr_cv;
+	boolean_t itrq_intr_busy;	/* Busy processing interrupt */
+	boolean_t itrq_intr_quiesce;	/* Interrupt quiesced */
+
+	hrtime_t irtq_time_stopped;	/* Time when ring was stopped */
+
 	/* Receive-side structures. */
 	kmutex_t itrq_rx_lock;
 	mac_ring_handle_t itrq_macrxring; /* Receive ring handle. */
@@ -578,6 +591,9 @@ typedef struct i40e_trqpair {
 
 	/* Transmit-side structures. */
 	kmutex_t itrq_tx_lock;
+	kcondvar_t itrq_tx_cv;
+	uint_t itrq_tx_active;		/* No. of active i40e_ring_tx()'s */
+	boolean_t itrq_tx_quiesce;	/* Tx is quiesced */
 	mac_ring_handle_t itrq_mactxring; /* Transmit ring handle. */
 	uint32_t itrq_tx_intrvec;	/* Transmit interrupt vector. */
 	boolean_t itrq_tx_blocked;	/* Does MAC think we're blocked? */
@@ -593,7 +609,7 @@ typedef struct i40e_trqpair {
 	 */
 	i40e_dma_buffer_t	itrq_desc_area;	/* DMA buffer of tx desc ring */
 	i40e_tx_desc_t		*itrq_desc_ring; /* TX Desc ring */
-	volatile uint32_t 	*itrq_desc_wbhead; /* TX write-back index */
+	volatile uint32_t	*itrq_desc_wbhead; /* TX write-back index */
 	uint32_t		itrq_desc_head;	/* Last index hw freed */
 	uint32_t		itrq_desc_tail;	/* Index of next free desc */
 	uint32_t		itrq_desc_free;	/* Number of free descriptors */
@@ -826,7 +842,7 @@ typedef struct i40e {
 	struct i40e_hw				i40e_hw_space;
 	struct i40e_osdep			i40e_osdep_space;
 	struct i40e_aq_get_phy_abilities_resp	i40e_phy;
-	void 					*i40e_aqbuf;
+	void					*i40e_aqbuf;
 
 #define	I40E_DEF_VSI_IDX	0
 #define	I40E_DEF_VSI(i40e)	((i40e)->i40e_vsis[I40E_DEF_VSI_IDX])
@@ -835,7 +851,7 @@ typedef struct i40e {
 	/*
 	 * Device state, switch information, and resources.
 	 */
-	i40e_vsi_t		i40e_vsis[I40E_GROUP_MAX];
+	i40e_vsi_t		i40e_vsis[I40E_MAX_NUM_RX_GROUPS];
 	uint16_t		i40e_mac_seid;	 /* SEID of physical MAC */
 	uint16_t		i40e_veb_seid;	 /* switch atop MAC (SEID) */
 	uint16_t		i40e_vsi_avail;	 /* VSIs avail to this PF */
@@ -852,6 +868,7 @@ typedef struct i40e {
 	link_state_t		i40e_link_state;
 	uint32_t		i40e_link_speed;	/* In Mbps */
 	link_duplex_t		i40e_link_duplex;
+	link_fec_t		i40e_fec_requested;
 	uint_t			i40e_sdu;
 	uint_t			i40e_frame_max;
 
@@ -859,7 +876,7 @@ typedef struct i40e {
 	 * Transmit and receive information, tunables, and MAC info.
 	 */
 	i40e_trqpair_t	*i40e_trqpairs;
-	boolean_t 	i40e_mr_enable;
+	boolean_t	i40e_mr_enable;
 	uint_t		i40e_num_trqpairs; /* total TRQPs (per PF) */
 	uint_t		i40e_num_trqpairs_per_vsi; /* TRQPs per VSI */
 	uint_t		i40e_other_itr;
@@ -1004,6 +1021,7 @@ extern void i40e_intr_io_clear_cause(i40e_t *);
 extern void i40e_intr_rx_queue_disable(i40e_trqpair_t *);
 extern void i40e_intr_rx_queue_enable(i40e_trqpair_t *);
 extern void i40e_intr_set_itr(i40e_t *, i40e_itr_index_t, uint_t);
+extern void i40e_intr_quiesce(i40e_trqpair_t *);
 
 /*
  * Receive-side functions
@@ -1011,6 +1029,7 @@ extern void i40e_intr_set_itr(i40e_t *, i40e_itr_index_t, uint_t);
 extern mblk_t *i40e_ring_rx(i40e_trqpair_t *, int);
 extern mblk_t *i40e_ring_rx_poll(void *, int);
 extern void i40e_rx_recycle(caddr_t);
+extern boolean_t i40e_ring_tx_quiesce(i40e_trqpair_t *);
 
 /*
  * Transmit-side functions
@@ -1031,20 +1050,23 @@ extern void i40e_stats_trqpair_fini(i40e_trqpair_t *);
 extern int i40e_m_stat(void *, uint_t, uint64_t *);
 extern int i40e_rx_ring_stat(mac_ring_driver_t, uint_t, uint64_t *);
 extern int i40e_tx_ring_stat(mac_ring_driver_t, uint_t, uint64_t *);
+extern mac_ether_media_t i40e_link_to_media(i40e_t *);
 
 /*
  * MAC/GLDv3 functions, and functions called by MAC/GLDv3 support code.
  */
 extern boolean_t i40e_register_mac(i40e_t *);
-extern boolean_t i40e_start(i40e_t *, boolean_t);
-extern void i40e_stop(i40e_t *, boolean_t);
+extern boolean_t i40e_start(i40e_t *);
+extern void i40e_stop(i40e_t *);
+extern int i40e_setup_ring(i40e_trqpair_t *);
+extern boolean_t i40e_shutdown_ring(i40e_trqpair_t *);
 
 /*
  * DMA & buffer functions and attributes
  */
 extern void i40e_init_dma_attrs(i40e_t *, boolean_t);
-extern boolean_t i40e_alloc_ring_mem(i40e_t *);
-extern void i40e_free_ring_mem(i40e_t *, boolean_t);
+extern boolean_t i40e_alloc_ring_mem(i40e_trqpair_t *);
+extern void i40e_free_ring_mem(i40e_trqpair_t *, boolean_t);
 
 #ifdef __cplusplus
 }

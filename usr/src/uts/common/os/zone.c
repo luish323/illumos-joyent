@@ -21,7 +21,7 @@
 
 /*
  * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2019, Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
  * Copyright (c) 2016 by Delphix. All rights reserved.
  * Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
  */
@@ -4478,7 +4478,11 @@ zsched(void *arg)
 	bcopy("zsched", PTOU(pp)->u_comm, sizeof ("zsched"));
 	PTOU(pp)->u_argc = 0;
 	PTOU(pp)->u_argv = 0;
+	PTOU(pp)->u_argvstrs = 0;
+	PTOU(pp)->u_argvstrsize = 0;
 	PTOU(pp)->u_envp = 0;
+	PTOU(pp)->u_envstrs = 0;
+	PTOU(pp)->u_envstrsize = 0;
 	PTOU(pp)->u_commpagep = 0;
 	closeall(P_FINFO(pp));
 
@@ -7019,6 +7023,7 @@ zone_list(zoneid_t *zoneidlist, uint_t *numzones)
 		return (set_errno(EFAULT));
 
 	myzone = curproc->p_zone;
+	ASSERT(zonecount > 0);
 	if (myzone != global_zone) {
 		bslabel_t *mybslab;
 
@@ -7032,28 +7037,25 @@ zone_list(zoneid_t *zoneidlist, uint_t *numzones)
 			mutex_enter(&zonehash_lock);
 			real_nzones = zonecount;
 			domi_nzones = 0;
-			if (real_nzones > 0) {
-				zoneids = kmem_alloc(real_nzones *
-				    sizeof (zoneid_t), KM_SLEEP);
-				mybslab = label2bslabel(myzone->zone_slabel);
-				for (zone = list_head(&zone_active);
-				    zone != NULL;
-				    zone = list_next(&zone_active, zone)) {
-					if (zone->zone_id == GLOBAL_ZONEID)
-						continue;
-					if (zone != myzone &&
-					    (zone->zone_flags & ZF_IS_SCRATCH))
-						continue;
-					/*
-					 * Note that a label always dominates
-					 * itself, so myzone is always included
-					 * in the list.
-					 */
-					if (bldominates(mybslab,
-					    label2bslabel(zone->zone_slabel))) {
-						zoneids[domi_nzones++] =
-						    zone->zone_id;
-					}
+			zoneids = kmem_alloc(real_nzones *
+			    sizeof (zoneid_t), KM_SLEEP);
+			mybslab = label2bslabel(myzone->zone_slabel);
+			for (zone = list_head(&zone_active);
+			    zone != NULL;
+			    zone = list_next(&zone_active, zone)) {
+				if (zone->zone_id == GLOBAL_ZONEID)
+					continue;
+				if (zone != myzone &&
+				    (zone->zone_flags & ZF_IS_SCRATCH))
+					continue;
+				/*
+				 * Note that a label always dominates
+				 * itself, so myzone is always included
+				 * in the list.
+				 */
+				if (bldominates(mybslab,
+				    label2bslabel(zone->zone_slabel))) {
+					zoneids[domi_nzones++] = zone->zone_id;
 				}
 			}
 			mutex_exit(&zonehash_lock);
@@ -7062,14 +7064,12 @@ zone_list(zoneid_t *zoneidlist, uint_t *numzones)
 		mutex_enter(&zonehash_lock);
 		real_nzones = zonecount;
 		domi_nzones = 0;
-		if (real_nzones > 0) {
-			zoneids = kmem_alloc(real_nzones * sizeof (zoneid_t),
-			    KM_SLEEP);
-			for (zone = list_head(&zone_active); zone != NULL;
-			    zone = list_next(&zone_active, zone))
-				zoneids[domi_nzones++] = zone->zone_id;
-			ASSERT(domi_nzones == real_nzones);
-		}
+		zoneids = kmem_alloc(real_nzones * sizeof (zoneid_t), KM_SLEEP);
+		for (zone = list_head(&zone_active); zone != NULL;
+		    zone = list_next(&zone_active, zone))
+			zoneids[domi_nzones++] = zone->zone_id;
+
+		ASSERT(domi_nzones == real_nzones);
 		mutex_exit(&zonehash_lock);
 	}
 
@@ -7089,8 +7089,7 @@ zone_list(zoneid_t *zoneidlist, uint_t *numzones)
 			error = EFAULT;
 	}
 
-	if (real_nzones > 0)
-		kmem_free(zoneids, real_nzones * sizeof (zoneid_t));
+	kmem_free(zoneids, real_nzones * sizeof (zoneid_t));
 
 	if (error != 0)
 		return (set_errno(error));

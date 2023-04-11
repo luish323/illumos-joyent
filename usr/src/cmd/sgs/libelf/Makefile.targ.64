@@ -45,11 +45,6 @@ pics/%.o:	../common/%.c
 
 all:		$(BLTSRCS) .WAIT $(LIBS) $(LIBLINKS)
 
-install:	all .WAIT $(ROOTFS_LIBS64) $(ROOTFS_LINKS64)
-
-delete:
-		$(RM) $(DYNLIB)
-
 $(LIBLINKS):
 		$(RM) $(LIBLINKS)
 		$(SYMLINK) $(DYNLIB) $(LIBLINKS)
@@ -59,7 +54,6 @@ CLOBBERFILES += $(LIBLINKS)
 # include common library targets
 #
 include		$(SRC)/lib/Makefile.targ
-include		$(SRC)/cmd/sgs/Makefile.targ
 
 xlate.c:	../common/xlate.m4
 		$(M4) < ../common/xlate.m4 > xlate.c
@@ -89,19 +83,15 @@ chkmsg:		$(LIBSRCS)
 		sh $(CHKMSG) $(CHKMSGFLAGS) $(LIBSRCS)
 
 $(BLTDEFS) + \
-$(BLTDATA):	$(SGSMSG) $(SGSMSGTARG)
+$(BLTDATA):	$(SGSMSGTARG)
 		$(SGSMSG) $(SGSMSGFLAGS2) $(SGSMSGTARG)
 
-$(BLTMESG):	$(SGSMSG) $(SGSMSGALL) xlate.c xlate64.c
+$(BLTMESG):	$(SGSMSGALL) xlate.c xlate64.c
 		$(SGSMSG) $(SGSMSGFLAGS1) $(SGSMSGALL)
-
-$(SGSMSG):	FRC
-		@ cd $(SGSTOOLS)/$(MACH); pwd; $(MAKE) catalog
-		@ pwd
 
 #
 # 64-bit overrides
 #
-include ../../Makefile.sub.64
+include		$(SRC)/Makefile.master.64
 
 FRC:

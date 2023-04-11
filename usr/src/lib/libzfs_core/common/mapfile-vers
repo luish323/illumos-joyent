@@ -38,6 +38,25 @@
 
 $mapfile_version 2
 
+SYMBOL_VERSION ILLUMOS_0.8 {
+	global:
+
+	lzc_get_bootenv;
+	lzc_set_bootenv;
+} ILLUMOS_0.7;
+
+SYMBOL_VERSION ILLUMOS_0.7 {
+	global:
+
+	lzc_trim;
+} ILLUMOS_0.6;
+
+SYMBOL_VERSION ILLUMOS_0.6 {
+	global:
+
+	lzc_receive_with_cmdprops;
+} ILLUMOS_0.5;
+
 SYMBOL_VERSION ILLUMOS_0.5 {
 	global:
 
@@ -74,6 +93,9 @@ SYMBOL_VERSION ILLUMOS_0.1 {
 	lzc_channel_program_nosync;
 	lzc_clone;
 	lzc_create;
+	lzc_load_key;
+	lzc_unload_key;
+	lzc_change_key;
 	lzc_destroy_bookmarks;
 	lzc_destroy_snaps;
 	lzc_exists;

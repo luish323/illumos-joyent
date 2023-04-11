@@ -23,6 +23,7 @@
 # Use is subject to license terms.
 #
 # Copyright (c) 2018, Joyent, Inc.
+# Copyright 2019 RackTop Systems.
 
 include ../../Makefile.cmd
 
@@ -33,18 +34,21 @@ INCLUDES += -I../include
 CPPFLAGS += $(INCLUDES)
 
 CFLAGS += $(CCVERBOSE)
-CERRWARN += -_gcc=-Wno-uninitialized
+CERRWARN += $(CNOWARN_UNINIT)
 CERRWARN += -_gcc=-Wno-unused-variable
 CERRWARN += -_gcc=-Wno-parentheses
+
+CCERRWARN += -_gcc=-Wno-reorder
+CCERRWARN += -_gcc=-Wno-ignored-qualifiers
+CCERRWARN += -_gcc=-Wno-return-type
+CCERRWARN += -_gcc=-Wno-switch
 
 # not linted
 SMATCH=off
 
 LINTFLAGS += -m -v -u
 
-AR=     /usr/ccs/bin/ar
 RANLIB= /usr/ccs/bin/ranlib
-RM=     /usr/bin/rm -f
 
 LIBCSRCS        = device_ctl.c \
 		  filehdr.c \
@@ -91,7 +95,7 @@ libaudio=	libaudio.a
 install all: $(libaudio)
 
 $(libaudio): $(COBJS) $(CCOBJS)
-	$(RM) -f $@
+	$(RM) $@
 	$(AR) cq $@ $(COBJS) $(CCOBJS)
 	test ! -f $(RANLIB) || $(RANLIB) $@
 

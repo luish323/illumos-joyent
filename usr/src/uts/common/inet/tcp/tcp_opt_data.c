@@ -21,8 +21,10 @@
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2011 Nexenta Systems, Inc. All rights reserved.
- * Copyright 2016 Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
  * Copyright (c) 2016 by Delphix. All rights reserved.
+ * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2022 Oxide Computer Company
  */
 
 #include <sys/types.h>
@@ -34,6 +36,7 @@
 #include <sys/xti_inet.h>
 #include <sys/policy.h>
 
+#include <inet/cc.h>
 #include <inet/common.h>
 #include <netinet/ip6.h>
 #include <inet/ip.h>
@@ -134,6 +137,8 @@ opdes_t	tcp_opt_arr[] = {
 
 { TCP_CORK, IPPROTO_TCP, OA_RW, OA_RW, OP_NP, 0, sizeof (int), 0 },
 
+{ TCP_QUICKACK, IPPROTO_TCP, OA_RW, OA_RW, OP_NP, 0, sizeof (int), 0 },
+
 { TCP_RTO_INITIAL, IPPROTO_TCP, OA_RW, OA_RW, OP_NP, 0, sizeof (uint32_t), 0 },
 
 { TCP_RTO_MIN, IPPROTO_TCP, OA_RW, OA_RW, OP_NP, 0, sizeof (uint32_t), 0 },
@@ -141,6 +146,9 @@ opdes_t	tcp_opt_arr[] = {
 { TCP_RTO_MAX, IPPROTO_TCP, OA_RW, OA_RW, OP_NP, 0, sizeof (uint32_t), 0 },
 
 { TCP_LINGER2, IPPROTO_TCP, OA_RW, OA_RW, OP_NP, 0, sizeof (int), 0 },
+
+{ TCP_CONGESTION, IPPROTO_TCP, OA_RW, OA_RW, OP_NP,
+	OP_VARLEN, CC_ALGO_NAME_MAX, 0 },
 
 { IP_OPTIONS,	IPPROTO_IP, OA_RW, OA_RW, OP_NP,
 	(OP_VARLEN|OP_NODEFAULT),
@@ -153,6 +161,7 @@ opdes_t	tcp_opt_arr[] = {
 { T_IP_TOS,	IPPROTO_IP, OA_RW, OA_RW, OP_NP, 0, sizeof (int), 0 },
 { IP_TTL,	IPPROTO_IP, OA_RW, OA_RW, OP_NP, OP_DEF_FN,
 	sizeof (int), -1 /* not initialized */ },
+{ IP_RECVTOS,	IPPROTO_IP,  OA_RW, OA_RW, OP_NP, 0, sizeof (int), 0 },
 
 { IP_SEC_OPT, IPPROTO_IP, OA_RW, OA_RW, OP_NP, OP_NODEFAULT,
 	sizeof (ipsec_req_t), -1 /* not initialized */ },
@@ -434,8 +443,18 @@ tcp_opt_get(conn_t *connp, int level, int name, uchar_t *ptr)
 		case TCP_KEEPALIVE_ABORT_THRESHOLD:
 			*i1 = tcp->tcp_ka_abort_thres;
 			return (sizeof (int));
+		case TCP_CONGESTION: {
+			size_t len = strlcpy((char *)ptr, CC_ALGO(tcp)->name,
+			    CC_ALGO_NAME_MAX);
+			if (len >= CC_ALGO_NAME_MAX)
+				return (-1);
+			return (len + 1);
+		}
 		case TCP_CORK:
 			*i1 = tcp->tcp_cork;
+			return (sizeof (int));
+		case TCP_QUICKACK:
+			*i1 = tcp->tcp_quickack;
 			return (sizeof (int));
 		case TCP_RTO_INITIAL:
 			*i1 = tcp->tcp_rto_initial;
@@ -615,9 +634,9 @@ tcp_opt_set(conn_t *connp, uint_t optset_context, int level, int name,
 		/*
 		 * Note: Implies T_CHECK semantics for T_OPTCOM_REQ
 		 * inlen != 0 implies value supplied and
-		 * 	we have to "pretend" to set it.
+		 *	we have to "pretend" to set it.
 		 * inlen == 0 implies that there is no
-		 * 	value part in T_CHECK request and just validation
+		 *	value part in T_CHECK request and just validation
 		 * done elsewhere should be enough, we just return here.
 		 */
 		if (inlen == 0) {
@@ -958,6 +977,41 @@ tcp_opt_set(conn_t *connp, uint_t optset_context, int level, int name,
 				tcp->tcp_ka_rinterval = 0;
 			}
 			break;
+		case TCP_CONGESTION: {
+			struct cc_algo *algo;
+
+			if (checkonly) {
+				break;
+			}
+
+			/*
+			 * Make sure the string is NUL-terminated. Some
+			 * consumers pass only the number of characters
+			 * in the string, and don't include the NUL
+			 * terminator, so we set it for them.
+			 */
+			if (inlen < CC_ALGO_NAME_MAX) {
+				invalp[inlen] = '\0';
+			}
+			invalp[CC_ALGO_NAME_MAX - 1] = '\0';
+
+			if ((algo = cc_load_algo((char *)invalp)) == NULL) {
+				return (ENOENT);
+			}
+
+			if (CC_ALGO(tcp)->cb_destroy != NULL) {
+				CC_ALGO(tcp)->cb_destroy(&tcp->tcp_ccv);
+			}
+
+			CC_DATA(tcp) = NULL;
+			CC_ALGO(tcp) = algo;
+
+			if (CC_ALGO(tcp)->cb_init != NULL) {
+				VERIFY0(CC_ALGO(tcp)->cb_init(&tcp->tcp_ccv));
+			}
+
+			break;
+		}
 		case TCP_CORK:
 			if (!checkonly) {
 				/*
@@ -973,6 +1027,11 @@ tcp_opt_set(conn_t *connp, uint_t optset_context, int level, int name,
 					tcp_wput_data(tcp, NULL, B_FALSE);
 				}
 				tcp->tcp_cork = onoff;
+			}
+			break;
+		case TCP_QUICKACK:
+			if (!checkonly) {
+				tcp->tcp_quickack = onoff;
 			}
 			break;
 		case TCP_RTO_INITIAL:
@@ -1084,6 +1143,16 @@ tcp_opt_set(conn_t *connp, uint_t optset_context, int level, int name,
 			 */
 			if (tcp->tcp_state == TCPS_LISTEN) {
 				return (EINVAL);
+			}
+			break;
+		case IP_RECVTOS:
+			if (!checkonly) {
+				/*
+				 * Force it to be sent up with the next msg
+				 * by setting it to a value which cannot
+				 * appear in a packet (TOS is only 8-bits)
+				 */
+				tcp->tcp_recvtos = 0xffffffffU;
 			}
 			break;
 		}

@@ -55,17 +55,16 @@ POFILE =	libpkg.po
 MSGFILES =	$(OBJECTS:%.o=../common/%.i)
 CLEANFILES +=   $(MSGFILES)
 
-$(LINTLIB):=	SRCS = $(SRCDIR)/$(LINTSRC)
 
 
-LIBS = $(DYNLIB) $(LINTLIB)
+LIBS = $(DYNLIB)
 
 
 LDLIBS +=	-lc -lscf -ladm
 
 CFLAGS +=	$(CCVERBOSE)
 CERRWARN +=	-_gcc=-Wno-parentheses
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 CERRWARN +=	-_gcc=-Wno-clobbered
 CERRWARN +=	-_gcc=-Wno-switch
 
@@ -83,7 +82,6 @@ $(POFILE): $(MSGFILES)
 
 _msg: $(MSGDOMAINPOFILE)
 
-lint: lintcheck
 
 # include library targets
 include $(SRC)/lib/Makefile.targ

@@ -94,7 +94,7 @@ struct evtsoftdata {
 
 	kcondvar_t evtchn_wait; /* Processes wait on this when ring is empty. */
 	kmutex_t evtchn_lock;
-	struct pollhead evtchn_pollhead;
+	pollhead_t evtchn_pollhead;
 
 	pid_t pid;		/* last pid to bind to this event channel. */
 	processorid_t cpu;	/* cpu thread/evtchn is bound to */
@@ -112,8 +112,8 @@ static int evtchndrv_detach(dev_info_t *, ddi_detach_cmd_t);
 static struct evtsoftdata *port_user[NR_EVENT_CHANNELS];
 static kmutex_t port_user_lock;
 
-void
-evtchn_device_upcall()
+uint_t
+evtchn_device_upcall(caddr_t arg __unused, caddr_t arg1 __unused)
 {
 	struct evtsoftdata *ep;
 	int port;
@@ -154,6 +154,7 @@ evtchn_device_upcall()
 
 done:
 	mutex_exit(&port_user_lock);
+	return (DDI_INTR_CLAIMED);
 }
 
 /* ARGSUSED */
@@ -550,6 +551,7 @@ evtchndrv_close(dev_t dev, int flag, int otyp, struct cred *credp)
 	mutex_exit(&port_user_lock);
 
 	kmem_free(ep->ring, PAGESIZE);
+	pollhead_clean(&ep->evtchn_pollhead);
 	ddi_soft_state_free(evtchndrv_statep, EVTCHNDRV_MINOR2INST(minor));
 
 	/*

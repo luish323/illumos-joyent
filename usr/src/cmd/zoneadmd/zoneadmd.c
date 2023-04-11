@@ -22,7 +22,7 @@
 /*
  * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2014 Nexenta Systems, Inc. All rights reserved.
- * Copyright 2019 Joyent, Inc.
+ * Copyright 2021 Joyent, Inc.
  * Copyright (c) 2016 by Delphix. All rights reserved.
  */
 
@@ -36,7 +36,7 @@
  *   console device; configure process runtime attributes such as resource
  *   controls, pool bindings, fine-grained privileges.
  *
- * - Launch the zone's init(1M) process.
+ * - Launch the zone's init(8) process.
  *
  * - Implement a door server; clients (like zoneadm) connect to the door
  *   server and request zone state changes.  The kernel is also a client of
@@ -292,17 +292,32 @@ zerror(zlog_t *zlogp, boolean_t use_strerror, const char *fmt, ...)
 
 /*
  * Append src to dest, modifying dest in the process. Prefix src with
- * a space character if dest is a non-empty string.
+ * a space character if dest is a non-empty string. Assumes dest is already
+ * properly \0-terminated OR overruns destsize.
  */
 static void
-strnappend(char *dest, size_t n, const char *src)
+strnappend(char *dest, size_t destsize, const char *src)
 {
-	(void) snprintf(dest, n, "%s%s%s", dest,
-	    dest[0] == '\0' ? "" : " ", src);
+	size_t startpoint = strnlen(dest, destsize);
+
+	if (startpoint >= destsize - 1) {
+		/* We've run out of room.  Record something?! */
+		return;
+	}
+
+	if (startpoint > 0) {
+		/* Add the space per the function's intro comment. */
+		dest[startpoint] = ' ';
+		startpoint++;
+	}
+
+	/* Arguably we should check here too... */
+	(void) strlcpy(dest + startpoint, src, destsize - startpoint);
 }
 
 /*
- * Since illumos boot arguments are getopt(3c) compatible (see kernel(1m)), we
+ * Emit a warning for any boot arguments which are unrecognized.  Since
+ * Solaris boot arguments are getopt(3c) compatible (see kernel(8)), we
  * put the arguments into an argv style array, use getopt to process them,
  * and put the resultant argument string back into outargs. Non-native brands
  * may support alternate forms of boot arguments so we must handle that as well.
@@ -378,7 +393,7 @@ filter_bootargs(zlog_t *zlogp, const char *inargs, char *outargs,
 	 * We preserve compatibility with the illumos system boot behavior,
 	 * which allows:
 	 *
-	 * 	# reboot kernel/unix -s -m verbose
+	 *	# reboot kernel/unix -s -m verbose
 	 *
 	 * In this example, kernel/unix tells the booter what file to boot. The
 	 * original intent of this was that we didn't want reboot in a zone to
@@ -552,7 +567,7 @@ notify_zonestatd(zoneid_t zoneid)
 	params.desc_ptr = NULL;
 	params.desc_num = 0;
 	params.rbuf = NULL;
-	params.rsize = NULL;
+	params.rsize = 0;
 	(void) door_call(fd, &params);
 	(void) close(fd);
 }
@@ -1278,8 +1293,8 @@ zone_bootup(zlog_t *zlogp, const char *bootargs, int zstate, boolean_t debug)
 	dladm_status_t status;
 	char errmsg[DLADM_STRSIZE];
 	int err;
-	boolean_t restart_init;
 	boolean_t app_svc_dep;
+	boolean_t restart_init, restart_init0, restart_initreboot;
 
 	if (brand_prestatechg(zlogp, zstate, Z_BOOT, debug) != 0)
 		return (-1);
@@ -1323,16 +1338,18 @@ zone_bootup(zlog_t *zlogp, const char *bootargs, int zstate, boolean_t debug)
 		goto bad;
 	}
 
-	/* Get the path for this zone's init(1M) (or equivalent) process.  */
+	/* Get the path for this zone's init(8) (or equivalent) process.  */
 	if (get_initname(bh, init_file, MAXPATHLEN) != 0) {
 		zerror(zlogp, B_FALSE,
-		    "unable to determine zone's init(1M) location");
+		    "unable to determine zone's init(8) location");
 		brand_close(bh);
 		goto bad;
 	}
 
-	/* See if we should restart init if it dies. */
+	/* See if this zone's brand should restart init if it dies. */
 	restart_init = restartinit(bh);
+	restart_init0 = brand_restartinit0(bh);
+	restart_initreboot = brand_restartinitreboot(bh);
 
 	/*
 	 * See if we need to setup contract dependencies between the zone's
@@ -1411,6 +1428,17 @@ zone_bootup(zlog_t *zlogp, const char *bootargs, int zstate, boolean_t debug)
 	if (!restart_init && zone_setattr(zoneid, ZONE_ATTR_INITNORESTART,
 	    NULL, 0) == -1) {
 		zerror(zlogp, B_TRUE, "could not set zone init-no-restart");
+		goto bad;
+	}
+	if (restart_init0 && zone_setattr(zoneid, ZONE_ATTR_INITRESTART0,
+	    NULL, 0) == -1) {
+		zerror(zlogp, B_TRUE,
+		    "could not set zone init-restart-on-exit-0");
+		goto bad;
+	}
+	if (restart_initreboot && zone_setattr(zoneid, ZONE_ATTR_INITREBOOT,
+	    NULL, 0) == -1) {
+		zerror(zlogp, B_TRUE, "could not set zone reboot-on-init-exit");
 		goto bad;
 	}
 
@@ -1997,8 +2025,8 @@ server(void *cookie, char *args, size_t alen, door_desc_t *dp,
 			zerror(zlogp, B_FALSE, "zone is already ready");
 			rval = 0;
 			break;
-		case Z_BOOT:
 		case Z_FORCEBOOT:
+		case Z_BOOT:
 			(void) strlcpy(boot_args, zargp->bootbuf,
 			    sizeof (boot_args));
 			eventstream_write(Z_EVT_ZONE_BOOTING);
@@ -2026,8 +2054,8 @@ server(void *cookie, char *args, size_t alen, door_desc_t *dp,
 		case Z_SHUTDOWN:
 		case Z_REBOOT:
 		case Z_NOTE_UNINSTALLING:
-		case Z_MOUNT:
 		case Z_FORCEMOUNT:
+		case Z_MOUNT:
 		case Z_UNMOUNT:
 			if (kernelcall)	/* Invalid; can't happen */
 				abort();
@@ -2076,8 +2104,8 @@ server(void *cookie, char *args, size_t alen, door_desc_t *dp,
 			else
 				eventstream_write(Z_EVT_ZONE_HALTED);
 			break;
-		case Z_BOOT:
 		case Z_FORCEBOOT:
+		case Z_BOOT:
 			/*
 			 * We could have two clients racing to boot this
 			 * zone; the second client loses, but its request
@@ -2132,8 +2160,8 @@ server(void *cookie, char *args, size_t alen, door_desc_t *dp,
 			}
 			break;
 		case Z_NOTE_UNINSTALLING:
-		case Z_MOUNT:
 		case Z_FORCEMOUNT:
+		case Z_MOUNT:
 		case Z_UNMOUNT:
 			zerror(zlogp, B_FALSE, "%s operation is invalid "
 			    "for zones in state '%s'", z_cmd_name(cmd),
@@ -2193,7 +2221,7 @@ setup_door(zlog_t *zlogp)
 }
 
 /*
- * zoneadm(1m) will start zoneadmd if it thinks it isn't running; this
+ * zoneadm(8) will start zoneadmd if it thinks it isn't running; this
  * is where zoneadmd itself will check to see that another instance of
  * zoneadmd isn't already controlling this zone.
  *
@@ -2205,20 +2233,20 @@ setup_door(zlog_t *zlogp)
  * vnodes we could be dealing with.  Our strategy is as follows:
  *
  * - If the file we opened is a regular file (common case):
- * 	There is no fattach(3c)ed door, so we have a chance of becoming
- * 	the managing zoneadmd. We attempt to lock the file: if it is
- * 	already locked, that means someone else raced us here, so we
- * 	lose and give up.  zoneadm(1m) will try to contact the zoneadmd
- * 	that beat us to it.
+ *	There is no fattach(3c)ed door, so we have a chance of becoming
+ *	the managing zoneadmd. We attempt to lock the file: if it is
+ *	already locked, that means someone else raced us here, so we
+ *	lose and give up.  zoneadm(8) will try to contact the zoneadmd
+ *	that beat us to it.
  *
  * - If the file we opened is a namefs file:
- * 	This means there is already an established door fattach(3c)'ed
- * 	to the rendezvous path.  We've lost the race, so we give up.
- * 	Note that in this case we also try to grab the file lock, and
- * 	will succeed in acquiring it since the vnode locked by the
- * 	"winning" zoneadmd was a regular one, and the one we locked was
- * 	the fattach(3c)'ed door node.  At any rate, no harm is done, and
- * 	we just return to zoneadm(1m) which knows to retry.
+ *	This means there is already an established door fattach(3c)'ed
+ *	to the rendezvous path.  We've lost the race, so we give up.
+ *	Note that in this case we also try to grab the file lock, and
+ *	will succeed in acquiring it since the vnode locked by the
+ *	"winning" zoneadmd was a regular one, and the one we locked was
+ *	the fattach(3c)'ed door node.  At any rate, no harm is done, and
+ *	we just return to zoneadm(8) which knows to retry.
  */
 static int
 make_daemon_exclusive(zlog_t *zlogp)
@@ -2276,7 +2304,7 @@ top:
 			 *
 			 * If the door has been revoked, the zoneadmd
 			 * process currently managing the zone is going
-			 * away.  We'll return control to zoneadm(1m)
+			 * away.  We'll return control to zoneadm(8)
 			 * which will try again (by which time zoneadmd
 			 * will hopefully have exited).
 			 */

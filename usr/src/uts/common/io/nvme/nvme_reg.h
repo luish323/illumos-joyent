@@ -10,8 +10,9 @@
  */
 
 /*
- * Copyright 2016 Nexenta Systems, Inc. All rights reserved.
- * Copyright (c) 2018, Joyent, Inc.
+ * Copyright 2020 Joyent, Inc.
+ * Copyright 2022 Tintri by DDN, Inc. All rights reserved.
+ * Copyright 2022 OmniOS Community Edition (OmniOSce) Association.
  */
 
 /*
@@ -321,76 +322,13 @@ typedef struct {
 	nvme_cqe_sf_t cqe_sf;		/* Status Field */
 } nvme_cqe_t;
 
-/* NVMe completion status code type */
-#define	NVME_CQE_SCT_GENERIC	0	/* Generic Command Status */
-#define	NVME_CQE_SCT_SPECIFIC	1	/* Command Specific Status */
-#define	NVME_CQE_SCT_INTEGRITY	2	/* Media and Data Integrity Errors */
-#define	NVME_CQE_SCT_VENDOR	7	/* Vendor Specific */
-
-/* NVMe completion status code (generic) */
-#define	NVME_CQE_SC_GEN_SUCCESS		0x0	/* Successful Completion */
-#define	NVME_CQE_SC_GEN_INV_OPC		0x1	/* Invalid Command Opcode */
-#define	NVME_CQE_SC_GEN_INV_FLD		0x2	/* Invalid Field in Command */
-#define	NVME_CQE_SC_GEN_ID_CNFL		0x3	/* Command ID Conflict */
-#define	NVME_CQE_SC_GEN_DATA_XFR_ERR	0x4	/* Data Transfer Error */
-#define	NVME_CQE_SC_GEN_ABORT_PWRLOSS	0x5	/* Cmds Aborted / Pwr Loss */
-#define	NVME_CQE_SC_GEN_INTERNAL_ERR	0x6	/* Internal Error */
-#define	NVME_CQE_SC_GEN_ABORT_REQUEST	0x7	/* Command Abort Requested */
-#define	NVME_CQE_SC_GEN_ABORT_SQ_DEL	0x8	/* Cmd Aborted / SQ deletion */
-#define	NVME_CQE_SC_GEN_ABORT_FUSE_FAIL	0x9	/* Cmd Aborted / Failed Fused */
-#define	NVME_CQE_SC_GEN_ABORT_FUSE_MISS	0xa	/* Cmd Aborted / Missing Fusd */
-#define	NVME_CQE_SC_GEN_INV_NS		0xb	/* Inval Namespace or Format */
-#define	NVME_CQE_SC_GEN_CMD_SEQ_ERR	0xc	/* Command Sequence Error */
-#define	NVME_CQE_SC_GEN_INV_SGL_LAST	0xd	/* Inval SGL Last Seg Desc */
-#define	NVME_CQE_SC_GEN_INV_SGL_NUM	0xe	/* Inval Number of SGL Desc */
-#define	NVME_CQE_SC_GEN_INV_DSGL_LEN	0xf	/* Data SGL Length Invalid */
-#define	NVME_CQE_SC_GEN_INV_MSGL_LEN	0x10	/* Metadata SGL Length Inval */
-#define	NVME_CQE_SC_GEN_INV_SGL_DESC	0x11	/* SGL Descriptor Type Inval */
-
-/* NVMe completion status code (generic NVM commands) */
-#define	NVME_CQE_SC_GEN_NVM_LBA_RANGE	0x80	/* LBA Out Of Range */
-#define	NVME_CQE_SC_GEN_NVM_CAP_EXC	0x81	/* Capacity Exceeded */
-#define	NVME_CQE_SC_GEN_NVM_NS_NOTRDY	0x82	/* Namespace Not Ready */
-#define	NVME_CQE_SC_GEN_NVM_RSV_CNFLCT	0x83	/* Reservation Conflict */
-
-/* NVMe completion status code (command specific) */
-#define	NVME_CQE_SC_SPC_INV_CQ		0x0	/* Completion Queue Invalid */
-#define	NVME_CQE_SC_SPC_INV_QID		0x1	/* Invalid Queue Identifier */
-#define	NVME_CQE_SC_SPC_MAX_QSZ_EXC	0x2	/* Max Queue Size Exceeded */
-#define	NVME_CQE_SC_SPC_ABRT_CMD_EXC	0x3	/* Abort Cmd Limit Exceeded */
-#define	NVME_CQE_SC_SPC_ASYNC_EVREQ_EXC	0x5	/* Async Event Request Limit */
-#define	NVME_CQE_SC_SPC_INV_FW_SLOT	0x6	/* Invalid Firmware Slot */
-#define	NVME_CQE_SC_SPC_INV_FW_IMG	0x7	/* Invalid Firmware Image */
-#define	NVME_CQE_SC_SPC_INV_INT_VECT	0x8	/* Invalid Interrupt Vector */
-#define	NVME_CQE_SC_SPC_INV_LOG_PAGE	0x9	/* Invalid Log Page */
-#define	NVME_CQE_SC_SPC_INV_FORMAT	0xa	/* Invalid Format */
-#define	NVME_CQE_SC_SPC_FW_RESET	0xb	/* FW Application Reset Reqd */
-#define	NVME_CQE_SC_SPC_INV_Q_DEL	0xc	/* Invalid Queue Deletion */
-#define	NVME_CQE_SC_SPC_FEAT_SAVE	0xd	/* Feature Id Not Saveable */
-#define	NVME_CQE_SC_SPC_FEAT_CHG	0xe	/* Feature Not Changeable */
-#define	NVME_CQE_SC_SPC_FEAT_NS_SPEC	0xf	/* Feature Not Namespace Spec */
-#define	NVME_CQE_SC_SPC_FW_NSSR		0x10	/* FW Application NSSR Reqd */
-
-/* NVMe completion status code (NVM command specific */
-#define	NVME_CQE_SC_SPC_NVM_CNFL_ATTR	0x80	/* Conflicting Attributes */
-#define	NVME_CQE_SC_SPC_NVM_INV_PROT	0x81	/* Invalid Protection */
-#define	NVME_CQE_SC_SPC_NVM_READONLY	0x82	/* Write to Read Only Range */
-
-/* NVMe completion status code (data / metadata integrity) */
-#define	NVME_CQE_SC_INT_NVM_WRITE	0x80	/* Write Fault */
-#define	NVME_CQE_SC_INT_NVM_READ	0x81	/* Unrecovered Read Error */
-#define	NVME_CQE_SC_INT_NVM_GUARD	0x82	/* Guard Check Error */
-#define	NVME_CQE_SC_INT_NVM_APPL_TAG	0x83	/* Application Tag Check Err */
-#define	NVME_CQE_SC_INT_NVM_REF_TAG	0x84	/* Reference Tag Check Err */
-#define	NVME_CQE_SC_INT_NVM_COMPARE	0x85	/* Compare Failure */
-#define	NVME_CQE_SC_INT_NVM_ACCESS	0x86	/* Access Denied */
-
 /*
  * NVMe Asynchronous Event Request
  */
 #define	NVME_ASYNC_TYPE_ERROR		0x0	/* Error Status */
 #define	NVME_ASYNC_TYPE_HEALTH		0x1	/* SMART/Health Status */
-#define	NVME_ASYNC_TYPE_VENDOR		0x7	/* vendor specific */
+#define	NVME_ASYNC_TYPE_NOTICE		0x2	/* Notice (1.2) */
+#define	NVME_ASYNC_TYPE_VENDOR		0x7	/* Vendor specific */
 
 #define	NVME_ASYNC_ERROR_INV_SQ		0x0	/* Invalid Submission Queue */
 #define	NVME_ASYNC_ERROR_INV_DBL	0x1	/* Invalid Doorbell Write */
@@ -402,6 +340,17 @@ typedef struct {
 #define	NVME_ASYNC_HEALTH_RELIABILITY	0x0	/* Device Reliability */
 #define	NVME_ASYNC_HEALTH_TEMPERATURE	0x1	/* Temp. Above Threshold */
 #define	NVME_ASYNC_HEALTH_SPARE		0x2	/* Spare Below Threshold */
+
+/* NVMe 1.2 */
+#define	NVME_ASYNC_NOTICE_NS_CHANGE	0x0	/* Namespace attribute change */
+#define	NVME_ASYNC_NOTICE_FW_ACTIVATE	0x1	/* Firmware activation start */
+/* NVMe 1.3 */
+#define	NVME_ASYNC_NOTICE_TELEMETRY	0x2	/* Telemetry log changed */
+/* NVMe 1.4 */
+#define	NVME_ASYNC_NOTICE_NS_ASYMM	0x3	/* Asymm. NS access change */
+#define	NVME_ASYNC_NOTICE_LATENCYLOG	0x4	/* Pred. Latency log change */
+#define	NVME_ASYNC_NOTICE_LBASTATUS	0x5	/* LBA status alert */
+#define	NVME_ASYNC_NOTICE_ENDURANCELOG	0x6	/* Endurance log change */
 
 typedef union {
 	struct {
@@ -446,21 +395,6 @@ typedef union {
 } nvme_create_sq_dw11_t;
 
 /*
- * NVMe Identify
- */
-
-/* NVMe Identify parameters (cdw10) */
-#define	NVME_IDENTIFY_NSID	0x0	/* Identify Namespace */
-#define	NVME_IDENTIFY_CTRL	0x1	/* Identify Controller */
-#define	NVME_IDENTIFY_LIST	0x2	/* Identify List Namespaces */
-
-#define	NVME_IDENTIFY_NSID_ALLOC_LIST	0x10	/* List Allocated NSID */
-#define	NVME_IDENTIFY_NSID_ALLOC	0x11	/* Identify Allocated NSID */
-#define	NVME_IDENTIFY_NSID_CTRL_LIST	0x12	/* List Controllers on NSID */
-#define	NVME_IDENTIFY_CTRL_LIST		0x13	/* Controller List */
-#define	NVME_IDENTIFY_PRIMARY_CAPS	0x14	/* Primary Controller Caps */
-
-/*
  * NVMe Abort Command
  */
 typedef union {
@@ -470,7 +404,6 @@ typedef union {
 	} b;
 	uint32_t r;
 } nvme_abort_cmd_t;
-
 
 /*
  * NVMe Get Log Page
@@ -485,6 +418,22 @@ typedef union {
 	uint32_t r;
 } nvme_getlogpage_t;
 
+/*
+ * dword11 values for the dataset management command. Note that the dword11
+ * attributes are distinct from the context attributes (nr_ctxattr) values
+ * for an individual range (of the context attribute values defined by the NVMe
+ * spec, none are currently used by the NVMe driver).
+ */
+#define	NVME_DSET_MGMT_ATTR_OPT_READ	0x01
+#define	NVME_DSET_MGMT_ATTR_OPT_WRITE	0x02
+#define	NVME_DSET_MGMT_ATTR_DEALLOCATE	0x04
+
+#define	NVME_DSET_MGMT_MAX_RANGES	256
+typedef struct {
+	uint32_t	nr_ctxattr;
+	uint32_t	nr_len;
+	uint64_t	nr_lba;
+} nvme_range_t;
 
 #ifdef __cplusplus
 }

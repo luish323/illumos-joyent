@@ -22,6 +22,7 @@
 #
 # Copyright (c) 1989, 2010, Oracle and/or its affiliates. All rights reserved.
 # Copyright 2018 Nexenta Systems, Inc.
+# Copyright 2022 Garrett D'Amore
 #
 
 include ../Makefile.master
@@ -77,15 +78,13 @@ install_h	:=	TARGET= install_h
 clean		:=	TARGET= clean
 clobber		:=	TARGET= clobber
 clobber_h	:=	TARGET= clobber
-lint		:=	TARGET= lint
-clean.lint	:=	TARGET= clean.lint
 check		:=	TARGET= check
 modlist		:=	TARGET= modlist
 modlist		:=	NO_STATE= -K $$MODSTATE$$$$
 
 .KEEP_STATE:
 
-def all lint: all_h $(PMTMO_FILE) $($(MACH)_ARCHITECTURES)
+def all: all_h $(PMTMO_FILE) $($(MACH)_ARCHITECTURES)
 
 install: all_h install_dirs $(PMTMO_FILE) $($(MACH)_ARCHITECTURES)
 
@@ -140,8 +139,6 @@ COMMON_HDRDIRS= common/c2 \
 		common/klm \
 		common/inet \
 		common/inet/ipf/netinet \
-		common/inet/kssl \
-		common/inet/nca \
 		common/inet/sockmods/netpacket \
 		common/io/bpf/net \
 		common/io/fibre-channel/fca/qlc \
@@ -193,6 +190,8 @@ all_h: FRC
 	@cd common/idmap; pwd; $(MAKE) $@
 	@cd common/klm; pwd; $(MAKE) $@
 
+FRC:
+
 clean clobber: $($(MACH)_ARCHITECTURES) $(DYNHDRDIRS)
 	@if [ '$(PATCH_BUILD)' != '#' ] ; then \
 		echo $(RM) $(PMTMO_FILE) ; \
@@ -202,7 +201,7 @@ clean clobber: $($(MACH)_ARCHITECTURES) $(DYNHDRDIRS)
 # testing convenience
 clobber_h: $(DYNHDRDIRS)
 
-clean.lint modlist: $($(MACH)_ARCHITECTURES)
+modlist: $($(MACH)_ARCHITECTURES)
 
 #
 # Cross-reference customization: build a cross-reference over all of
@@ -216,7 +215,4 @@ XRDIRS = $(sparc_ARCHITECTURES) $(i386_ARCHITECTURES) sun4 sfmmu	\
 
 XRINCDIRS = $(XRDIRS)
 
-cscope.out tags: FRC
-	$(XREF) -x $@
-
-FRC:
+include ../Makefile.xref

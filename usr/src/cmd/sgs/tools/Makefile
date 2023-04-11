@@ -23,7 +23,7 @@
 # Use is subject to license terms.
 #
 # Makefile to support tools used for linker development.  GEXECS are those
-# tools that the installed for distribution in the SUNWonld package.
+# tools that are installed in /opt/SUNWonld in the proto area.
 #
 #  o	`c' programs are built from the $(MACH)/Makefile
 #
@@ -38,20 +38,7 @@
 
 include		$(SRC)/Makefile.master
 
-LSSRCS=		info.sh	\
-		proto.sh
-
-SRCS=		$(LSSRCS)
-
-LEXECS=		$(LSSRCS:%.sh=%)
-
-ROOTDIR =	$(ROOT)/opt/SUNWonld/bin
-ROOTPROGS =	$(GEXECS:%=$(ROOTDIR)/%)
-ROOTPROGS +=	$(PSRCS:%=$(ROOTDIR)/%)
-
-$(ROOTPROGS) :=	FILEMODE=755
-
-SUBDIRS=	$(MACH) man
+SUBDIRS=	$(MACH)
 
 all:=		TARGET= all
 install:=	TARGET= install
@@ -61,29 +48,9 @@ clobber:=	TARGET= clobber
 
 .KEEP_STATE:
 
-all:		$(EXECS) $(SUBDIRS)
-
-install:	all $(ROOTPROGS) $(SUBDIRS)
-
-clean clobber:	$(SUBDIRS)
-		$(RM) $(RMFLAGS) $(EXECS)
-
-delete:
-
-%:		%.ksh
-		$(RM) $@
-		cat $< > $@
-		chmod +x $@
+all install clean clobber: $(SUBDIRS)
 
 $(SUBDIRS):	FRC
 		@cd $@; pwd; $(MAKE) $(TARGET)
 
-$(ROOTDIR)/%:	%
-		$(INS.file)
-
-$(ROOTDIR)/%:	scoping/%
-		$(INS.file)
-
 FRC:
-
-execs:		$(EXECS)

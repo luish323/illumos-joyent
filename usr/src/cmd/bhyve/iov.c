@@ -111,7 +111,7 @@ iov_to_buf(const struct iovec *iov, int niov, void **buf)
 		return (-1);
 
 	for (i = 0, ptr = 0; i < niov; i++) {
-		memcpy(*buf + ptr, iov[i].iov_base, iov[i].iov_len);
+		memcpy((uint8_t *)*buf + ptr, iov[i].iov_base, iov[i].iov_len);
 		ptr += iov[i].iov_len;
 	}
 
@@ -119,24 +119,29 @@ iov_to_buf(const struct iovec *iov, int niov, void **buf)
 }
 
 ssize_t
-buf_to_iov(const void *buf, size_t buflen, struct iovec *iov, int niov,
+buf_to_iov(const void *buf, size_t buflen, const struct iovec *iov, int niov,
     size_t seek)
 {
 	struct iovec *diov;
-	int ndiov, i;
 	size_t off = 0, len;
+	int  i;
+
+#ifndef __FreeBSD__
+	diov = NULL;
+#endif
 
 	if (seek > 0) {
+		int ndiov;
+
 		diov = malloc(sizeof(struct iovec) * niov);
 		seek_iov(iov, niov, diov, &ndiov, seek);
-	} else {
-		diov = iov;
-		ndiov = niov;
+		iov = diov;
+		niov = ndiov;
 	}
 
-	for (i = 0; i < ndiov && off < buflen; i++) {
-		len = MIN(diov[i].iov_len, buflen - off);
-		memcpy(diov[i].iov_base, buf + off, len);
+	for (i = 0; i < niov && off < buflen; i++) {
+		len = MIN(iov[i].iov_len, buflen - off);
+		memcpy(iov[i].iov_base, (const uint8_t *)buf + off, len);
 		off += len;
 	}
 

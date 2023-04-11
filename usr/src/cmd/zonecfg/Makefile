@@ -22,7 +22,8 @@
 # Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
 #
-# Copyright (c) 2018, Joyent, Inc.
+# Copyright 2019 Joyent, Inc.
+#
 
 PROG=	zonecfg
 OBJS=	zonecfg.o zonecfg_lex.o zonecfg_grammar.tab.o
@@ -34,7 +35,7 @@ include ../Makefile.ctf
 # still export a number of "yy*" (libl) interfaces.  Reduce all other symbols
 # to local scope.
 MAPFILES +=	$(MAPFILE.LEX) $(MAPFILE.NGB)
-MAPOPTS =	$(MAPFILES:%=-M%)
+MAPOPTS =	$(MAPFILES:%=-Wl,-M%)
 
 LFLAGS =	-t
 YFLAGS =	-d -b zonecfg_grammar
@@ -44,12 +45,15 @@ CPPFLAGS +=	-I.
 LDFLAGS +=	$(MAPOPTS)
 CLEANFILES +=	zonecfg_lex.c zonecfg_grammar.tab.c zonecfg_grammar.tab.h
 
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 CERRWARN +=	-_gcc=-Wno-unused-label
 CERRWARN +=	-_gcc=-Wno-unused-variable
 CERRWARN +=	-_gcc=-Wno-implicit-function-declaration
 
 SMOFF += all_func_returns
+
+# false positive
+zonecfg_lex.o := SMOFF += free
 
 CLOBBERFILES += $(PROG).ln
 
@@ -77,11 +81,5 @@ check:	$(PROG).c $(PROG).h
 
 clean:
 	$(RM) $(OBJS) $(CLEANFILES)
-
-#
-# We don't do lint of lex- and yacc- generated source files
-#
-lint:
-	$(LINT.c) -c $(PROG).c $(LDLIBS)
 
 include ../Makefile.targ

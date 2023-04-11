@@ -452,7 +452,7 @@ cpu_create_intrstat(cpu_t *cp)
 		zoneid = ALL_ZONES;
 
 	intr_ksp = kstat_create_zone("cpu", cp->cpu_id, "intrstat", "misc",
-	    KSTAT_TYPE_NAMED, PIL_MAX * 2, NULL, zoneid);
+	    KSTAT_TYPE_NAMED, PIL_MAX * 2, 0, zoneid);
 
 	/*
 	 * Initialize each PIL's named kstat
@@ -518,7 +518,7 @@ cpu_kstat_intrstat_update(kstat_t *ksp, int rw)
 }
 
 /*
- * Called by common/os/cpu.c for psrinfo(1m) kstats
+ * Called by common/os/cpu.c for psrinfo(8) kstats
  */
 char *
 cpu_fru_fmri(cpu_t *cp)
@@ -901,11 +901,6 @@ lbolt_softint_post(void)
 }
 
 void
-thread_splitstack_run(caddr_t addr, void (*func)(void *), void *)
+do_hotinlines(struct module *mp __unused)
 {
-	panic("thread_splitstack() not supported on SPARC");
 }
-
-void
-thread_splitstack_cleanup(void)
-{}

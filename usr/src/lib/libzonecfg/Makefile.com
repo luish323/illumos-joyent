@@ -21,21 +21,23 @@
 #
 # Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
 # Copyright 2015 Joyent, Inc.
+# Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
 #
 
 LIBRARY=	libzonecfg.a
 VERS=		.1
-LIB_OBJS=	libzonecfg.o getzoneent.o scratchops.o
+LIB_OBJS=	libzonecfg.o getzoneent.o scratchops.o definit.o
 XML_OBJS=	os_dtd.o
 OBJECTS=	$(LIB_OBJS) $(XML_OBJS)
 
 include ../../Makefile.lib
 
-LIBS =		$(DYNLIB) $(LINTLIB)
+LIBS =		$(DYNLIB)
 LDLIBS +=	-lc -lsocket -luuid -lnvpair -lsysevent -lsec -lbrand \
 		-lpool -lscf -lproc -luutil -lbsm -lsecdb
 # DYNLIB libraries do not have lint libs and are not linted
 $(DYNLIB) :=	LDLIBS += -lxml2
+NATIVE_LIBS +=	libxml2.so
 
 SRCDIR =	../common
 
@@ -45,9 +47,9 @@ SRCS = \
 		$(XML_OBJS:%.o=$(XMLDIR)/%.c) \
 
 CPPFLAGS +=	-I$(ADJUNCT_PROTO)/usr/include/libxml2 -I$(SRCDIR) -D_REENTRANT
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CPPFLAGS +=	-I$(SRC)/common/definit
+CERRWARN +=	$(CNOWARN_UNINIT)
 CERRWARN +=	-_gcc=-Wno-parentheses
-$(LINTLIB) := SRCS=	$(SRCDIR)/$(LINTSRC)
 
 CPPFLAGS +=	-I$(XMLDIR)
 
@@ -55,10 +57,12 @@ CPPFLAGS +=	-I$(XMLDIR)
 
 all:	$(LIBS)
 
-lint:	lintcheck
-
 pics/%.o: $(XMLDIR)/%.c
 	$(COMPILE.c) -o $@ $<
 	$(POST_PROCESS_O)
+
+pics/%.o:	$(SRC)/common/definit/%.c
+		$(COMPILE.c) -o $@ $<
+		$(POST_PROCESS_O)
 
 include ../../Makefile.targ

@@ -22,8 +22,9 @@
  * Copyright (c) 1991, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 1990 Mentat Inc.
  * Copyright (c) 2013 by Delphix. All rights reserved.
- * Copyright (c) 2016, Joyent, Inc. All rights reserved.
+ * Copyright 2019 Joyent, Inc.
  * Copyright (c) 2014, OmniTI Computer Consulting, Inc. All rights reserved.
+ * Copyright 2023 Oxide Computer Company
  */
 
 /*
@@ -1394,10 +1395,11 @@ ill_capability_wait(ill_t *ill)
 
 	while (ill->ill_capab_pending_cnt != 0 &&
 	    (ill->ill_state_flags & ILL_CONDEMNED) == 0) {
-		mutex_enter(&ill->ill_dlpi_capab_lock);
+		/* This may enable blocked callers of ill_capability_done(). */
 		ipsq_exit(ill->ill_phyint->phyint_ipsq);
-		cv_wait(&ill->ill_dlpi_capab_cv, &ill->ill_dlpi_capab_lock);
-		mutex_exit(&ill->ill_dlpi_capab_lock);
+		/* Pause a bit (1msec) before we re-enter the squeue. */
+		delay(drv_usectohz(1000000));
+
 		/*
 		 * If ipsq_enter() fails, someone set ILL_CONDEMNED
 		 * while we dropped the squeue. Indicate such to the caller.
@@ -1508,9 +1510,9 @@ ill_capability_id_ack(ill_t *ill, mblk_t *mp, dl_capability_sub_t *outers)
 
 	id_ic = (dl_capab_id_t *)(outers + 1);
 
+	inners = &id_ic->id_subcap;
 	if (outers->dl_length < sizeof (*id_ic) ||
-	    (inners = &id_ic->id_subcap,
-	    inners->dl_length > (outers->dl_length - sizeof (*inners)))) {
+	    inners->dl_length > (outers->dl_length - sizeof (*inners))) {
 		cmn_err(CE_WARN, "ill_capability_id_ack: malformed "
 		    "encapsulated capab type %d too long for mblk",
 		    inners->dl_cap);
@@ -2111,7 +2113,7 @@ ill_capability_lso_enable(ill_t *ill)
 	dld_capab_lso_t	lso;
 	int rc;
 
-	ASSERT(!ill->ill_isv6 && IAM_WRITER_ILL(ill));
+	ASSERT(IAM_WRITER_ILL(ill));
 
 	if (ill->ill_lso_capab == NULL) {
 		ill->ill_lso_capab = kmem_zalloc(sizeof (ill_lso_capab_t),
@@ -2128,7 +2130,8 @@ ill_capability_lso_enable(ill_t *ill)
 	if ((rc = idc->idc_capab_df(idc->idc_capab_dh, DLD_CAPAB_LSO, &lso,
 	    DLD_ENABLE)) == 0) {
 		ill->ill_lso_capab->ill_lso_flags = lso.lso_flags;
-		ill->ill_lso_capab->ill_lso_max = lso.lso_max;
+		ill->ill_lso_capab->ill_lso_max_tcpv4 = lso.lso_max_tcpv4;
+		ill->ill_lso_capab->ill_lso_max_tcpv6 = lso.lso_max_tcpv6;
 		ill->ill_capabilities |= ILL_CAPAB_LSO;
 		ip1dbg(("ill_capability_lso_enable: interface %s "
 		    "has enabled LSO\n ", ill->ill_name));
@@ -2193,11 +2196,10 @@ ill_capability_dld_enable(ill_t *ill)
 	if (!ill->ill_isv6) {
 		ill_capability_direct_enable(ill);
 		ill_capability_poll_enable(ill);
-		ill_capability_lso_enable(ill);
 	}
 
 	ill_capability_ipcheck_enable(ill);
-
+	ill_capability_lso_enable(ill);
 	ill->ill_capabilities |= ILL_CAPAB_DLD;
 	ill_mac_perim_exit(ill, mph);
 }
@@ -3513,9 +3515,6 @@ ill_init_common(ill_t *ill, queue_t *q, boolean_t isv6, boolean_t is_loopback,
 	ill->ill_max_buf = ND_MAX_Q;
 	ill->ill_refcnt = 0;
 
-	cv_init(&ill->ill_dlpi_capab_cv, NULL, NULL, NULL);
-	mutex_init(&ill->ill_dlpi_capab_lock, NULL, MUTEX_DEFAULT, NULL);
-
 	return (0);
 }
 
@@ -4027,6 +4026,7 @@ ill_get_next_ifindex(uint_t index, boolean_t isv6, ip_stack_t *ipst)
 	phyint_t *phyi_initial;
 	uint_t   ifindex;
 
+	phyi_initial = NULL;
 	rw_enter(&ipst->ips_ill_g_lock, RW_READER);
 
 	if (index == 0) {
@@ -7826,6 +7826,10 @@ ip_sioctl_get_lifconf(ipif_t *dummy_ipif, sin_t *dummy_sin, queue_t *q,
 				lifr->lifr_addrlen =
 				    ip_mask_to_plen_v6(
 				    &ipif->ipif_v6net_mask);
+				if (IN6_IS_ADDR_LINKLOCAL(&sin6->sin6_addr)) {
+					sin6->sin6_scope_id =
+					    ill->ill_phyint->phyint_ifindex;
+				}
 			} else {
 				sin = (sin_t *)&lifr->lifr_addr;
 				*sin = sin_null;
@@ -8657,8 +8661,8 @@ ip_sioctl_plink_ipmp(ill_t *ill, int ioccmd)
  * Do I_PLINK/I_LINK or I_PUNLINK/I_UNLINK with consistency checks and also
  * atomically set/clear the muxids. Also complete the ioctl by acking or
  * naking it.  Note that the code is structured such that the link type,
- * whether it's persistent or not, is treated equally.  ifconfig(1M) and
- * its clones use the persistent link, while pppd(1M) and perhaps many
+ * whether it's persistent or not, is treated equally.  ifconfig(8) and
+ * its clones use the persistent link, while pppd(8) and perhaps many
  * other daemons may use non-persistent link.  When combined with some
  * ill_t states, linking and unlinking lower streams may be used as
  * indicators of dynamic re-plumbing events [see PSARC/1999/348].
@@ -12935,6 +12939,7 @@ void
 ill_capability_done(ill_t *ill)
 {
 	ASSERT(ill->ill_capab_pending_cnt != 0);
+	ASSERT(IAM_WRITER_ILL(ill));
 
 	ill_dlpi_done(ill, DL_CAPABILITY_REQ);
 
@@ -12942,10 +12947,6 @@ ill_capability_done(ill_t *ill)
 	if (ill->ill_capab_pending_cnt == 0 &&
 	    ill->ill_dlpi_capab_state == IDCS_OK)
 		ill_capability_reset_alloc(ill);
-
-	mutex_enter(&ill->ill_dlpi_capab_lock);
-	cv_broadcast(&ill->ill_dlpi_capab_cv);
-	mutex_exit(&ill->ill_dlpi_capab_lock);
 }
 
 /*

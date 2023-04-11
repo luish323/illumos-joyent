@@ -36,6 +36,7 @@ include $(SRC)/cmd/Makefile.cmd
 include $(SRC)/cmd/hal/Makefile.hal
 
 LDLIBS +=	-ldbus-1 -ldbus-glib-1 -lglib-2.0 -lhal -lhal-storage -lcontract
+NATIVE_LIBS +=	libdbus-1.so libdbus-glib-1.so libglib-2.0.so
 
 CPPFLAGS +=	$(HAL_DBUS_CPPFLAGS) $(HAL_GLIB_CPPFLAGS)
 CPPFLAGS +=	-I$(ROOT)/usr/include/hal
@@ -46,7 +47,7 @@ CERRWARN += -_gcc=-Wno-switch
 CERRWARN += -_gcc=-Wno-unused-variable
 CERRWARN += -_gcc=-Wno-parentheses
 CERRWARN += -_gcc=-Wno-unused-function
-CERRWARN += -_gcc=-Wno-uninitialized
+CERRWARN += $(CNOWARN_UNINIT)
 
 # not linted
 SMATCH=off

@@ -21,6 +21,8 @@
 /*
  * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ *
+ * Copyright 2020 Joyent, Inc.
  */
 
 /*
@@ -80,7 +82,7 @@ struct proginfo {
 #define	KOBJ_INTERP	0x0008	/* the interpreter module */
 #define	KOBJ_PRIM	0x0010	/* a primary kernel module */
 #define	KOBJ_RESOLVED	0x0020	/* fully resolved */
-#define	KOBJ_TNF_PROBE	0x0040	/* Contains TNF probe(s) */
+/*			0x0040	unused. */
 #define	KOBJ_RELOCATED	0x0080	/* relocation completed */
 #define	KOBJ_NOPARENTS	0x0200	/* nothing can depend on this module */
 #define	KOBJ_IGNMULDEF	0x0400	/* ignore dups during sym resolution */
@@ -164,7 +166,7 @@ extern void kobj_init(void *romvec, void *dvec,
 extern int kobj_notify_add(kobj_notify_list_t *);
 extern int kobj_notify_remove(kobj_notify_list_t *);
 extern int do_relocations(struct module *);
-extern int do_relocate(struct module *, char *, Word, int, int, Addr);
+extern int do_relocate(struct module *, char *, int, int, Addr);
 extern struct bootops *ops;
 extern void exitto(caddr_t);
 extern void kobj_sync_instruction_memory(caddr_t, size_t);
@@ -184,8 +186,9 @@ extern void mach_modpath(char *, const char *);
 
 extern void kobj_setup_standalone_vectors(void);
 extern void kobj_restore_vectors(void);
-extern void (*_kobj_printf)(void *, const char *fmt, ...);
-extern void (*_vkobj_printf)(void *, const char *fmt, va_list);
+extern void (*_kobj_printf)(void *, const char *fmt, ...) __KPRINTFLIKE(2);
+extern void (*_vkobj_printf)(void *, const char *fmt, va_list)
+    __KVPRINTFLIKE(2);
 extern void (*kobj_bcopy)(const void *, void *, size_t);
 extern void (*kobj_bzero)(void *, size_t);
 extern size_t (*kobj_strlcat)(char *, const char *, size_t);

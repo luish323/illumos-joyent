@@ -10,7 +10,8 @@
  */
 
 /*
- * Copyright 2019, Joyent, Inc.
+ * Copyright 2020 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Company
  */
 
 /*
@@ -121,7 +122,7 @@ ctfdump_printf(ctfdump_arg_t arg, const char *fmt, ...)
 	va_end(ap);
 }
 
-static void
+static void __NORETURN
 ctfdump_fatal(const char *fmt, ...)
 {
 	va_list ap;
@@ -483,8 +484,8 @@ static int
 ctfdump_member_cb(const char *member, ctf_id_t type, ulong_t off, void *arg)
 {
 	int *count = arg;
-	ctfdump_printf(CTFDUMP_TYPES, "\t%s type=%ld off=%lu\n", member, type,
-	    off);
+	ctfdump_printf(CTFDUMP_TYPES, "\t%s type=%ld off=%lu bits (%lu.%lu "
+	    "bytes)\n", member, type, off, off / 8, off % 8);
 	*count = *count + 1;
 	return (0);
 }
@@ -613,7 +614,16 @@ ctfdump_types_cb(ctf_id_t id, boolean_t root, void *arg)
 		}
 		break;
 	case CTF_K_ENUM:
-		ctfdump_printf(CTFDUMP_TYPES, "%s\n", name);
+		size = ctf_type_size(g_fp, id);
+
+		/* Only the oddest enums are worth reporting on size. */
+		if (size != CTF_ERR && size != sizeof (int)) {
+			ctfdump_printf(CTFDUMP_TYPES, "%s (%zd bytes)\n",
+			    name, size);
+		} else {
+			ctfdump_printf(CTFDUMP_TYPES, "%s\n", name);
+		}
+
 		count = 0;
 		if (ctf_enum_iter(g_fp, id, ctfdump_enum_cb, &count) != 0)
 			ctfdump_fatal("failed to iterate enumerators of %s: "
@@ -805,7 +815,14 @@ ctfsrc_type(ctf_id_t id, const char *name)
 			    "%s\n", name, ctf_errmsg(ctf_errno(g_fp)));
 		}
 
-		printf("};\n\n");
+		size = ctf_type_size(g_fp, id);
+
+		/* Only the oddest enums are worth reporting on size. */
+		if (size != CTF_ERR && size != sizeof (int)) {
+			printf("} /* 0x%x bytes */;\n\n", size);
+		} else {
+			printf("};\n\n");
+		}
 		break;
 	case CTF_K_TYPEDEF:
 		/*
@@ -971,8 +988,82 @@ ctfsrc_function(ctf_idname_t *idn)
 static int
 idname_compare(const void *lhs, const void *rhs)
 {
-	return (strcmp(((ctf_idname_t *)lhs)->ci_name,
-	    ((ctf_idname_t *)rhs)->ci_name));
+	int ret;
+	char lname[MAX_NAMELEN] = {0};
+	char rname[MAX_NAMELEN] = {0};
+	const ctf_idname_t *l = lhs;
+	const ctf_idname_t *r = rhs;
+	uint_t arity = 0;
+
+	if ((ret = strcmp(l->ci_name, r->ci_name)) != 0)
+		return (ret);
+
+	/* If the names match, try arity */
+	if (l->ci_funcinfo.ctc_argc < r->ci_funcinfo.ctc_argc)
+		return (-1);
+	else if (l->ci_funcinfo.ctc_argc > r->ci_funcinfo.ctc_argc)
+		return (1);
+	else
+		arity = l->ci_funcinfo.ctc_argc;
+
+	/* If arity doesn't help, try return type */
+	(void) strlcpy(lname, "unknown_t", sizeof (lname));
+	(void) strlcpy(rname, "unknown_t", sizeof (rname));
+	(void) ctf_type_name(g_fp, l->ci_funcinfo.ctc_return, lname,
+	    sizeof (lname));
+	(void) ctf_type_name(g_fp, r->ci_funcinfo.ctc_return, rname,
+	    sizeof (rname));
+
+	if ((ret = strcmp(lname, rname)) != 0)
+		return (ret);
+
+	/* if return type doesn't help, try parameter types */
+	if (arity == 0)
+		return (0);
+
+	ctf_id_t *largs = calloc(arity, sizeof (ctf_id_t));
+	ctf_id_t *rargs = calloc(arity, sizeof (ctf_id_t));
+
+	if ((largs == NULL) || (rargs == NULL)) {
+		free(rargs);
+		free(largs);
+		ctfdump_fatal("failed to alloc argument ids for sorting: "
+		    " %s\n", strerror(errno));
+	}
+
+	if (ctf_func_args(g_fp, l->ci_symidx, arity, largs) == CTF_ERR) {
+		free(rargs);
+		free(largs);
+		ctfdump_fatal("failed to get arguments for function "
+		    "%s: %s\n", l->ci_name,
+		    ctf_errmsg(ctf_errno(g_fp)));
+	}
+
+	if (ctf_func_args(g_fp, r->ci_symidx, arity, rargs) == CTF_ERR) {
+		free(rargs);
+		free(largs);
+		ctfdump_fatal("failed to get arguments for function "
+		    "%s: %s\n", r->ci_name,
+		    ctf_errmsg(ctf_errno(g_fp)));
+	}
+
+	for (uint_t i = 0; i < arity; i++) {
+		(void) strlcpy(lname, "unknown_t", sizeof (lname));
+		(void) ctf_type_name(g_fp, largs[i], lname, sizeof (lname));
+
+		(void) strlcpy(rname, "unknown_t", sizeof (rname));
+		(void) ctf_type_name(g_fp, rargs[i], rname, sizeof (rname));
+
+		if ((ret = strcmp(lname, rname)) != 0) {
+			free(rargs);
+			free(largs);
+			return (ret);
+		}
+	}
+
+	free(rargs);
+	free(largs);
+	return (0);
 }
 
 static void

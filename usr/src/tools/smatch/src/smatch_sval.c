@@ -67,11 +67,20 @@ sval_t sval_type_val(struct symbol *type, long long val)
 	sval_t ret;
 
 	if (!type)
-		type = &int_ctype;
+		type = &llong_ctype;
 
 	ret.type = type;
 	ret.value = val;
 	return ret;
+}
+
+sval_t sval_type_fval(struct symbol *type, long double fval)
+{
+	sval_t ret;
+
+	ret.type = &ldouble_ctype;
+	ret.ldvalue = fval;
+	return sval_cast(type, ret);
 }
 
 sval_t sval_from_val(struct expression *expr, long long val)
@@ -85,6 +94,17 @@ sval_t sval_from_val(struct expression *expr, long long val)
 	return ret;
 }
 
+sval_t sval_from_fval(struct expression *expr, long double fval)
+{
+	sval_t ret;
+
+	ret.type = &ldouble_ctype;
+	ret.ldvalue = fval;
+	ret = sval_cast(get_type(expr), ret);
+
+	return ret;
+}
+
 int sval_is_ptr(sval_t sval)
 {
 	if (!sval.type)
@@ -92,8 +112,15 @@ int sval_is_ptr(sval_t sval)
 	return (sval.type->type == SYM_PTR || sval.type->type == SYM_ARRAY);
 }
 
+bool sval_is_fp(sval_t sval)
+{
+	return type_is_fp(sval.type);
+}
+
 int sval_unsigned(sval_t sval)
 {
+	if (is_ptr_type(sval.type))
+		return true;
 	return type_unsigned(sval.type);
 }
 
@@ -132,9 +159,24 @@ int sval_is_positive(sval_t sval)
 	return !sval_is_negative(sval);
 }
 
+static bool fp_is_min(sval_t sval)
+{
+	if (sval.type == &float_ctype)
+		return sval.fvalue == -FLT_MAX;
+	if (sval.type == &double_ctype)
+		return sval.dvalue == -DBL_MAX;
+	if (sval.type == &ldouble_ctype)
+		return sval.ldvalue == -LDBL_MAX;
+	sm_perror("%s: bad type: '%s'", __func__, type_to_str(sval.type));
+	return false;
+}
+
 int sval_is_min(sval_t sval)
 {
 	sval_t min = sval_type_min(sval.type);
+
+	if (sval_is_fp(sval))
+		return fp_is_min(sval);
 
 	if (sval_unsigned(sval)) {
 		if (sval.uvalue == 0)
@@ -145,9 +187,24 @@ int sval_is_min(sval_t sval)
 	return (sval.value <= min.value);
 }
 
+static bool fp_is_max(sval_t sval)
+{
+	if (sval.type == &float_ctype)
+		return sval.fvalue == FLT_MAX;
+	if (sval.type == &double_ctype)
+		return sval.dvalue == DBL_MAX;
+	if (sval.type == &ldouble_ctype)
+		return sval.ldvalue == LDBL_MAX;
+	sm_perror("%s: bad type: '%s'", __func__, type_to_str(sval.type));
+	return false;
+}
+
 int sval_is_max(sval_t sval)
 {
 	sval_t max = sval_type_max(sval.type);
+
+	if (sval_is_fp(sval))
+		return fp_is_max(sval);
 
 	if (sval_unsigned(sval))
 		return (sval.uvalue >= max.value);
@@ -158,6 +215,10 @@ int sval_is_a_min(sval_t sval)
 {
 	if (sval_is_min(sval))
 		return 1;
+
+	if (sval_is_fp(sval))
+		return 0;
+
 	if (sval_signed(sval) && sval.value == SHRT_MIN)
 		return 1;
 	if (sval_signed(sval) && sval.value == INT_MIN)
@@ -171,6 +232,10 @@ int sval_is_a_max(sval_t sval)
 {
 	if (sval_is_max(sval))
 		return 1;
+
+	if (sval_is_fp(sval))
+		return 0;
+
 	if (sval.uvalue == SHRT_MAX)
 		return 1;
 	if (sval.uvalue == INT_MAX)
@@ -191,6 +256,9 @@ int sval_is_a_max(sval_t sval)
 
 int sval_is_negative_min(sval_t sval)
 {
+	if (sval_is_fp(sval))
+		return 0;
+
 	if (!sval_is_negative(sval))
 		return 0;
 	return sval_is_min(sval);
@@ -231,7 +299,7 @@ int sval_too_low(struct symbol *type, sval_t sval)
 {
 	if (sval_is_negative(sval) && type_unsigned(type))
 		return 1;
-	if (type_signed(type) &&  sval_unsigned(sval))
+	if (type_signed(type) && sval_unsigned(sval))
 		return 0;
 	if (type_signed(sval.type) &&
 	    sval.value < sval_type_min(type).value)
@@ -252,11 +320,83 @@ int sval_too_high(struct symbol *type, sval_t sval)
 
 int sval_fits(struct symbol *type, sval_t sval)
 {
+	/* everything fits into floating point */
+	if (type_is_fp(type))
+		return 1;
+	/* floating points don't fit into int */
+	if (type_is_fp(sval.type))
+		return 0;
+
 	if (sval_too_low(type, sval))
 		return 0;
 	if (sval_too_high(type, sval))
 		return 0;
 	return 1;
+}
+
+static sval_t cast_to_fp(struct symbol *type, sval_t sval)
+{
+	sval_t ret = {};
+
+	ret.type = type;
+	if (type == &float_ctype) {
+		if (!sval_is_fp(sval)) {
+			if (sval_unsigned(sval))
+				ret.fvalue = sval.uvalue;
+			else
+				ret.fvalue = sval.value;
+		} else if (sval.type == &float_ctype)
+			ret.fvalue = sval.fvalue;
+		else if (sval.type == &double_ctype)
+			ret.fvalue = sval.dvalue;
+		else
+			ret.fvalue = sval.ldvalue;
+	} else if (type == &double_ctype) {
+		if (!sval_is_fp(sval)) {
+			if (sval_unsigned(sval))
+				ret.dvalue = sval.uvalue;
+			else
+				ret.dvalue = sval.value;
+		} else if (sval.type == &float_ctype)
+			ret.dvalue = sval.fvalue;
+		else if (sval.type == &double_ctype)
+			ret.dvalue = sval.dvalue;
+		else
+			ret.dvalue = sval.ldvalue;
+	} else if (type == &ldouble_ctype) {
+		if (!sval_is_fp(sval)) {
+			if (sval_unsigned(sval))
+				ret.ldvalue = (long double)sval.uvalue;
+			else
+				ret.ldvalue = (long double)sval.value;
+		} else if (sval.type == &float_ctype)
+			ret.ldvalue = sval.fvalue;
+		else if (sval.type == &double_ctype)
+			ret.ldvalue = sval.dvalue;
+		else
+			ret.ldvalue = sval.ldvalue;
+	} else {
+		sm_perror("%s: bad type: %s", __func__, type_to_str(type));
+	}
+
+	return ret;
+}
+
+static sval_t cast_from_fp(struct symbol *type, sval_t sval)
+{
+	sval_t ret = {};
+
+	ret.type = &llong_ctype;
+	if (sval.type == &float_ctype)
+		ret.value = sval.fvalue;
+	else if (sval.type == &double_ctype)
+		ret.value = sval.dvalue;
+	else if (sval.type == &ldouble_ctype)
+		ret.value = sval.ldvalue;
+	else
+		sm_perror("%s: bad type: %s", __func__, type_to_str(type));
+
+	return sval_cast(type, ret);
 }
 
 sval_t sval_cast(struct symbol *type, sval_t sval)
@@ -265,6 +405,11 @@ sval_t sval_cast(struct symbol *type, sval_t sval)
 
 	if (!type)
 		type = &int_ctype;
+
+	if (type_is_fp(type))
+		return cast_to_fp(type, sval);
+	if (type_is_fp(sval.type))
+		return cast_from_fp(type, sval);
 
 	ret.type = type;
 	switch (sval_bits(ret)) {
@@ -458,6 +603,8 @@ static sval_t ptr_binop(struct symbol *type, sval_t left, int op, sval_t right)
 		}
 	}
 
+	if (op == '-')
+		ret.type = ssize_t_ctype;
 	return ret;
 }
 
@@ -583,15 +730,34 @@ int sval_binop_overflows_no_sign(sval_t left, int op, sval_t right)
 	return sval_binop_overflows(left, op, right);
 }
 
-unsigned long long fls_mask(unsigned long long uvalue)
+int find_first_zero_bit(unsigned long long uvalue)
 {
-	unsigned long long high_bit = 0;
+	int i;
+
+	for (i = 0; i < 64; i++) {
+		if (!(uvalue & (1ULL << i)))
+			return i;
+	}
+	return i;
+}
+
+int sm_fls64(unsigned long long uvalue)
+{
+	int high_bit = 0;
 
 	while (uvalue) {
 		uvalue >>= 1;
 		high_bit++;
 	}
 
+	return high_bit;
+}
+
+unsigned long long fls_mask(unsigned long long uvalue)
+{
+	int high_bit = 0;
+
+	high_bit = sm_fls64(uvalue);
 	if (high_bit == 0)
 		return 0;
 
@@ -603,10 +769,31 @@ unsigned long long sval_fls_mask(sval_t sval)
 	return fls_mask(sval.uvalue);
 }
 
+static char *fp_to_str(sval_t sval)
+{
+	char buf[32];
+
+	if (sval.type == &float_ctype)
+		snprintf(buf, sizeof(buf), "%f", sval.fvalue);
+	else if (sval.type == &double_ctype)
+		snprintf(buf, sizeof(buf), "%e", sval.dvalue);
+	else if (sval.type == &ldouble_ctype) {
+		snprintf(buf, sizeof(buf), "%Lf", sval.ldvalue);
+	} else
+		snprintf(buf, sizeof(buf), "nan");
+
+	return alloc_sname(buf);
+}
+
 const char *sval_to_str(sval_t sval)
 {
-	char buf[30];
+	char buf[32];
 
+	if (sval_is_fp(sval))
+		return fp_to_str(sval);
+
+	if (sval_is_ptr(sval) && sval.value == valid_ptr_max)
+		return "ptr_max";
 	if (sval_unsigned(sval) && sval.value == ULLONG_MAX)
 		return "u64max";
 	if (sval_unsigned(sval) && sval.value == UINT_MAX)
@@ -638,9 +825,28 @@ const char *sval_to_str(sval_t sval)
 	return alloc_sname(buf);
 }
 
+const char *sval_to_str_or_err_ptr(sval_t sval)
+{
+	char buf[12];
+
+	if (option_project != PROJ_KERNEL ||
+	    !is_ptr_type(sval.type))
+		return sval_to_str(sval);
+
+	if (!sval_is_fp(sval) && sval.uvalue >= -4905ULL) {
+		snprintf(buf, sizeof(buf), "(%lld)", sval.value);
+		return alloc_sname(buf);
+	}
+
+	return sval_to_str(sval);
+}
+
 const char *sval_to_numstr(sval_t sval)
 {
 	char buf[30];
+
+	if (type_is_fp(sval.type))
+		return fp_to_str(sval);
 
 	if (sval_unsigned(sval))
 		snprintf(buf, sizeof(buf), "%llu", sval.value);

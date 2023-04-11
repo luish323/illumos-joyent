@@ -26,6 +26,7 @@
 
 /*
  * Copyright (c) 2015 Joyent, Inc.  All rights reserved.
+ * Copyright 2022 Oxide Computer Company
  */
 
 #include <sys/types.h>
@@ -156,7 +157,7 @@
  *	interested on.
  *	The internal pollwakeup() function is used by all the file
  *	systems --which are supporting the VOP_POLL() interface- to notify
- *	the upper layer (poll(2), devpoll(7d) and now event ports) about
+ *	the upper layer (poll(2), devpoll(4D) and now event ports) about
  *	the event triggered (see valid events in poll(2)).
  *	The pollwakeup() function forwards the event to the layer registered
  *	to receive the current event.
@@ -388,7 +389,7 @@ static int64_t portfs(int, uintptr_t, uintptr_t, uintptr_t, uintptr_t,
 static struct sysent port_sysent = {
 	6,
 	SE_ARGC | SE_64RVAL | SE_NOUNLOAD,
-	(int (*)())portfs,
+	(int (*)())(uintptr_t)portfs,
 };
 
 static struct modlsys modlsys = {
@@ -404,7 +405,7 @@ portfs32(uint32_t arg1, int32_t arg2, uint32_t arg3, uint32_t arg4,
 static struct sysent port_sysent32 = {
 	6,
 	SE_ARGC | SE_64RVAL | SE_NOUNLOAD,
-	(int (*)())portfs32,
+	(int (*)())(uintptr_t)portfs32,
 };
 
 static struct modlsys modlsys32 = {
@@ -824,6 +825,7 @@ port_init(port_t *pp)
 	/* Allocate cache skeleton for PORT_SOURCE_FD events */
 	portq->portq_pcp = kmem_zalloc(sizeof (port_fdcache_t), KM_SLEEP);
 	mutex_init(&portq->portq_pcp->pc_lock, NULL, MUTEX_DEFAULT, NULL);
+	portq->portq_pcp->pc_flag = PC_PORTFS;
 
 	/*
 	 * Allocate cache skeleton for association of event sources.

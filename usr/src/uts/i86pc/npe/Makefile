@@ -56,13 +56,11 @@ ALL_TARGET	= $(BINARY)
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 
 #
-# depends on misc/acpica and misc/pcie
-#
-# acpica supplies ACPI access routines
+# depends on misc/pcie
 #
 # pcie supplies PCI Express fabric error support
 #
-LDFLAGS	+= -dy -Nmisc/acpica -Nmisc/pcie
+LDFLAGS	+= -Nmisc/pcie
 
 #
 # Name of the module is needed by the source, to distinguish from other
@@ -75,7 +73,7 @@ CFLAGS		+= -D_MODULE_NAME="\"$(MODULE)\""
 # to investigate and remove these for maximum coverage.
 # Please do not carry these forward to new Makefiles.
 #
-CERRWARN	+= -_gcc=-Wno-uninitialized
+CERRWARN	+= $(CNOWARN_UNINIT)
 CERRWARN	+= -_gcc=-Wno-parentheses
 CERRWARN	+= -_gcc=-Wno-unused-function
 

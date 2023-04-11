@@ -15,9 +15,17 @@
  * along with this program; if not, see http://www.gnu.org/copyleft/gpl.txt
  */
 
+#include <string.h>
+
 #include "smatch.h"
 #include "smatch_slist.h"
 #include "smatch_extra.h"
+
+void show_sname_alloc(void);
+void show_data_range_alloc(void);
+void show_ptrlist_alloc(void);
+void show_rl_ptrlist_alloc(void);
+void show_sm_state_alloc(void);
 
 int local_debug;
 static int my_id;
@@ -70,8 +78,6 @@ static void match_state(const char *fn, struct expression *expr, void *info)
 static void match_states(const char *fn, struct expression *expr, void *info)
 {
 	struct expression *check_arg;
-	struct sm_state *sm;
-	int found = 0;
 
 	check_arg = get_argument_from_call_expr(expr->args, 0);
 	if (check_arg->type != EXPR_STRING) {
@@ -79,14 +85,7 @@ static void match_states(const char *fn, struct expression *expr, void *info)
 		return;
 	}
 
-	FOR_EACH_SM(__get_cur_stree(), sm) {
-		if (strcmp(check_name(sm->owner), check_arg->string->data) != 0)
-			continue;
-		sm_msg("%s", show_sm(sm));
-		found = 1;
-	} END_FOR_EACH_SM(sm);
-
-	if (found)
+	if (__print_states(check_arg->string->data))
 		return;
 
 	if (!id_from_name(check_arg->string->data))
@@ -198,14 +197,20 @@ static void match_print_implied_max(const char *fn, struct expression *expr, voi
 static void match_user_rl(const char *fn, struct expression *expr, void *info)
 {
 	struct expression *arg;
-	struct range_list *rl;
+	struct range_list *rl = NULL;
+	bool capped = false;
 	char *name;
+
+	if (option_project != PROJ_KERNEL)
+		sm_msg("no user data for project = '%s'", option_project_str);
 
 	arg = get_argument_from_call_expr(expr->args, 0);
 	name = expr_to_str(arg);
 
 	get_user_rl(arg, &rl);
-	sm_msg("user rl: '%s' = '%s'", name, show_rl(rl));
+	if (rl)
+		capped = user_rl_capped(arg);
+	sm_msg("user rl: '%s' = '%s'%s", name, show_rl(rl), capped ? " (capped)" : "");
 
 	free_string(name);
 }
@@ -384,6 +389,7 @@ static void match_buf_size(const char *fn, struct expression *expr, void *info)
 	int elements, bytes;
 	char *name;
 	char buf[256] = "";
+	int limit_type;
 	int n;
 	sval_t sval;
 
@@ -392,7 +398,7 @@ static void match_buf_size(const char *fn, struct expression *expr, void *info)
 	elements = get_array_size(arg);
 	bytes = get_array_size_bytes_max(arg);
 	rl = get_array_size_bytes_rl(arg);
-	comp = get_size_variable(arg);
+	comp = get_size_variable(arg, &limit_type);
 
 	name = expr_to_str(arg);
 	n = snprintf(buf, sizeof(buf), "buf size: '%s' %d elements, %d bytes", name, elements, bytes);
@@ -403,7 +409,7 @@ static void match_buf_size(const char *fn, struct expression *expr, void *info)
 
 	if (comp) {
 		name = expr_to_str(comp);
-		snprintf(buf + n, sizeof(buf) - n, "[size_var=%s]", name);
+		snprintf(buf + n, sizeof(buf) - n, "[size_var=%s %s]", limit_type_str(limit_type), name);
 		free_string(name);
 	}
 	sm_msg("%s", buf);
@@ -504,14 +510,25 @@ static void match_local_debug_off(const char *fn, struct expression *expr, void 
 	local_debug = 0;
 }
 
-static void match_debug_implied_on(const char *fn, struct expression *expr, void *info)
+static void match_debug_db_on(const char *fn, struct expression *expr, void *info)
 {
-	option_debug_implied = 1;
+	debug_db = 1;
 }
 
-static void match_debug_implied_off(const char *fn, struct expression *expr, void *info)
+static void match_debug_db_off(const char *fn, struct expression *expr, void *info)
 {
-	option_debug_implied = 0;
+	debug_db = 0;
+}
+
+static void mtag_info(struct expression *expr)
+{
+	mtag_t tag = 0;
+	int offset = 0;
+	struct range_list *rl = NULL;
+
+	expr_to_mtag_offset(expr, &tag, &offset);
+	get_mtag_rl(expr, &rl);
+	sm_msg("mtag = %llu offset = %d rl = '%s'", tag, offset, show_rl(rl));
 }
 
 static void match_about(const char *fn, struct expression *expr, void *info)
@@ -525,6 +542,7 @@ static void match_about(const char *fn, struct expression *expr, void *info)
 	match_buf_size(fn, expr, NULL);
 	match_strlen(fn, expr, NULL);
 	match_real_absolute(fn, expr, NULL);
+	mtag_info(expr);
 
 	arg = get_argument_from_call_expr(expr->args, 0);
 	name = expr_to_str(arg);
@@ -639,16 +657,32 @@ static void match_print_stree_id(const char *fn, struct expression *expr, void *
 	sm_msg("stree_id %d", __stree_id);
 }
 
+static void match_bits(const char *fn, struct expression *expr, void *_unused)
+{
+	struct expression *arg;
+	struct bit_info *info;
+	char *name;
+
+	arg = get_argument_from_call_expr(expr->args, 0);
+	name = expr_to_str(arg);
+
+	info = get_bit_info(arg);
+
+	sm_msg("bit info '%s': definitely set 0x%llx.  possibly set 0x%llx.",
+	       name, info->set, info->possible);
+}
+
 static void match_mtag(const char *fn, struct expression *expr, void *info)
 {
 	struct expression *arg;
 	char *name;
 	mtag_t tag = 0;
+	int offset = 0;
 
 	arg = get_argument_from_call_expr(expr->args, 0);
 	name = expr_to_str(arg);
-	get_mtag(arg, &tag);
-	sm_msg("mtag: '%s' => tag: %lld", name, tag);
+	expr_to_mtag_offset(arg, &tag, &offset);
+	sm_msg("mtag: '%s' => tag: %llu %d", name, tag, offset);
 	free_string(name);
 }
 
@@ -666,6 +700,44 @@ static void match_mtag_data_offset(const char *fn, struct expression *expr, void
 	free_string(name);
 }
 
+static void match_container(const char *fn, struct expression *expr, void *info)
+{
+	struct expression *container, *x;
+	char *cont, *name, *str;
+
+	container = get_argument_from_call_expr(expr->args, 0);
+	x = get_argument_from_call_expr(expr->args, 1);
+
+	str = get_container_name(container, x);
+	cont = expr_to_str(container);
+	name = expr_to_str(x);
+	sm_msg("container: '%s' vs '%s' --> '%s'", cont, name, str);
+	free_string(cont);
+	free_string(name);
+}
+
+static void match_expr(const char *fn, struct expression *expr, void *info)
+{
+	struct expression *arg, *str, *new;
+	char *name, *new_name;
+
+	str = get_argument_from_call_expr(expr->args, 0);
+	arg = get_argument_from_call_expr(expr->args, 1);
+	if (!arg || !str)
+		return;
+
+	if (str->type != EXPR_STRING)
+		return;
+
+	new = gen_expression_from_key(arg, str->string->data);
+	name = expr_to_str(arg);
+	new_name = expr_to_str(new);
+
+	sm_msg("str = '%s', arg = '%s' expr = '%s'", str->string->data, name, new_name);
+
+	free_string(new_name);
+	free_string(name);
+}
 static void match_state_count(const char *fn, struct expression *expr, void *info)
 {
 	sm_msg("state_count = %d\n", sm_state_counter);
@@ -674,6 +746,8 @@ static void match_state_count(const char *fn, struct expression *expr, void *inf
 static void match_mem(const char *fn, struct expression *expr, void *info)
 {
 	show_sname_alloc();
+	show_data_range_alloc();
+	show_rl_ptrlist_alloc();
 	show_ptrlist_alloc();
 	sm_msg("%lu pools", get_pool_count());
 	sm_msg("%d strees", unfree_stree);
@@ -754,18 +828,21 @@ void check_debug(int id)
 	add_function_hook("__smatch_debug_off", &match_debug_off, NULL);
 	add_function_hook("__smatch_local_debug_on", &match_local_debug_on, NULL);
 	add_function_hook("__smatch_local_debug_off", &match_local_debug_off, NULL);
-	add_function_hook("__smatch_debug_implied_on", &match_debug_implied_on, NULL);
-	add_function_hook("__smatch_debug_implied_off", &match_debug_implied_off, NULL);
+	add_function_hook("__smatch_debug_db_on", &match_debug_db_on, NULL);
+	add_function_hook("__smatch_debug_db_off", &match_debug_db_off, NULL);
 	add_function_hook("__smatch_intersection", &match_intersection, NULL);
 	add_function_hook("__smatch_type", &match_type, NULL);
 	add_implied_return_hook("__smatch_type_rl_helper", &match_type_rl_return, NULL);
 	add_function_hook("__smatch_merge_tree", &match_print_merge_tree, NULL);
 	add_function_hook("__smatch_stree_id", &match_print_stree_id, NULL);
+	add_function_hook("__smatch_bits", &match_bits, NULL);
 	add_function_hook("__smatch_mtag", &match_mtag, NULL);
 	add_function_hook("__smatch_mtag_data", &match_mtag_data_offset, NULL);
+	add_function_hook("__smatch_expr", &match_expr, NULL);
 	add_function_hook("__smatch_state_count", &match_state_count, NULL);
 	add_function_hook("__smatch_mem", &match_mem, NULL);
 	add_function_hook("__smatch_exit", &match_exit, NULL);
+	add_function_hook("__smatch_container", &match_container, NULL);
 
 	add_hook(free_old_stree, AFTER_FUNC_HOOK);
 	add_hook(trace_var, STMT_HOOK_AFTER);

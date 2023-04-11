@@ -21,6 +21,8 @@
 /*
  * Copyright 2003 Sun Microsystems, Inc. All rights reserved.
  * Use is subject to license terms.
+ *
+ * Copyright 2019 RackTop Systems.
  */
 
 /*
@@ -59,13 +61,13 @@
 /*
  * File table of contents
  */
-extern	timestruc_t&	exists(register Name target);
-extern  void		set_target_stat(register Name target, struct stat buf);
-static	timestruc_t&	vpath_exists(register Name target);
+extern	timestruc_t&	exists(Name target);
+extern  void		set_target_stat(Name target, struct stat buf);
+static	timestruc_t&	vpath_exists(Name target);
 static	Name		enter_file_name(wchar_t *name_string, wchar_t *library);
-static	Boolean		star_match(register char *string, register char *pattern);
-static	Boolean		amatch(register wchar_t *string, register wchar_t *pattern);
-  
+static	Boolean		star_match(char *string, char *pattern);
+static	Boolean		amatch(wchar_t *string, wchar_t *pattern);
+
 /*
  *	exists(target)
  *
@@ -83,10 +85,10 @@ static	Boolean		amatch(register wchar_t *string, register wchar_t *pattern);
  *		vpath_defined	Was the variable VPATH defined in environment?
  */
 timestruc_t&
-exists(register Name target)
+exists(Name target)
 {
 	struct stat		buf;
-	register int		result;
+	int		result;
 
 	/* We cache stat information. */
 	if (target->stat.time != file_no_time) {
@@ -172,7 +174,7 @@ exists(register Name target)
  *				represented by target.
  */
 void
-set_target_stat(register Name target, struct stat buf)
+set_target_stat(Name target, struct stat buf)
 {
 	target->stat.stat_errno = 0;
 	target->stat.is_file = true;
@@ -207,7 +209,7 @@ set_target_stat(register Name target, struct stat buf)
  *		vpath_name	The Name "VPATH", used to get macro value
  */
 static timestruc_t&
-vpath_exists(register Name target)
+vpath_exists(Name target)
 {
 	wchar_t			*vpath;
 	wchar_t			file_name[MAXPATHLEN];
@@ -294,7 +296,7 @@ read_dir(Name dir, wchar_t *pattern, Property line, wchar_t *library)
 	DIR			*dir_fd;
 	int			m_local_dependency=0;
 #define d_fileno d_ino
-        register struct dirent  *dp;
+        struct dirent  *dp;
 	wchar_t			*vpath = NULL;
 	wchar_t			*p;
 	int			result = 0;
@@ -380,7 +382,7 @@ vpath_loop:
 		 */
 		if ((dp->d_name[0] == 's') &&
 		    (dp->d_name[1] == (int) period_char)) {
-	
+
 			MBSTOWCS(tmp_wcs_buffer, dp->d_name + 2);
 			plain_file_name_p = plain_file_name;
 			(void) wcscpy(plain_file_name_p, tmp_wcs_buffer);
@@ -505,7 +507,7 @@ vpath_loop:
 		 */
 		if ((dp->d_name[0] == 's') &&
 		    (dp->d_name[1] == (int) period_char)) {
-	
+
 			MBSTOWCS(wcs_buffer, dp->d_name + 2);
 			(void) wcscpy(plain_file_name_p, wcs_buffer);
 			plain_file = GETNAME(plain_file_name, FIND_LENGTH);
@@ -611,9 +613,9 @@ enter_file_name(wchar_t *name_string, wchar_t *library)
  *	Global variables used:
  */
 static Boolean
-star_match(register wchar_t *string, register wchar_t *pattern)
+star_match(wchar_t *string, wchar_t *pattern)
 {
-	register int		pattern_ch;
+	int		pattern_ch;
 
 	switch (*pattern) {
 	case 0:
@@ -655,12 +657,12 @@ star_match(register wchar_t *string, register wchar_t *pattern)
  *	Global variables used:
  */
 static Boolean
-amatch(register wchar_t *string, register wchar_t *pattern)
+amatch(wchar_t *string, wchar_t *pattern)
 {
-	register long		lower_bound;
-	register long		string_ch;
-	register long		pattern_ch;
-	register int		k;
+	long		lower_bound;
+	long		string_ch;
+	long		pattern_ch;
+	int		k;
 
 top:
 	for (; 1; pattern++, string++) {
@@ -682,6 +684,7 @@ top:
 					k |= (lower_bound <= string_ch) &&
 					     (string_ch <=
 					      (pattern_ch = pattern[1]));
+					/* FALLTHROUGH */
 				default:
 					if (string_ch ==
 					    (lower_bound = pattern_ch)) {

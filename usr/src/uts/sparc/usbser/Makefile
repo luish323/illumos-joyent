@@ -38,7 +38,6 @@ UTSBASE	= ../..
 #
 MODULE		= usbser
 OBJECTS		= $(USBSER_OBJS:%=$(OBJS_DIR)/%)
-LINTS		= $(USBSER_OBJS:%.o=$(LINTS_DIR)/%.ln)
 ROOTMODULE	= $(ROOT_MISC_DIR)/$(MODULE)
 
 #
@@ -47,30 +46,23 @@ ROOTMODULE	= $(ROOT_MISC_DIR)/$(MODULE)
 include $(UTSBASE)/sparc/Makefile.sparc
 
 #
-# lint pass one enforcement
-#
-CFLAGS += $(CCVERBOSE)
-
-#
 # depends on misc/usba
 #
-LDFLAGS         += -dy -Nmisc/usba
+LDFLAGS         += -Nmisc/usba
 
 #
 #	Define targets
 #
 ALL_TARGET	= $(BINARY)
-LINT_TARGET	= $(MODULE).lint
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 
 #
-# For now, disable these lint checks; maintainers should endeavor
-# to investigate and remove these for maximum lint coverage.
+# For now, disable these warnings; maintainers should endeavor
+# to investigate and remove these for maximum coverage.
 # Please do not carry these forward to new Makefiles.
 #
-LINTTAGS	+= -erroff=E_BAD_PTR_CAST_ALIGN
-
-CERRWARN	+= -_gcc=-Wno-uninitialized
+CFLAGS		+= $(CCVERBOSE)
+CERRWARN	+= $(CNOWARN_UNINIT)
 CERRWARN	+= -_gcc=-Wno-parentheses
 CERRWARN	+= -_gcc=-Wno-unused-label
 
@@ -83,12 +75,6 @@ def:		$(DEF_DEPS)
 clean:		$(CLEAN_DEPS)
 
 clobber:	$(CLOBBER_DEPS)
-
-lint:		$(LINT_DEPS)
-
-modlintlib:	$(MODLINTLIB_DEPS)
-
-clean.lint:	$(CLEAN_LINT_DEPS)
 
 install:	$(INSTALL_DEPS)
 

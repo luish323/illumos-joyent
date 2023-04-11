@@ -22,6 +22,7 @@
 /*
  * Copyright 2015 OmniTI Computer Consulting, Inc.  All rights reserved.
  * Copyright (c) 2018, Joyent, Inc.
+ * Copyright 2022 Oxide Computer Company
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
@@ -133,13 +134,19 @@ typedef struct smb_chassis {
 	uint8_t smbch_cords;		/* number of power cords */
 	uint8_t smbch_cn;		/* number of contained records */
 	uint8_t smbch_cm;		/* size of contained records */
-	uint8_t smbch_cv[1];		/* array of contained records */
+	uint8_t smbch_cv[];		/* array of contained records */
 } smb_chassis_t;
 
-/* WARNING: the argument is evaluated three times! */
-#define	SMB_CH_SKU(smbcp) ((char *) \
-	(smbcp)->smbch_cv + ((smbcp)->smbch_cn * (smbcp)->smbch_cm))
 #define	SMB_CHT_LOCK	0x80		/* lock bit within smbch_type */
+
+typedef struct smb_chassis_entry {
+	uint8_t	smbce_type;		/* Containing Element and Type */
+	uint8_t	smbce_min;		/* minimum number of elt */
+	uint8_t	smbce_max;		/* minimum number of elt */
+} smb_chassis_entry_t;
+
+#define	SMB_CHE_TYPE_IS_SMB(x)	(((x) & 0x80) ==  0x80)
+#define	SMB_CHE_TYPE_TYPE(x)	(((x) & 0x7f))
 
 /*
  * SMBIOS implementation structure for SMB_TYPE_PROCESSOR.
@@ -172,6 +179,7 @@ typedef struct smb_processor {
 	uint16_t smbpr_corecount2;	/* second number of cores per socket */
 	uint16_t smbpr_coresenabled2;	/* second number of enabled cores */
 	uint16_t smbpr_threadcount2;	/* second number of enabled threads */
+	uint16_t smpbr_threaden;	/* enabled thread count */
 } smb_processor_t;
 
 /*
@@ -250,7 +258,30 @@ typedef struct smb_slot {
 	uint8_t	smbsl_dbw;		/* Data bus width */
 	uint8_t	smbsl_npeers;		/* Peer bdf groups */
 	smb_slot_peer_t smbsl_peers[];	/* bifurcation peers */
+	/* There are later additions in 3.4+, see smbios_slot_cont_t */
 } smb_slot_t;
+
+/*
+ * After the variable number of smbsl_peers, the smbios_slot has continued in
+ * size and has the following members defined as of version 3.4. These occur
+ * starting at byte 14 + 5 * smbsl_npeers.
+ */
+typedef struct smb_slot_cont {
+	uint8_t smbsl_info;		/* slot info */
+	uint8_t smbsl_pwidth;		/* slot physical width */
+	uint16_t smbsl_pitch;		/* slot pitch */
+	/* Added in SMBIOS 3.5 */
+	uint8_t smbsl_height;		/* slot height */
+} smb_slot_cont_t;
+
+/*
+ * The first byte that the smb_slot_cont_t is defined to start at. Note, this
+ * was originally indicated to be 0x14 in the SMBIOS 3.4 specification. This has
+ * been noted as an errata. Right now we assume that most things have the
+ * updated behavior in SMBIOS 3.5. However, if we encounter things in the wild
+ * that have the other offset then we will need to condition this on 3.4.
+ */
+#define	SMB_SLOT_CONT_START	0x13
 
 /*
  * SMBIOS implementation structure for SMB_TYPE_OBDEVS.
@@ -366,6 +397,9 @@ typedef struct smb_memdevice {
 	uint64_t smbmdev_volsize;	/* volatile memory size */
 	uint64_t smbmdev_cachesize;	/* cache size */
 	uint64_t smbmdev_logicalsize;	/* logical size */
+	/* Added in SMBIOS 3.3 */
+	uint32_t smbmdev_extspeed;	/* Extended device speed */
+	uint32_t smbmdev_extclkspeed;	/* Extended clock speed */
 } smb_memdevice_t;
 
 #define	SMB_MDS_KBYTES		0x8000	/* size in specified in kilobytes */
@@ -385,6 +419,13 @@ typedef struct smb_memdevmap {
 	uint64_t smbdmap_extstart;	/* extended starting address */
 	uint64_t smbdmap_extend;	/* extended ending address */
 } smb_memdevmap_t;
+
+typedef struct smb_pointdev {
+	smb_header_t smbpdev_hdr;	/* structure header */
+	uint8_t smbpdev_type;		/* device type */
+	uint8_t smbpdev_iface;		/* device interface */
+	uint8_t smbpdev_nbuttons;	/* number of buttons */
+} smb_pointdev_t;
 
 /*
  * SMBIOS implementation structure for SMB_TYPE_BATTERY.
@@ -590,6 +631,66 @@ typedef struct smb_obdev_ext {
 	uint8_t smbobe_bus;		/* bus number */
 	uint8_t smbobe_df;		/* device/function number */
 } smb_obdev_ext_t;
+
+/*
+ * SMBIOS implementation structure for SMB_TYPE_PROCESSOR_INFO
+ */
+typedef struct smb_processor_info {
+	smb_header_t smbpai_hdr;	/* structure handle */
+	uint16_t smbpai_proc;		/* processor handle */
+	uint8_t smbpai_len;		/* length of processor specific data */
+	uint8_t smbpai_type;		/* processor type */
+	uint8_t smbpai_data[];		/* processor-specific block */
+} smb_processor_info_t;
+
+typedef struct smb_processor_info_riscv {
+	uint16_t smbpairv_vers;		/* structure revision */
+	uint8_t smbpairv_len;		/* length of structure */
+	uint8_t smbpairv_hartid[16];	/* id of the hart */
+	uint8_t smbpairv_boot;		/* boot hart */
+	uint8_t smbpairv_vendid[16];	/* machine vendor id */
+	uint8_t smbpairv_archid[16];	/* arch vendor id */
+	uint8_t smbpairv_machid[16];	/* machine impl id */
+	uint32_t smbpairv_isa;		/* supported ISA */
+	uint8_t smbpairv_privlvl;		/* supported privilege levels */
+	uint8_t smbpairv_metdi[16];	/* Machine exception trap delegation */
+	uint8_t smbpairv_mitdi[16];	/* Machine interrupt trap delegation */
+	uint8_t smbpairv_xlen;		/* Register width */
+	uint8_t smbpairv_mxlen;		/* Machine register width */
+	uint8_t smbpairv_rsvd;		/* Reserved */
+	uint8_t smbpairv_sxlen;		/* Supervisor register width */
+	uint8_t smbpairv_uxlen;		/* User register width */
+} smb_processor_info_riscv_t;
+
+/*
+ * SMBIOS implementation structure for SMBIOS_TYPE_FWINFO.
+ */
+typedef struct smb_fwinfo {
+	smb_header_t smbfwii_hdr;	/* structure handle */
+	uint8_t smbfwii_name;		/* Firmware component name */
+	uint8_t smbfwii_vers;		/* Firmware version */
+	uint8_t smbfwii_vers_fmt;	/* Version format */
+	uint8_t smbfwii_id;		/* Firmware ID */
+	uint8_t smbfwii_id_fmt;		/* Firmware ID format */
+	uint8_t smbfwii_reldate;	/* Release Date */
+	uint8_t smbfwii_mfg;		/* Manufacturer */
+	uint8_t smbfwii_lsv;		/* Lowest supported version */
+	uint64_t smbfwii_imgsz;		/* Image size */
+	uint16_t smbfwii_chars;		/* Characteristics */
+	uint8_t smbfwii_state;		/* State */
+	uint8_t smbfwii_ncomps;		/* Number of associated components */
+	uint16_t smbfwii_comps[];	/* Variable handles */
+} smb_fwinfo_t;
+
+/*
+ * SMBIOS implementation structure for SMBIOS_TYPE_STRPROP.
+ */
+typedef struct smb_strprop {
+	smb_header_t smbstrp_hdr;	/* structure handle */
+	uint16_t smbstrp_prop_id;	/* string property ID */
+	uint8_t smbstrp_prop_val;	/* string property value */
+	uint16_t smbstrp_phdl;		/* parent handle */
+} smb_strprop_t;
 
 /*
  * SMBIOS implementation structure for SUN_OEM_EXT_PROCESSOR.
@@ -824,6 +925,28 @@ typedef struct smb_base_slot {
 	uint8_t smbbl_bus;		/* bus number */
 	uint8_t smbbl_df;		/* device/function number */
 } smb_base_slot_t;
+
+/*
+ * Prior to reivison 3.5 of the library and interface we had embedded a 256 byte
+ * string for the SKU into here rather than pointing to constant data. This,
+ * combined withe bugs in the implementation, generally led to strings with
+ * garbage. As part of fixing this with the 3.5 support, we moved the struct to
+ * ve more inline with everything else.
+ */
+typedef struct smb_chassis_pre35 {
+	uint32_t smbc_oemdata;		/* OEM-specific data */
+	uint8_t smbc_lock;		/* lock present? */
+	uint8_t smbc_type;		/* type */
+	uint8_t smbc_bustate;		/* boot-up state */
+	uint8_t smbc_psstate;		/* power supply state */
+	uint8_t smbc_thstate;		/* thermal state */
+	uint8_t smbc_security;		/* security status */
+	uint8_t smbc_uheight;		/* enclosure height in U's */
+	uint8_t smbc_cords;		/* number of power cords */
+	uint8_t smbc_elems;		/* number of element records (n) */
+	uint8_t smbc_elemlen;		/* length of contained element (m) */
+	char smbc_sku[256];
+} smb_chassis_pre35_t;
 
 #ifdef	__cplusplus
 }

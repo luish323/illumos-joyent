@@ -10,7 +10,8 @@
  */
 
 /*
- * Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2018 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2022 RackTop Systems, Inc.
  */
 
 #ifndef _SMB_SMB2_H
@@ -318,9 +319,15 @@ typedef enum {
 #define	SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB	0x0001
 
 /*
+ * SMB2 Read
+ */
+#define	SMB2_READFLAG_READ_UNBUFFERED		0x00000001
+
+/*
  * SMB2 Write
  */
 #define	SMB2_WRITEFLAG_WRITE_THROUGH		0x00000001
+#define	SMB2_WRITEFLAG_WRITE_UNBUFFERED		0x00000002
 
 /*
  * SMB2 Lock Request
@@ -406,6 +413,15 @@ typedef enum {
 
 /* SMB2 Oplock Break: lease break notification flags */
 #define	SMB2_NOTIFY_BREAK_LEASE_FLAG_ACK_REQUIRED  0x01
+
+/* SMB3.1.1 the only pre-authentication hash */
+#define	SMB3_HASH_SHA512	1
+
+/* SMB3.x encryption ciphers */
+#define	SMB3_CIPHER_AES128_CCM	1	/* 3.0 */
+#define	SMB3_CIPHER_AES128_GCM	2	/* 3.1.1 */
+#define	SMB3_CIPHER_AES256_CCM	3	/* 3.1.1 */
+#define	SMB3_CIPHER_AES256_GCM	4	/* 3.1.1 */
 
 #ifdef __cplusplus
 }

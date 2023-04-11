@@ -386,7 +386,7 @@ dladm_simnet_info(dladm_handle_t handle, datalink_id_t simnet_id,
 	if (class != DATALINK_CLASS_SIMNET)
 		return (DLADM_STATUS_BADARG);
 
-	bzero(attrp, sizeof (attrp));
+	bzero(attrp, sizeof (*attrp));
 	attrp->sna_link_id = simnet_id;
 
 	if (flags & DLADM_OPT_ACTIVE) {
@@ -450,10 +450,9 @@ done:
 }
 
 /* Bring up simnet instance(s) from configuration */
-/* ARGSUSED */
 dladm_status_t
 dladm_simnet_up(dladm_handle_t handle, datalink_id_t simnet_id,
-    uint32_t flags)
+    uint32_t flags __unused)
 {
 	dladm_status_t status;
 

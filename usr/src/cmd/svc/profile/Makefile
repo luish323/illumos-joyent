@@ -23,6 +23,7 @@
 # Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
 # Copyright 2019 Peter Tribble.
+# Copyright 2019 Joyent, Inc.
 #
 
 include ../../Makefile.cmd
@@ -32,6 +33,7 @@ FILEMODE = 0444
 ROOTPROFILE = $(ROOT)/etc/svc/profile
 
 PROFILESRCS = \
+	generic.xml \
 	generic_open.xml \
 	generic_limited_net.xml \
 	inetd_generic.xml \
@@ -44,7 +46,6 @@ PROFILESRCS = \
 	platform_SUNW,SPARC-Enterprise.xml \
 	platform_SUNW,Sun-Fire-880.xml \
 	platform_SUNW,Sun-Fire.xml \
-	platform_SUNW,UltraSPARC-IIi-Netract.xml \
 	platform_none.xml \
 	platform_sun4v.xml
 
@@ -61,18 +62,11 @@ TEST =	/usr/bin/test
 LISTSVCS = listsvcs.pl
 
 install: all $(PROFILES)
-	$(RM) $(ROOTPROFILE)/platform.xml
+	$(CP) platform_none.xml $(ROOTPROFILE)/platform.xml
 	# SUNW,Sun-Fire-V890
 	$(RM) $(ROOTPROFILE)/platform_SUNW,Sun-Fire-V890.xml
 	$(LN) $(ROOTPROFILE)/platform_SUNW,Sun-Fire-880.xml \
 	    $(ROOTPROFILE)/platform_SUNW,Sun-Fire-V890.xml
-	# SUNW,UltraSPARC-IIe-NetraCT-[46]0
-	$(RM) $(ROOTPROFILE)/platform_SUNW,UltraSPARC-IIe-NetraCT-40.xml
-	$(RM) $(ROOTPROFILE)/platform_SUNW,UltraSPARC-IIe-NetraCT-60.xml
-	$(LN) $(ROOTPROFILE)/platform_SUNW,UltraSPARC-IIi-Netract.xml \
-	$(ROOTPROFILE)/platform_SUNW,UltraSPARC-IIe-NetraCT-40.xml
-	$(LN) $(ROOTPROFILE)/platform_SUNW,UltraSPARC-IIi-Netract.xml \
-	    $(ROOTPROFILE)/platform_SUNW,UltraSPARC-IIe-NetraCT-60.xml
 
 $(ROOTPROFILE)/%: %
 	$(INS.file)
@@ -95,7 +89,7 @@ $(CHECK_OPEN) $(CHECK_LMTD): \
 	@$(COMM) -23 $@.enabled $@.all | $(TEE) $@.notcovered
 	@$(TEST) ! -s $@.notcovered && $(TOUCH) $@
 
-lint _msg:
+_msg:
 
 clobber clean:
 	$(RM) $(CHECK_OPEN)* $(CHECK_LMTD)*

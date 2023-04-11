@@ -27,9 +27,12 @@
 # Copyright 2015 Gary Mills
 # Copyright 2015 Igor Kozhukhov <ikozhukhov@gmail.com>
 # Copyright 2016 Toomas Soome <tsoome@me.com>
-# Copyright 2017 Joyent, Inc.
-# Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
-# Copyright 2019, Joyent, Inc.
+# Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2021 Joyent, Inc.
+# Copyright 2019 RackTop Systems.
+# Copyright 2020 Oxide Computer Company
+# Copyright 2020 Peter Tribble
+# Copyright 2023 MNX Cloud, Inc.
 #
 
 #
@@ -42,6 +45,14 @@ ROOT=		/proto
 # and libraries.
 #
 ADJUNCT_PROTO=
+# HAVE_ADJUNCT_PROTO - ADJUNCT_PROTO is set to a non-default value
+# NO_ADJUNCT_PROTO - ADJUNCT_PROTO is unset
+#
+# This works by replacing any value in ADJUNCT_PROTO with POUND_SIGN, which
+# only happens if it has some value, and then setting HAVE_ADJUNCT_PROTO
+# oppositely.
+NO_ADJUNCT_PROTO=$(ADJUNCT_PROTO:%=$(POUND_SIGN))
+$(NO_ADJUNCT_PROTO)HAVE_ADJUNCT_PROTO=$(POUND_SIGN)
 
 #
 # Adjunct for building things that run on the build machine.
@@ -52,7 +63,7 @@ NATIVE_ADJUNCT=	/usr
 # Compatibility code for FreeBSD etc.
 #
 COMPAT=	$(SRC)/compat
-CONTRIB= $(SRC)/../contrib
+CONTRIB= $(SRC)/contrib
 
 #
 # RELEASE_BUILD should be cleared for final release builds.
@@ -114,10 +125,6 @@ __GNUC64=		$(__GNUC)
 # uncomment things in the lower Makefiles to enable the feature.
 ENABLE_SMB_PRINTING=	$(POUND_SIGN)
 
-# CLOSED is the root of the tree that contains source which isn't released
-# as open source
-CLOSED=		$(SRC)/../closed
-
 # BUILD_TOOLS is the root of all tools including compilers.
 # ONBLD_TOOLS is the root of all the tools that are part of SUNWonbld.
 
@@ -128,10 +135,9 @@ ONBLD_TOOLS=		$(BUILD_TOOLS)/onbld
 JAVA_HOME=	/usr/java
 # define buildtime JAVA_ROOT
 JAVA_ROOT=	/usr/java
-# Build uses java7 by default.  Pass one the variables below set to empty
+# Build uses java8 by default.  Pass the variable below set to empty
 # string in the environment to override.
-BLD_JAVA_6=	$(POUND_SIGN)
-BLD_JAVA_8=	$(POUND_SIGN)
+BLD_JAVA_11=	$(POUND_SIGN)
 
 GNUC_ROOT=	/usr/gcc/7
 GCCLIBDIR=	$(GNUC_ROOT)/lib
@@ -139,7 +145,7 @@ GCCLIBDIR64=	$(GNUC_ROOT)/lib/$(MACH64)
 
 DOCBOOK_XSL_ROOT=	/usr/share/sgml/docbook/xsl-stylesheets
 
-RPCGEN=		/usr/bin/rpcgen
+RPCGEN=		$(ONBLD_TOOLS)/bin/$(MACH)/rpcgen
 STABS=		$(ONBLD_TOOLS)/bin/$(MACH)/stabs
 ELFEXTRACT=	$(ONBLD_TOOLS)/bin/$(MACH)/elfextract
 MBH_PATCH=	$(ONBLD_TOOLS)/bin/$(MACH)/mbh_patch
@@ -155,6 +161,7 @@ VTFONTCVT=	$(ONBLD_TOOLS)/bin/$(MACH)/vtfontcvt
 ECHO=		echo
 TRUE=		true
 INS=		$(ONBLD_TOOLS)/bin/$(MACH)/install
+ED=		/usr/bin/ed
 SYMLINK=	/usr/bin/ln -s
 LN=		/usr/bin/ln
 MKDIR=		/usr/bin/mkdir
@@ -162,7 +169,7 @@ CHMOD=		/usr/bin/chmod
 MV=		/usr/bin/mv -f
 RM=		/usr/bin/rm -f
 CUT=		/usr/bin/cut
-NM=		/usr/ccs/bin/nm
+NM=		/usr/bin/nm
 DIFF=		/usr/bin/diff
 GREP=		/usr/bin/grep
 EGREP=		/usr/bin/egrep
@@ -171,22 +178,21 @@ KSH93=		/usr/bin/ksh93
 SED=		/usr/bin/sed
 AWK=		/usr/bin/nawk
 CP=		/usr/bin/cp -f
-MCS=		/usr/ccs/bin/mcs
+MCS=		/usr/bin/mcs
 CAT=            /usr/bin/cat
-ELFDUMP=	/usr/ccs/bin/elfdump
+ELFDUMP=	/usr/bin/elfdump
 M4=		/usr/bin/m4
 GM4=		/usr/bin/gm4
-STRIP=		/usr/ccs/bin/strip
-LEX=		/usr/ccs/bin/lex
+STRIP=		/usr/bin/strip
+LEX=		/usr/bin/lex
 FLEX=		/usr/bin/flex
-YACC=		/usr/ccs/bin/yacc
+YACC=		/usr/bin/yacc
 BISON=		/usr/bin/bison
 CPP=		/usr/lib/cpp
+SH=		/usr/bin/sh
 ANSI_CPP=	$(GNUC_ROOT)/bin/cpp
 JAVAC=		$(JAVA_ROOT)/bin/javac
-JAVAH=		$(JAVA_ROOT)/bin/javah
 JAVADOC=	$(JAVA_ROOT)/bin/javadoc
-RMIC=		$(JAVA_ROOT)/bin/rmic
 JAR=		$(JAVA_ROOT)/bin/jar
 CTFCONVERT=	$(ONBLD_TOOLS)/bin/$(MACH)/ctfconvert
 CTFDIFF=	$(ONBLD_TOOLS)/bin/$(MACH)/ctfdiff
@@ -195,24 +201,29 @@ CTFSTABS=	$(ONBLD_TOOLS)/bin/$(MACH)/ctfstabs
 CTFSTRIP=	$(ONBLD_TOOLS)/bin/$(MACH)/ctfstrip
 NDRGEN=		$(ONBLD_TOOLS)/bin/$(MACH)/ndrgen
 GENOFFSETS=	$(ONBLD_TOOLS)/bin/genoffsets
-GENSETDEFS=	$(ONBLD_TOOLS)/bin/gensetdefs
 XREF=		$(ONBLD_TOOLS)/bin/xref
 FIND=		/usr/bin/find
 PERL=		/usr/bin/perl
 PERL_VERSION=	5.12
 PERL_PKGVERS=	-512
-PERL_ARCH =		i86pc-solaris-64int
-$(SPARC_BLD)PERL_ARCH =	sun4-solaris-64int
-PYTHON_VERSION=	2.7
-PYTHON_PKGVERS=	-27
-PYTHON_SUFFIX=
-PYTHON=		/usr/bin/python$(PYTHON_VERSION)
-PYTHON3_VERSION=	3.5
-PYTHON3_PKGVERS=	-35
-PYTHON3_SUFFIX=		m
+PERL_MACH=	i86pc
+$(SPARC_BLD)PERL_MACH=	sun4
+PERL_VARIANT=
+PERL_ARCH=	$(PERL_MACH)-solaris$(PERL_VARIANT)-64int
+PERL_ARCH64=	$(PERL_MACH)-solaris$(PERL_VARIANT)-64
+PYTHON3_VERSION=	3.9
+PYTHON3_PKGVERS=	-39
+PYTHON3_SUFFIX=
 PYTHON3=		/usr/bin/python$(PYTHON3_VERSION)
-$(BUILDPY3TOOLS)TOOLS_PYTHON=		$(PYTHON3)
-$(BUILDPY2TOOLS)TOOLS_PYTHON=		$(PYTHON)
+# BUILDPY3b should be overridden in the env file in order to build python
+# modules with a secondary python to aid migration between versions.
+BUILDPY3b=		$(POUND_SIGN)
+PYTHON3b_VERSION=	3.5
+PYTHON3b_PKGVERS=	-35
+PYTHON3b_SUFFIX=	m
+#
+$(BUILDPY3b)PYTHON3b=	/usr/bin/python$(PYTHON3b_VERSION)
+TOOLS_PYTHON=		$(PYTHON3)
 SORT=		/usr/bin/sort
 TR=		/usr/bin/tr
 TOUCH=		/usr/bin/touch
@@ -230,6 +241,7 @@ TIC=		$(ONBLD_TOOLS)/bin/$(MACH)/tic
 ZIC=		$(ONBLD_TOOLS)/bin/$(MACH)/zic
 OPENSSL=	/usr/bin/openssl
 CPCGEN=		$(ONBLD_TOOLS)/bin/$(MACH)/cpcgen
+GENICONVTBL=	$(ONBLD_TOOLS)/bin/$(MACH)/geniconvtbl
 
 DEFAULT_CONSOLE_COLOR=					\
 	-DDEFAULT_ANSI_FOREGROUND=ANSI_COLOR_WHITE	\
@@ -285,7 +297,7 @@ INS.symlink=	$(RM) $@; $(SYMLINK) $(INSLINKTARGET) $@
 # The path to python that will be used for the shebang line when installing
 # python scripts to the proto area. This is overridden by makefiles to
 # select to the correct version.
-PYSHEBANG=	$(PYTHON)
+PYSHEBANG=	$(PYTHON3)
 
 #
 # Python bakes the mtime of the .py file into the compiled .pyc and
@@ -370,10 +382,8 @@ CCNOAUTOINLINE= \
 	-_gcc=-fno-inline-small-functions \
 	-_gcc=-fno-inline-functions-called-once \
 	-_gcc=-fno-ipa-cp \
-	-_gcc7=-fno-ipa-icf \
-	-_gcc8=-fno-ipa-icf \
-	-_gcc7=-fno-clone-functions \
-	-_gcc8=-fno-clone-functions
+	-_gcc=-fno-ipa-icf \
+	-_gcc=-fno-clone-functions
 
 # GCC may put functions in different named sub-sections of .text based on
 # their presumed calling frequency.  At least in the kernel, where we actually
@@ -381,9 +391,8 @@ CCNOAUTOINLINE= \
 #
 # Since at present we don't benefit from this even in userland, we disable it globally,
 # but the application of this may move into usr/src/uts/ in future.
-CCNOREORDER=	\
-	-_gcc7=-fno-reorder-functions \
-	-_gcc8=-fno-reorder-functions
+CCNOREORDER=	-_gcc=-fno-reorder-functions \
+		-_gcc=-fno-reorder-blocks-and-partition
 
 #
 # gcc has a rather aggressive optimization on by default that infers loop
@@ -392,9 +401,52 @@ CCNOREORDER=	\
 # strictest sense but also result in incorrect program behavior.  We turn
 # this optimization off, with extreme prejudice.
 #
-CCNOAGGRESSIVELOOPS= \
-	-_gcc7=-fno-aggressive-loop-optimizations \
-	-_gcc8=-fno-aggressive-loop-optimizations
+CCNOAGGRESSIVELOOPS= -_gcc=-fno-aggressive-loop-optimizations
+
+#
+# gcc has a limit on the maximum size of a function which will be inlined
+# in the presence of the 'inline' keyword; this limit varies between versions
+# of gcc. For consistent output and to ensure that some of the slightly larger
+# functions are inlined as intended, we specify the limit explicitly.
+#
+CCINLINESIZE= -_gcc=--param=max-inline-insns-single=450
+CCWARNINLINE= -_gcc=-Winline
+
+#
+# Options to control which version of stack-protector we enable. This
+# gives us a bit of flexibility and is unfortunately necessary as some
+# modules do not function correctly with our defaults (qede).
+#
+#  o STACKPROTECT_              Sets the appropriate version for the compiler
+#  o STACKPROTECT_strong        Sets us to use strong on all of the
+#                               compilers it supports. This is the same
+#                               as the default.
+#
+#  o STACKPROTECT_none          Disables the stack protector.
+#
+#  o STACKPROTECT_all           Enables it for everything.
+#
+#  o STACKPROTECT_basic         Enables the basic stack protector.
+#
+# -fstack-protector-strong is not available in gcc4 which is why we
+# have per-compiler versions below. These are not added to the default
+# global CFLAGS at this time as it's being incrementally enabled
+# throughout the build.
+#
+STACKPROTECT_           = -_gcc=-fstack-protector-strong
+
+STACKPROTECT_strong     = $(STACKPROTECT_)
+STACKPROTECT_none       =
+STACKPROTECT_all        = -_gcc=-fstack-protector-all
+STACKPROTECT_basic      = -_gcc=-fstack-protector
+
+STACKPROTECT_LD_	= -lssp_ns
+STACKPROTECT_LD_none	=
+STACKPROTECT_LD_all	= $(STACKPROTECT_LD_)
+STACKPROTECT_LD_basic	= $(STACKPROTECT_LD_)
+
+CCSTACKPROTECT= $(STACKPROTECT_$(STACKPROTECT))
+LDSTACKPROTECT= $(STACKPROTECT_LD_$(STACKPROTECT))
 
 # One optimization the compiler might perform is to turn this:
 #	#pragma weak foo
@@ -418,12 +470,6 @@ sparc_XARCH=	-m32
 sparcv9_XARCH=	-m64
 i386_XARCH=	-m32
 amd64_XARCH=	-m64 -Ui386 -U__i386
-
-# assembler '-xarch' flag.  Different from compiler '-xarch' flag.
-sparc_AS_XARCH=		-xarch=v8plus
-sparcv9_AS_XARCH=	-xarch=v9
-i386_AS_XARCH=
-amd64_AS_XARCH=		-xarch=amd64 -P -Ui386 -U__i386
 
 #
 # These flags define what we need to be 'standalone' i.e. -not- part
@@ -469,19 +515,27 @@ CERRWARN += -_gcc=-Wno-missing-field-initializers
 # Unfortunately, this option can misfire very easily and unfixably.
 CERRWARN +=	-_gcc=-Wno-array-bounds
 
+CNOWARN_UNINIT = -_gcc=-Wno-maybe-uninitialized
 
 CERRWARN += -_smatch=-p=illumos_user
 include $(SRC)/Makefile.smatch
 
 #
 # turn warnings into errors (C++)
-CCERRWARN=		-xwe
+CCERRWARN = -errtags=yes -errwarn=%all
+CCERRWARN += -erroff=E_EMPTY_TRANSLATION_UNIT
+CCERRWARN += -erroff=E_STATEMENT_NOT_REACHED
 
-# C standard.  Keep Studio flags until we get rid of lint.
+CCERRWARN += -_gcc=-Wno-missing-braces
+CCERRWARN += -_gcc=-Wno-sign-compare
+CCERRWARN += -_gcc=-Wno-unknown-pragmas
+CCERRWARN += -_gcc=-Wno-unused-parameter
+CCERRWARN += -_gcc=-Wno-missing-field-initializers
+
+# C standard
 CSTD_GNU89=	-xc99=%none
 CSTD_GNU99=	-xc99=%all
 CSTD=		$(CSTD_GNU89)
-C99LMODE=	$(CSTD:-xc99%=-Xc99%)
 
 # In most places, assignments to these macros should be appended with +=
 # (CPPFLAGS.first allows values to be prepended to CPPFLAGS).
@@ -491,10 +545,11 @@ sparcv9_CFLAGS=	$(sparcv9_XARCH) -dalign $(CCVERBOSE) $(V9ABIWARN) $(CCREGSYM) \
 i386_CFLAGS=	$(i386_XARCH)
 amd64_CFLAGS=	$(amd64_XARCH)
 
-sparc_ASFLAGS=	$(sparc_AS_XARCH)
-sparcv9_ASFLAGS=$(sparcv9_AS_XARCH)
-i386_ASFLAGS=	$(i386_AS_XARCH)
-amd64_ASFLAGS=	$(amd64_AS_XARCH)
+$(MACH)_ASFLAGS=	$($(MACH)_CFLAGS)
+$(MACH64)_ASFLAGS=	$($(MACH64)_CFLAGS)
+
+ASFLAGS= 		$($(MACH)_ASFLAGS)
+ASFLAGS64=		$($(MACH64)_ASFLAGS)
 
 #
 sparc_COPTFLAG=		-xO3
@@ -527,14 +582,16 @@ CGLOBALSTATIC= -W0,-xglobalstatic
 
 # Sometimes we want all symbols and types in debugging information even
 # if they aren't used.
-CALLSYMS=	-W0,-xdbggen=no%usedonly
+CALLSYMS=	-_gcc=-fno-eliminate-unused-debug-symbols \
+		-_gcc=-fno-eliminate-unused-debug-types
 
 #
 # We force the compilers to generate the debugging information best understood
 # by the CTF tools.  With Sun Studio this is stabs due to bugs in the Studio
 # compilers.  With GCC this is DWARF v2.
 #
-DEBUGFORMAT=	-_cc=-xdebugformat=stabs -_gcc=-gdwarf-2
+DEBUGFORMAT=	-_cc=-xdebugformat=stabs -_gcc=-gdwarf-2 \
+		-_gcc10=-gstrict-dwarf -_gcc11=-gstrict-dwarf
 
 #
 # Ask the compiler to include debugging information
@@ -629,12 +686,12 @@ $(SRCDBGBLD)CCSOURCEDEBUGFLAGS	= $(CCGDEBUG) -xs
 CFLAGS=         $(COPTFLAG) $($(MACH)_CFLAGS) $(SPACEFLAG) $(CCMODE) \
 		$(ILDOFF) $(CERRWARN) $(CSTD) $(CCUNBOUND) $(IROPTFLAG) \
 		$(CGLOBALSTATIC) $(CCNOAUTOINLINE) $(CCNOREORDER) \
-		$(CCNOAGGRESSIVELOOPS) \
+		$(CCNOAGGRESSIVELOOPS) $(CCINLINESIZE) \
 		$(CSOURCEDEBUGFLAGS) $(CUSERFLAGS)
 CFLAGS64=       $(COPTFLAG64) $($(MACH64)_CFLAGS) $(SPACEFLAG64) $(CCMODE64) \
 		$(ILDOFF) $(CERRWARN) $(CSTD) $(CCUNBOUND) $(IROPTFLAG64) \
 		$(CGLOBALSTATIC) $(CCNOAUTOINLINE) $(CCNOREORDER) \
-		$(CCNOAGGRESSIVELOOPS) \
+		$(CCNOAGGRESSIVELOOPS) $(CCINLINESIZE) \
 		$(CSOURCEDEBUGFLAGS) $(CUSERFLAGS64)
 #
 # Flags that are used to build parts of the code that are subsequently
@@ -643,7 +700,20 @@ CFLAGS64=       $(COPTFLAG64) $($(MACH64)_CFLAGS) $(SPACEFLAG64) $(CCMODE64) \
 NATIVE_CFLAGS=	$(COPTFLAG) $($(NATIVE_MACH)_CFLAGS) $(CCMODE) \
 		$(ILDOFF) $(CERRWARN) $(CSTD) $($(NATIVE_MACH)_CCUNBOUND) \
 		$(IROPTFLAG) $(CGLOBALSTATIC) $(CCNOAUTOINLINE) \
-		$(CCNOREORDER) $(CSOURCEDEBUGFLAGS) $(CUSERFLAGS)
+		$(CCNOREORDER) $(CCNOAGGRESSIVELOOPS) $(CCINLINESIZE) \
+		$(CSOURCEDEBUGFLAGS) $(CUSERFLAGS)
+
+NATIVE_CCFLAGS=	$(CCOPTFLAG) $($(NATIVE_MACH)_CCFLAGS) $(CCSOURCEDEBUGFLAGS) \
+		$(CCUSERFLAGS)
+
+NATIVE_CFLAGS64=	$(COPTFLAG64) $($(NATIVE_MACH64)_CFLAGS) $(CCMODE64) \
+		$(ILDOFF) $(CERRWARN) $(CSTD) $($(NATIVE_MACH64)_CCUNBOUND) \
+		$(IROPTFLAG64) $(CGLOBALSTATIC) $(CCNOAUTOINLINE) \
+		$(CCNOREORDER) $(CCNOAGGRESSIVELOOPS) $(CCINLINESIZE) \
+		$(CSOURCEDEBUGFLAGS) $(CUSERFLAGS64)
+
+NATIVE_CCFLAGS64=	$(CCOPTFLAG64) $($(NATIVE_MACH64)_CCFLAGS) \
+		$(CCSOURCEDEBUGFLAGS) $(CCUSERFLAGS64)
 
 DTEXTDOM=-DTEXT_DOMAIN=\"$(TEXT_DOMAIN)\"	# For messaging.
 DTS_ERRNO=-D_TS_ERRNO
@@ -654,7 +724,8 @@ CPPFLAGS.master=$(DTEXTDOM) $(DTS_ERRNO) \
 CPPFLAGS.native=-I$(NATIVE_ADJUNCT)/include
 CPPFLAGS=	$(CPPFLAGS.first) $(CPPFLAGS.master)
 AS_CPPFLAGS=	$(CPPFLAGS.first) $(CPPFLAGS.master)
-JAVAFLAGS=	-source 1.6 -target 1.6 -Xlint:deprecation,-options
+JAVAFLAGS=	-source 7 -target 7 -Xlint:deprecation,-options
+$(BLD_JAVA_11)JAVAFLAGS=	-source 7 -target 7 -Xlint:-options
 
 #
 # For source message catalogue
@@ -683,7 +754,7 @@ BUILD.po= $(XGETTEXT) $(XGETFLAGS) -d $(<F) $<.i ;\
 #
 POFILE= $(PROG).po
 
-sparc_CCFLAGS=		-cg92 -compat=4 \
+sparc_CCFLAGS=		$(sparc_XARCH) -cg92 -compat=4 \
 			-Qoption ccfe -messages=no%anachronism \
 			$(CCERRWARN)
 sparcv9_CCFLAGS=	$(sparcv9_XARCH) -dalign -compat=5 \
@@ -691,7 +762,7 @@ sparcv9_CCFLAGS=	$(sparcv9_XARCH) -dalign -compat=5 \
 			-Qoption ccfe -features=no%conststrings \
 			$(CCCREGSYM) \
 			$(CCERRWARN)
-i386_CCFLAGS=		-compat=4 \
+i386_CCFLAGS=		$(i386_XARCH) -compat=4 \
 			-Qoption ccfe -messages=no%anachronism \
 			-Qoption ccfe -features=no%conststrings \
 			$(CCERRWARN)
@@ -780,8 +851,8 @@ COMPILE.c=	$(CC) $(CFLAGS) $(CPPFLAGS) -c
 COMPILE64.c=	$(CC) $(CFLAGS64) $(CPPFLAGS) -c
 COMPILE.cc=	$(CCC) $(CCFLAGS) $(CPPFLAGS) -c
 COMPILE64.cc=	$(CCC) $(CCFLAGS64) $(CPPFLAGS) -c
-COMPILE.s=	$(AS) $(ASFLAGS) $(AS_CPPFLAGS)
-COMPILE64.s=	$(AS) $(ASFLAGS) $($(MACH64)_AS_XARCH) $(AS_CPPFLAGS)
+COMPILE.s=	$(AS) $(ASFLAGS) $(AS_CPPFLAGS) -c
+COMPILE64.s=	$(AS) $(ASFLAGS64) $(AS_CPPFLAGS) -c
 COMPILE.d=	$(DTRACE) -G -32
 COMPILE64.d=	$(DTRACE) -G -64
 COMPILE.b=	$(ELFWRAP) $(ELFWRAP_FLAGS$(CLASS))
@@ -795,51 +866,31 @@ COMPILE.java=	$(JAVAC) $(JAVAFLAGS) -classpath $(CLASSPATH)
 #
 CCNEEDED		= -lC
 CCEXTNEEDED		= -lCrun -lCstd
+NATIVECCNEEDED		= -lC
 $(__GNUC)CCNEEDED	= -L$(GCCLIBDIR) -lstdc++ -lgcc_s
 $(__GNUC)CCEXTNEEDED	= $(CCNEEDED)
+$(__GNUC)NATIVECCNEEDED	= -R$(GCCLIBDIR) -L$(GCCLIBDIR) -lstdc++ -lgcc_s
 
-LINK.c=		$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS)
-LINK64.c=	$(CC) $(CFLAGS64) $(CPPFLAGS) $(LDFLAGS)
-NORUNPATH=	-norunpath -nolib
-LINK.cc=	$(CCC) $(CCFLAGS) $(CPPFLAGS) $(NORUNPATH) \
-		$(LDFLAGS) $(CCNEEDED)
-LINK64.cc=	$(CCC) $(CCFLAGS64) $(CPPFLAGS) $(NORUNPATH) \
-		$(LDFLAGS) $(CCNEEDED)
+CCNEEDED64		= -lCrun
+CCEXTNEEDED64		= -lCrun -lCstd
+NATIVECCNEEDED64	= -lCrun
+$(__GNUC64)CCNEEDED64	= -L$(GCCLIBDIR) -lstdc++ -lgcc_s
+$(__GNUC64)NATIVECCNEEDED64 = -R$(GCCLIBDIR) -L$(GCCLIBDIR) -lstdc++ -lgcc_s
+$(__GNUC64)CCEXTNEEDED	= $(CCNEEDED64)
 
-#
-# lint macros
-#
-# Note that the undefine of __PRAGMA_REDEFINE_EXTNAME can be removed once
-# ON is built with a version of lint that has the fix for 4484186.
-#
-ALWAYS_LINT_DEFS =	-errtags=yes -s
-ALWAYS_LINT_DEFS +=	-erroff=E_PTRDIFF_OVERFLOW
-ALWAYS_LINT_DEFS +=	-erroff=E_ASSIGN_NARROW_CONV
-ALWAYS_LINT_DEFS +=	-U__PRAGMA_REDEFINE_EXTNAME
-ALWAYS_LINT_DEFS +=	$(C99LMODE)
-ALWAYS_LINT_DEFS +=	-errsecurity=$(SECLEVEL)
-ALWAYS_LINT_DEFS +=	-erroff=E_SEC_CREAT_WITHOUT_EXCL
-ALWAYS_LINT_DEFS +=	-erroff=E_SEC_FORBIDDEN_WARN_CREAT
-# XX64 -- really only needed for amd64 lint
-ALWAYS_LINT_DEFS +=	-erroff=E_ASSIGN_INT_TO_SMALL_INT
-ALWAYS_LINT_DEFS +=	-erroff=E_CAST_INT_CONST_TO_SMALL_INT
-ALWAYS_LINT_DEFS +=	-erroff=E_CAST_INT_TO_SMALL_INT
-ALWAYS_LINT_DEFS +=	-erroff=E_CAST_TO_PTR_FROM_INT
-ALWAYS_LINT_DEFS +=	-erroff=E_COMP_INT_WITH_LARGE_INT
-ALWAYS_LINT_DEFS +=	-erroff=E_INTEGRAL_CONST_EXP_EXPECTED
-ALWAYS_LINT_DEFS +=	-erroff=E_PASS_INT_TO_SMALL_INT
-ALWAYS_LINT_DEFS +=	-erroff=E_PTR_CONV_LOSES_BITS
+# Libraries we expect to use natively on the build machine
+NATIVE_LIBS=
 
-# This forces lint to pick up note.h and sys/note.h from Devpro rather than
-# from the proto area.  The note.h that ON delivers would disable NOTE().
-ONLY_LINT_DEFS =	-I$(SPRO_VROOT)/prod/include/lint
+LDCHECKS		= $(ZASSERTDEFLIB) $(ZGUIDANCE) $(ZFATALWARNINGS)
+LDCHECKS		+= $(NATIVE_LIBS:%=$(ZASSERTDEFLIB)=%)
 
-SECLEVEL=	core
-LINT.c=		$(LINT) $(ONLY_LINT_DEFS) $(LINTFLAGS) $(CPPFLAGS) \
-		$(ALWAYS_LINT_DEFS)
-LINT64.c=	$(LINT) $(ONLY_LINT_DEFS) $(LINTFLAGS64) $(CPPFLAGS) \
-		$(ALWAYS_LINT_DEFS)
-LINT.s=		$(LINT.c)
+LINK.c=			$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) $(LDCHECKS)
+LINK64.c=		$(CC) $(CFLAGS64) $(CPPFLAGS) $(LDFLAGS) $(LDCHECKS)
+NORUNPATH=		-norunpath -nolib
+LINK.cc=		$(CCC) $(CCFLAGS) $(CPPFLAGS) $(NORUNPATH) \
+			$(LDFLAGS) $(CCNEEDED) $(LDCHECKS)
+LINK64.cc=		$(CCC) $(CCFLAGS64) $(CPPFLAGS) $(NORUNPATH) \
+			$(LDFLAGS) $(CCNEEDED64) $(LDCHECKS)
 
 # For some future builds, NATIVE_MACH and MACH might be different.
 # Therefore, NATIVE_MACH needs to be redefined in the
@@ -847,6 +898,7 @@ LINT.s=		$(LINT.c)
 #
 # For now at least, we cross-compile amd64 on i386 machines.
 NATIVE_MACH=	$(MACH:amd64=i386)
+NATIVE_MACH64=	$(MACH64)
 
 # Define native compilation macros
 #
@@ -866,49 +918,40 @@ $(__SUNC)PRIMARY_CCC=	studio12,$(SPRO_VROOT)/bin/CC,sun
 CW_CC_COMPILERS=	$(PRIMARY_CC:%=--primary %) $(SHADOW_CCS:%=--shadow %)
 CW_CCC_COMPILERS=	$(PRIMARY_CCC:%=--primary %) $(SHADOW_CCCS:%=--shadow %)
 
-
-# Till SS12u1 formally becomes the NV CBE, LINT is hard
-# coded to be picked up from the $SPRO_ROOT/sunstudio12.1/
-# location. Impacted variables are sparc_LINT, sparcv9_LINT,
-# i386_LINT, amd64_LINT.
-# Reset them when SS12u1 is rolled out.
-#
+CW_LINKER=		--linker $(LD)
 
 # Specify platform compiler versions for languages
 # that we use (currently only c and c++).
 #
 CW=			$(ONBLD_TOOLS)/bin/$(MACH)/cw
 
-BUILD_CC=		$(CW) $(CW_CC_COMPILERS) --
-BUILD_CCC=		$(CW) -C $(CW_CCC_COMPILERS) --
-BUILD_CPP=		/usr/ccs/lib/cpp
-BUILD_LD=		/usr/ccs/bin/ld
-BUILD_LINT=		$(SPRO_ROOT)/sunstudio12.1/bin/lint
+BUILD_CC=		$(CW) $(CW_LINKER) $(CW_CC_COMPILERS) --
+BUILD_CCC=		$(CW) -C $(CW_LINKER) $(CW_CCC_COMPILERS) --
+BUILD_CPP=		/usr/lib/cpp
+BUILD_LD=		$(ONBLD_TOOLS)/bin/$(MACH64)/ld
 
 $(MACH)_CC=		$(BUILD_CC)
 $(MACH)_CCC=		$(BUILD_CCC)
 $(MACH)_CPP=		$(BUILD_CPP)
 $(MACH)_LD=		$(BUILD_LD)
-$(MACH)_LINT=		$(BUILD_LINT)
+$(MACH)_AS=		$(BUILD_CC)
 $(MACH64)_CC=		$(BUILD_CC)
 $(MACH64)_CCC=		$(BUILD_CCC)
 $(MACH64)_CPP=		$(BUILD_CPP)
 $(MACH64)_LD=		$(BUILD_LD)
-$(MACH64)_LINT=		$(BUILD_LINT)
-
-sparc_AS=		/usr/ccs/bin/as -xregsym=no
-sparcv9_AS=		$($(MACH)_AS)
-
-i386_AS=		/usr/ccs/bin/as
-$(__GNUC)i386_AS=	$(ONBLD_TOOLS)/bin/$(MACH)/aw
-amd64_AS=		$(ONBLD_TOOLS)/bin/$(MACH)/aw
+$(MACH64)_AS=		$(BUILD_CC)
 
 NATIVECC=		$($(NATIVE_MACH)_CC)
 NATIVECCC=		$($(NATIVE_MACH)_CCC)
 NATIVECPP=		$($(NATIVE_MACH)_CPP)
 NATIVEAS=		$($(NATIVE_MACH)_AS)
 NATIVELD=		$($(NATIVE_MACH)_LD)
-NATIVELINT=		$($(NATIVE_MACH)_LINT)
+
+NATIVECC64=		$($(NATIVE_MACH64)_CC)
+NATIVECCC64=		$($(NATIVE_MACH64)_CCC)
+NATIVECPP64=		$($(NATIVE_MACH64)_CPP)
+NATIVEAS64=		$($(NATIVE_MACH64)_AS)
+NATIVELD64=		$($(NATIVE_MACH64)_LD)
 
 #
 # Makefile.master.64 overrides these settings
@@ -918,41 +961,51 @@ CCC=			$(NATIVECCC)
 CPP=			$(NATIVECPP)
 AS=			$(NATIVEAS)
 LD=			$(NATIVELD)
-LINT=			$(NATIVELINT)
+
+CC64=			$(NATIVECC64)
+CCC64=			$(NATIVECCC64)
+CPP64=			$(NATIVECPP64)
+AS64=			$(NATIVEAS64)
+LD64=			$(NATIVELD64)
 
 # Pass -Y flag to cpp (method of which is release-dependent)
 CCYFLAG=		-Y I,
 
-BDIRECT=	-Bdirect
-BDYNAMIC=	-Bdynamic
-BLOCAL=		-Blocal
-BNODIRECT=	-Bnodirect
-BREDUCE=	-Breduce
-BSTATIC=	-Bstatic
+BDIRECT=	-Wl,-Bdirect
+BDYNAMIC=	-Wl,-Bdynamic
+BLOCAL=		-Wl,-Blocal
+BNODIRECT=	-Wl,-Bnodirect
+BREDUCE=	-Wl,-Breduce
+BSTATIC=	-Wl,-Bstatic
+BSYMBOLIC=	-Wl,-Bsymbolic
 
-ZDEFS=		-zdefs
-ZDIRECT=	-zdirect
-ZIGNORE=	-zignore
-ZINITFIRST=	-zinitfirst
-ZINTERPOSE=	-zinterpose
-ZLAZYLOAD=	-zlazyload
-ZLOADFLTR=	-zloadfltr
-ZMULDEFS=	-zmuldefs
-ZNODEFAULTLIB=	-znodefaultlib
-ZNODEFS=	-znodefs
-ZNODELETE=	-znodelete
-ZNODLOPEN=	-znodlopen
-ZNODUMP=	-znodump
-ZNOLAZYLOAD=	-znolazyload
-ZNOLDYNSYM=	-znoldynsym
-ZNORELOC=	-znoreloc
-ZNOVERSION=	-znoversion
-ZRECORD=	-zrecord
-ZREDLOCSYM=	-zredlocsym
-ZTEXT=		-ztext
-ZVERBOSE=	-zverbose
+ZDEFS=		-Wl,-zdefs
+ZDIRECT=	-Wl,-zdirect
+ZIGNORE=	-Wl,-zignore
+ZINITFIRST=	-Wl,-zinitfirst
+ZINTERPOSE=	-Wl,-zinterpose
+ZLAZYLOAD=	-Wl,-zlazyload
+ZLOADFLTR=	-Wl,-zloadfltr
+ZMULDEFS=	-Wl,-zmuldefs
+ZNODEFAULTLIB=	-Wl,-znodefaultlib
+ZNODEFS=	-Wl,-znodefs
+ZNODELETE=	-Wl,-znodelete
+ZNODLOPEN=	-Wl,-znodlopen
+ZNODUMP=	-Wl,-znodump
+ZNOLAZYLOAD=	-Wl,-znolazyload
+ZNOLDYNSYM=	-Wl,-znoldynsym
+ZNORELOC=	-Wl,-znoreloc
+ZNOVERSION=	-Wl,-znoversion
+ZRECORD=	-Wl,-zrecord
+ZREDLOCSYM=	-Wl,-zredlocsym
+ZTEXT=		-Wl,-ztext
+ZVERBOSE=	-Wl,-zverbose
+ZASSERTDEFLIB=	-Wl,-zassert-deflib
+ZGUIDANCE=	-Wl,-zguidance
+ZFATALWARNINGS=	-Wl,-zfatal-warnings
+ZASLR=		-Wl,-zaslr
 
-GSHARED=	-G
+GSHARED=	-shared
 CCMT=		-mt
 
 # Handle different PIC models on different ISAs
@@ -981,8 +1034,8 @@ amd64_CC_PICFLAGS =	-_cc=-Kpic -_gcc=-fpic
 CC_PICFLAGS =		$($(MACH)_CC_PICFLAGS)
 CC_PICFLAGS64 =		$($(MACH64)_CC_PICFLAGS)
 
-AS_PICFLAGS=		-K pic
-AS_BIGPICFLAGS=		-K PIC
+AS_PICFLAGS=		$(C_PICFLAGS)
+AS_BIGPICFLAGS=		$(C_BIGPICFLAGS)
 
 #
 # Default label for CTF sections
@@ -995,15 +1048,6 @@ CTFCVTFLAGS=		-L VERSION
 # stripping.
 #
 CTFMRGFLAGS=
-
-#
-# Make the transition between old and new CTF Tools. The new ctf tools
-# do not support stabs (eg. Sun Studio). By setting BUILD_OLD_CTF_TOOLS
-# here or in the environment file, the old ones will be built.
-#
-BUILD_NEW_CTF_TOOLS=
-BUILD_OLD_CTF_TOOLS=$(POUND_SIGN)
-$(BUILD_OLD_CTF_TOOLS)BUILD_NEW_CTF_TOOLS= $(POUND_SIGN)
 
 CTFCONVERT_O		= $(CTFCONVERT) $(CTFCVTFLAGS) $@
 
@@ -1059,14 +1103,31 @@ VERSION=	SunOS Development
 PATCHID=	$(VERSION)
 RELEASE_DATE=	release date not set
 PATCH_DATE=	$(RELEASE_DATE)
-RELEASE_CM=	"@($(POUND_SIGN))SunOS $(RELEASE) $(PATCHID) $(PATCH_DATE)"
-DEV_CM=		"@($(POUND_SIGN))SunOS Internal Development: non-nightly build"
+RELEASE_CM=	"@($(POUND_SIGN))illumos $(PATCHID) $(PATCH_DATE)"
+DEV_CM_TAIL=	development build: $(LOGNAME)
+DEV_CM=		"@($(POUND_SIGN))illumos $(DEV_CM_TAIL)"
+UTS_LABEL=	$(RELEASE)
+
+#
+# The boot banner may be overridden by distributions.  Up to five lines can be
+# specified by overriding the BOOTBANNER macros, and any line that expands to
+# an empty string will not be printed.  See comments in
+# bootbanner_expand_template() for more details about the template string
+# format.
+#
+BOOTBANNER1=	SmartOS Version ^v ^w-bit
+# XXX SmartOS: BANNER_YEAR in environment set in smartos-live's build_illumos.
+BOOTBANNER2=	Copyright 2022-$(BANNER_YEAR) MNX Cloud, Inc.
+BOOTBANNER3=
+BOOTBANNER4=
+BOOTBANNER5=
 
 PROCESS_COMMENT=  @?${MCS} -d -a $(RELEASE_CM) -a $(DEV_CM)
 $(RELEASE_BUILD)PROCESS_COMMENT=   @?${MCS} -d -a $(RELEASE_CM)
 
 STRIP_STABS=			   $(STRIP) -x $@
 $(SRCDBGBLD)STRIP_STABS=	   :
+PROCESS_CTF=			   :
 
 POST_PROCESS_O=
 POST_PROCESS_S_O=
@@ -1074,8 +1135,8 @@ POST_PROCESS_CC_O=
 POST_PROCESS_A=
 POST_PROCESS_SO=	$(PROCESS_COMMENT) $@ ; $(STRIP_STABS) ; \
 			$(ELFSIGN_OBJECT)
-POST_PROCESS=		$(PROCESS_COMMENT) $@ ; $(STRIP_STABS) ; \
-			$(ELFSIGN_OBJECT)
+POST_PROCESS=		$(PROCESS_COMMENT) $@ ; $(PROCESS_CTF) ; \
+			$(STRIP_STABS) ; $(ELFSIGN_OBJECT)
 
 #
 # chk4ubin is a tool that inspects a module for a symbol table
@@ -1101,6 +1162,9 @@ PKGARCHIVE=$(SRC)/../../packages/$(MACH)/nightly$(PKGARCHIVESUFFIX)
 PKGPUBLISHER_REDIST=	on-nightly
 PKGPUBLISHER_NONREDIST=	on-extra
 
+# Allow suffix rules like the below for .S as well as .s
+.SUFFIXES: .S
+
 #	Default build rules which perform comment section post-processing.
 #
 .c:
@@ -1118,6 +1182,15 @@ PKGPUBLISHER_NONREDIST=	on-extra
 	$(COMPILE.s) -o $@ $<
 	$(POST_PROCESS_S_O)
 .s.a:
+	$(COMPILE.s) -o $% $<
+	$(PROCESS_COMMENT) $%
+	$(AR) $(ARFLAGS) $@ $%
+	$(RM) $%
+
+.S.o:
+	$(COMPILE.s) -o $@ $<
+	$(POST_PROCESS_S_O)
+.S.a:
 	$(COMPILE.s) -o $% $<
 	$(PROCESS_COMMENT) $%
 	$(AR) $(ARFLAGS) $@ $%
@@ -1193,11 +1266,6 @@ PKGPUBLISHER_NONREDIST=	on-extra
 		-e "1s:^\#!@TOOLS_PYTHON@:\#!$(TOOLS_PYTHON):" \
 		< $< > $@; $(CHMOD) +x $@
 
-.py.pyc:
-	$(RM) $@
-	$(PYTHON) -mpy_compile $<
-	@[ $(<)c = $@ ] || $(MV) $(<)c $@
-
 .py.po:
 	$(GNUXGETTEXT) $(GNUXGETFLAGS) -d $(<F:%.py=%) $< ;
 
@@ -1264,8 +1332,3 @@ CPPFORPO=$(COMPILE.cpp:\"$(TEXT_DOMAIN)\"=TEXT_DOMAIN)
 
 .xml.xmlchk:
 	$(MANIFEST_CHECK)
-
-#
-# Include rules to render automated sccs get rules "safe".
-#
-include $(SRC)/Makefile.noget

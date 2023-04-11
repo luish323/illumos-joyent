@@ -22,7 +22,9 @@
  * Copyright (c) 1991, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2015 Joyent, Inc.
  * Copyright (c) 2011 Nexenta Systems, Inc. All rights reserved.
- * Copyright (c) 2014, 2016 by Delphix. All rights reserved.
+ * Copyright (c) 2014, 2017 by Delphix. All rights reserved.
+ * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2022 Oxide Computer Company
  */
 /* Copyright (c) 1990 Mentat Inc. */
 
@@ -46,6 +48,7 @@ extern "C" {
 #include <inet/mib2.h>
 #include <inet/tcp_stack.h>
 #include <inet/tcp_sack.h>
+#include <inet/cc.h>
 
 /* TCP states */
 #define	TCPS_CLOSED		-6
@@ -153,6 +156,9 @@ typedef struct tcp_s {
 	struct conn_s	*tcp_connp;	/* back pointer to conn_t */
 	tcp_stack_t	*tcp_tcps;	/* back pointer to tcp_stack_t */
 
+	struct cc_algo	*tcp_cc_algo;	/* congestion control algorithm */
+	struct cc_var	tcp_ccv;	/* congestion control specific vars */
+
 	int32_t	tcp_state;
 	int32_t	tcp_rcv_ws;		/* My window scale power */
 	int32_t	tcp_snd_ws;		/* Sender's window scale power */
@@ -242,12 +248,13 @@ typedef struct tcp_s {
 		tcp_accept_error : 1,	/* Error during TLI accept */
 		tcp_send_discon_ind : 1, /* TLI accept err, send discon ind */
 		tcp_cork : 1,		/* tcp_cork option */
+		tcp_quickack : 1,	/* Send acks immediately */
 		tcp_tconnind_started : 1, /* conn_ind message is being sent */
 
 		tcp_lso :1,		/* Lower layer is capable of LSO */
 		tcp_is_wnd_shrnk : 1,	/* Window has shrunk */
 
-		tcp_pad_to_bit_31 : 18;
+		tcp_pad_to_bit_31 : 17;
 
 	uint32_t	tcp_initial_pmtu; /* Initial outgoing Path MTU. */
 
@@ -373,6 +380,7 @@ typedef struct tcp_s {
 
 	int		tcp_ipsec_overhead;
 
+	uint_t		tcp_recvtos;	/* Last received IP_RECVTOS */
 	uint_t		tcp_recvifindex; /* Last received IPV6_RCVPKTINFO */
 	uint_t		tcp_recvhops;	/* Last received IPV6_RECVHOPLIMIT */
 	uint_t		tcp_recvtclass;	/* Last received IPV6_RECVTCLASS */
@@ -511,10 +519,10 @@ typedef struct tcp_s {
 #endif
 
 extern void	tcp_conn_reclaim(void *);
-extern void 	tcp_free(tcp_t *tcp);
+extern void	tcp_free(tcp_t *tcp);
 extern void	tcp_ddi_g_init(void);
 extern void	tcp_ddi_g_destroy(void);
-extern void 	*tcp_get_conn(void *arg, tcp_stack_t *);
+extern conn_t	*tcp_get_conn(void *arg, tcp_stack_t *);
 extern mblk_t	*tcp_snmp_get(queue_t *, mblk_t *, boolean_t);
 extern int	tcp_snmp_set(queue_t *, int, int, uchar_t *, int len);
 

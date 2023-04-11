@@ -10,20 +10,23 @@
  */
 
 /*
- * Copyright 2018 Jason King
- * Copyright 2019, Joyent, Inc.
+ * Copyright 2021 Jason King
+ * Copyright 2019 Joyent, Inc.
  */
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <limits.h>
 #include <pthread.h>
 #include <sys/ctype.h>
 #include <sys/debug.h>
+#include <sys/sysmacros.h>
 #include <stdarg.h>
 #include "demangle-sys.h"
 #include "demangle_int.h"
+#include "strview.h"
 
 #define	DEMANGLE_DEBUG	"DEMANGLE_DEBUG"
 
@@ -31,61 +34,62 @@ static pthread_once_t debug_once = PTHREAD_ONCE_INIT;
 volatile boolean_t demangle_debug;
 FILE *debugf = stderr;
 
+static struct {
+	const char	*str;
+	sysdem_lang_t	lang;
+} lang_tbl[] = {
+	{ "auto", SYSDEM_LANG_AUTO },
+	{ "c++", SYSDEM_LANG_CPP },
+	{ "rust", SYSDEM_LANG_RUST },
+};
+
 static const char *
 langstr(sysdem_lang_t lang)
 {
-	switch (lang) {
-	case SYSDEM_LANG_AUTO:
-		return ("auto");
-	case SYSDEM_LANG_CPP:
-		return ("c++");
-	case SYSDEM_LANG_RUST:
-		return ("rust");
-	default:
-		return ("invalid");
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(lang_tbl); i++) {
+		if (lang == lang_tbl[i].lang)
+			return (lang_tbl[i].str);
 	}
+	return ("invalid");
 }
 
-static sysdem_lang_t
-detect_lang(const char *str, size_t n)
+boolean_t
+sysdem_parse_lang(const char *str, sysdem_lang_t *langp)
 {
-	const char *p = str;
-	size_t len;
+	size_t i;
 
-	if (n < 3 || str[0] != '_')
-		return (SYSDEM_LANG_AUTO);
-
-	/*
-	 * Check for ^_Z or ^__Z
-	 */
-	p = str + 1;
-	if (*p == '_') {
-		p++;
+	for (i = 0; i < ARRAY_SIZE(lang_tbl); i++) {
+		if (strcmp(str, lang_tbl[i].str) == 0) {
+			*langp = lang_tbl[i].lang;
+			return (B_TRUE);
+		}
 	}
 
-	if (*p != 'Z')
-		return (SYSDEM_LANG_AUTO);
+	return (B_FALSE);
+}
 
-	/*
-	 * Sadly, rust currently uses the same prefix as C++, however
-	 * demangling rust as a C++ mangled name yields less than desirable
-	 * results.  However rust names end with a hash.  We use that to
-	 * attempt to disambiguate
-	 */
+/*
+ * A quick check if str can possibly be a mangled string. Currently, that
+ * means it must start with _Z or __Z.
+ */
+static boolean_t
+is_mangled(const char *str, size_t n)
+{
+	strview_t sv;
 
-	/* Find 'h'<hexdigit>+E$ */
-	if ((p = strrchr(p, 'h')) == NULL)
-		return (SYSDEM_LANG_CPP);
+	sv_init_str(&sv, str, str + n);
 
-	if ((len = strspn(p + 1, "0123456789abcdef")) == 0)
-		return (SYSDEM_LANG_CPP);
+	if (!sv_consume_if_c(&sv, '_'))
+		return (B_FALSE);
+	(void) sv_consume_if_c(&sv, '_');
+	if (sv_consume_if_c(&sv, 'Z'))
+		return (B_TRUE);
+	if (sv_consume_if_c(&sv, 'R'))
+		return (B_TRUE);
 
-	p += len + 1;
-
-	if (p[0] != 'E' || p[1] != '\0')
-		return (SYSDEM_LANG_CPP);
-
-	return (SYSDEM_LANG_RUST);
+	return (B_FALSE);
 }
 
 static void
@@ -98,6 +102,8 @@ check_debug(void)
 char *
 sysdemangle(const char *str, sysdem_lang_t lang, sysdem_ops_t *ops)
 {
+	char *res = NULL;
+
 	/*
 	 * While the language specific demangler code can handle non-NUL
 	 * terminated strings, we currently don't expose this to consumers.
@@ -130,29 +136,50 @@ sysdemangle(const char *str, sysdem_lang_t lang, sysdem_ops_t *ops)
 	if (ops == NULL)
 		ops = sysdem_ops_default;
 
-	if (lang == SYSDEM_LANG_AUTO) {
-		lang = detect_lang(str, slen);
-		if (lang != SYSDEM_LANG_AUTO)
-			DEMDEBUG("detected language is %s", langstr(lang));
-	}
-
+	/*
+	 * If we were given an explicit language to demangle, we always
+	 * use that. If not, we try to demangle as rust, then c++. Any
+	 * mangled C++ symbol that manages to successfully demangle as a
+	 * legacy rust symbol _should_ look the same as it can really
+	 * only be a very simple C++ symbol. Otherwise, the rust demangling
+	 * should fail and we can try C++.
+	 */
 	switch (lang) {
 	case SYSDEM_LANG_CPP:
 		return (cpp_demangle(str, slen, ops));
 	case SYSDEM_LANG_RUST:
 		return (rust_demangle(str, slen, ops));
 	case SYSDEM_LANG_AUTO:
-		DEMDEBUG("could not detect language");
-		errno = ENOTSUP;
-		return (NULL);
-	default:
+		break;
+	}
+
+	/*
+	 * To save us some potential work, if the symbol cannot
+	 * possibly be a rust or C++ mangled name, we don't
+	 * even attempt to demangle either.
+	 */
+	if (!is_mangled(str, slen)) {
 		/*
-		 * This can't happen unless there's a bug with detect_lang,
-		 * but gcc doesn't know that.
+		 * This does mean if we somehow get a string > 2GB
+		 * the debugging output will be truncated, but that
+		 * seems an acceptable tradeoff.
 		 */
+		int len = slen > INT_MAX ? INT_MAX : slen;
+
+		DEMDEBUG("ERROR: '%.*s' cannot be a mangled string", len, str);
 		errno = EINVAL;
 		return (NULL);
 	}
+
+	DEMDEBUG("trying rust");
+	res = rust_demangle(str, slen, ops);
+
+	IMPLY(ret != NULL, errno == 0);
+	if (res != NULL)
+		return (res);
+
+	DEMDEBUG("trying C++");
+	return (cpp_demangle(str, slen, ops));
 }
 
 int

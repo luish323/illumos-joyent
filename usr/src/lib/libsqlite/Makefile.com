@@ -53,9 +53,8 @@ include $(SRC)/lib/Makefile.rootfs
 SRCDIR = ../src
 TOOLDIR = ../tool
 $(DYNLIB) := LDLIBS += -lc
-LIBS = $(DYNLIB) $(LINTLIB) $(NATIVERELOC)
+LIBS = $(DYNLIB) $(NATIVERELOC)
 
-$(LINTLIB) :=	SRCS = ../$(LINTSRC)
 
 # generated sources
 GENSRC = opcodes.c parse.c
@@ -97,7 +96,7 @@ MYCPPFLAGS = -D_REENTRANT -DTHREADSAFE=1 -DHAVE_USLEEP=1 -I. -I.. -I$(SRCDIR)
 CPPFLAGS += $(MYCPPFLAGS)
 
 CERRWARN += -_gcc=-Wno-implicit-function-declaration
-CERRWARN += -_gcc=-Wno-uninitialized
+CERRWARN += $(CNOWARN_UNINIT)
 CERRWARN += -_gcc=-Wno-unused-function
 CERRWARN += -_gcc=-Wno-unused-label
 
@@ -203,18 +202,13 @@ install:	all \
 		$(ROOTLIBDIR)/$(DYNLIB) \
 		$(ROOTLIBDIR)/$(NATIVERELOC)
 
-lint:
 
 all_h: $(GENHDR)
 
 $(ROOTLIBDIR)/$(NATIVERELOC)	:= FILEMODE= 644
-$(ROOTLINTDIR)/$(LINTLIB)	:= FILEMODE= 644
 
 $(ROOTLINK): $(ROOTLIBDIR) $(ROOTLIBDIR)/$(DYNLIB)
 	$(INS.liblink)
-
-$(ROOTLINTDIR)/%: ../%
-	$(INS.file)
 
 native: $(NATIVERELOC)
 

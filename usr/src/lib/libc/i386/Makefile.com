@@ -31,7 +31,6 @@
 LIBCDIR=	$(SRC)/lib/libc
 LIB_PIC=	libc_pic.a
 VERS=		.1
-CPP=		/usr/lib/cpp
 TARGET_ARCH=	i386
 
 # include comm page definitions
@@ -104,6 +103,8 @@ COMOBJS=			\
 	bcopy.o			\
 	bsearch.o		\
 	bzero.o			\
+	explicit_bzero.o	\
+	memmem.o		\
 	qsort.o			\
 	strtol.o		\
 	strtoul.o		\
@@ -304,6 +305,7 @@ COMSYSOBJS=			\
 	ulimit.o		\
 	umask.o			\
 	umount2.o		\
+	upanic.o		\
 	utssys.o		\
 	uucopy.o		\
 	vhangup.o		\
@@ -425,7 +427,6 @@ PORTGEN=			\
 	euclen.o		\
 	event_port.o		\
 	execvp.o		\
-	explicit_bzero.o	\
 	fattach.o		\
 	fdetach.o		\
 	fdopendir.o		\
@@ -504,7 +505,7 @@ PORTGEN=			\
 	madvise.o		\
 	malloc.o		\
 	memalign.o		\
-	memmem.o		\
+	memrchr.o		\
 	memset_s.o		\
 	mkdev.o			\
 	mkdtemp.o		\
@@ -553,6 +554,7 @@ PORTGEN=			\
 	readdir.o		\
 	readdir_r.o		\
 	reallocarray.o		\
+	reallocf.o		\
 	recallocarray.o		\
 	realpath.o		\
 	reboot.o		\
@@ -573,6 +575,7 @@ PORTGEN=			\
 	sigsend.o		\
 	sigsetops.o		\
 	ssignal.o		\
+	ssp.o			\
 	stack.o			\
 	stpcpy.o		\
 	stpncpy.o		\
@@ -685,6 +688,7 @@ PORTSTDIO=			\
 	_filbuf.o		\
 	_findbuf.o		\
 	_flsbuf.o		\
+	_stdio_flags.o		\
 	_wrtchk.o		\
 	clearerr.o		\
 	ctermid.o		\
@@ -700,6 +704,7 @@ PORTSTDIO=			\
 	fileno.o		\
 	flockf.o		\
 	flush.o			\
+	fmemopen.o		\
 	fopen.o			\
 	fpos.o			\
 	fputc.o			\
@@ -717,6 +722,8 @@ PORTSTDIO=			\
 	gets.o			\
 	getw.o			\
 	mse.o			\
+	open_memstream.o	\
+	open_wmemstream.o	\
 	popen.o			\
 	putc.o			\
 	putchar.o		\
@@ -789,6 +796,8 @@ PORTI18N_COND=			\
 PORTLOCALE=			\
 	big5.o			\
 	btowc.o			\
+	c16rtomb.o		\
+	c32rtomb.o		\
 	collate.o		\
 	collcmp.o		\
 	euc.o			\
@@ -814,6 +823,8 @@ PORTLOCALE=			\
 	mbftowc.o		\
 	mblen.o			\
 	mbrlen.o		\
+	mbrtoc16.o		\
+	mbrtoc32.o		\
 	mbrtowc.o		\
 	mbsinit.o		\
 	mbsnrtowcs.o		\
@@ -1076,7 +1087,7 @@ CFLAGS += $(XINLINE)
 
 CERRWARN += -_gcc=-Wno-parentheses
 CERRWARN += -_gcc=-Wno-switch
-CERRWARN += -_gcc=-Wno-uninitialized
+CERRWARN += $(CNOWARN_UNINIT)
 CERRWARN += -_gcc=-Wno-unused-value
 CERRWARN += -_gcc=-Wno-unused-label
 CERRWARN += -_gcc=-Wno-unused-variable
@@ -1102,7 +1113,7 @@ CFLAGS += $(XSTRCONST)
 
 ALTPICS= $(TRACEOBJS:%=pics/%)
 
-$(DYNLIB) := BUILD.SO = $(LD) -o $@ -G $(DYNFLAGS) $(PICS) $(ALTPICS) \
+$(DYNLIB) := BUILD.SO = $(LD) -o $@ $(GSHARED) $(DYNFLAGS) $(PICS) $(ALTPICS) \
 		$(EXTPICS) $(LDLIBS)
 
 MAPFILES =	$(LIBCDIR)/port/mapfile-vers
@@ -1113,7 +1124,11 @@ MAPFILES =	$(LIBCDIR)/port/mapfile-vers
 CFLAGS +=	$(EXTN_CFLAGS)
 CPPFLAGS=	-D_REENTRANT -Di386 $(EXTN_CPPFLAGS) $(THREAD_DEBUG) \
 		-I$(LIBCBASE)/inc -I$(LIBCDIR)/inc $(CPPFLAGS.master)
-ASFLAGS=	$(AS_PICFLAGS) -P -D__STDC__ -D_ASM $(CPPFLAGS) $(i386_AS_XARCH)
+
+# __XOPEN_OR_POSIX is necessary to avoid implicit _LARGEFILE_SOURCE which
+# breaks the libc compilation environment.
+ASFLAGS=	$(AS_PICFLAGS) -D_ASM \
+	        $(CPPFLAGS) $(i386_XARCH) -D__XOPEN_OR_POSIX=1
 
 # As a favor to the dtrace syscall provider, libc still calls the
 # old syscall traps that have been obsoleted by the *at() interfaces.
@@ -1140,7 +1155,7 @@ DYNFLAGS +=	$(DTRACE_DATA)
 # DTrace needs an executable data segment.
 MAPFILE.NED=
 
-BUILD.s=	$(AS) $(ASFLAGS) $< -o $@
+BUILD.s=	$(AS) $(ASFLAGS) $< -c -o $@
 
 # Override this top level flag so the compiler builds in its native
 # C99 mode.  This has been enabled to support the complex arithmetic
@@ -1166,54 +1181,11 @@ CLEANFILES +=			\
 	pics/crtn.o		\
 	$(ALTPICS)
 
-CLOBBERFILES +=	$(LIB_PIC)
+CLOBBERFILES +=	$(LIB_PIC) $(LIBCBASE)/crt/_rtbootld.S
 
 # conditional assignments
 $(DYNLIB) := CRTI = crti.o
 $(DYNLIB) := CRTN = crtn.o
-
-# Files which need the threads .il inline template
-TIL=				\
-	aio.o			\
-	alloc.o			\
-	assfail.o		\
-	atexit.o		\
-	atfork.o		\
-	cancel.o		\
-	door_calls.o		\
-	err.o			\
-	errno.o			\
-	lwp.o			\
-	ma.o			\
-	machdep.o		\
-	posix_aio.o		\
-	pthr_attr.o		\
-	pthr_barrier.o		\
-	pthr_cond.o		\
-	pthr_mutex.o		\
-	pthr_rwlock.o		\
-	pthread.o		\
-	rand.o			\
-	rwlock.o		\
-	scalls.o		\
-	sched.o			\
-	sema.o			\
-	sigaction.o		\
-	sigev_thread.o		\
-	spawn.o			\
-	stack.o			\
-	synch.o			\
-	tdb_agent.o		\
-	thr.o			\
-	thread_interface.o	\
-	thread_pool.o		\
-	tls.o			\
-	tsd.o			\
-	tmem.o			\
-	unwind.o
-
-THREADS_INLINES = $(LIBCBASE)/threads/i386.il
-$(TIL:%=pics/%) := CFLAGS += $(THREADS_INLINES)
 
 # pics/mul64.o := CFLAGS += $(LIBCBASE)/crt/mul64.il
 
@@ -1257,13 +1229,15 @@ pics/arc4random.o :=	CPPFLAGS += -I$(SRC)/common/crypto/chacha
 pics/__clock_gettime.o := CPPFLAGS += $(COMMPAGE_CPPFLAGS)
 pics/gettimeofday.o := CPPFLAGS += $(COMMPAGE_CPPFLAGS)
 
+#
+# Disable the stack protector due to issues with bootstrapping rtld. See
+# cmd/sgs/rtld/Makefile.com for more information.
+#
+STACKPROTECT = none
+
 .KEEP_STATE:
 
 all: $(LIBS) $(LIB_PIC)
-
-# object files that depend on inline template
-$(TIL:%=pics/%): $(LIBCBASE)/threads/i386.il
-# pics/mul64.o: $(LIBCBASE)/crt/mul64.il
 
 # include common libc targets
 include $(LIBCDIR)/Makefile.targ
@@ -1277,15 +1251,15 @@ $(LIB_PIC): pics $$(PICS)
 	$(AR) -ts $@ > /dev/null
 	$(POST_PROCESS_A)
 
-$(LIBCBASE)/crt/_rtbootld.s: $(LIBCBASE)/crt/_rtboot.s $(LIBCBASE)/crt/_rtld.c
-	$(CC) $(CPPFLAGS) -_smatch=off $(CTF_FLAGS) -O -S $(C_PICFLAGS) \
-	    $(LIBCBASE)/crt/_rtld.c -o $(LIBCBASE)/crt/_rtld.s
-	$(CAT) $(LIBCBASE)/crt/_rtboot.s $(LIBCBASE)/crt/_rtld.s > $@
+$(LIBCBASE)/crt/_rtbootld.S: $(LIBCBASE)/crt/_rtboot.S $(LIBCBASE)/crt/_rtld.c
+	$(CC) $($(MACH)_XARCH) $(CPPFLAGS) -_smatch=off $(CTF_FLAGS) -O -S \
+	    $(C_PICFLAGS) $(LIBCBASE)/crt/_rtld.c -o $(LIBCBASE)/crt/_rtld.s
+	$(CAT) $(LIBCBASE)/crt/_rtboot.S $(LIBCBASE)/crt/_rtld.s > $@
 	$(RM) $(LIBCBASE)/crt/_rtld.s
 
 # partially built from C source
-pics/_rtbootld.o: $(LIBCBASE)/crt/_rtbootld.s
-	$(AS) $(ASFLAGS) $(LIBCBASE)/crt/_rtbootld.s -o $@
+pics/_rtbootld.o: $(LIBCBASE)/crt/_rtbootld.S
+	$(AS) $(ASFLAGS) $(LIBCBASE)/crt/_rtbootld.S -c -o $@
 	$(CTFCONVERT_O)
 
 ASSYMDEP_OBJS=			\

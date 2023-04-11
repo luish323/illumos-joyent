@@ -21,6 +21,7 @@
 /*
  * Copyright (c) 2009, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2012 Milan Jurik. All rights reserved.
+ * Copyright 2019 Joyent, Inc.
  */
 
 #include <limits.h>
@@ -769,6 +770,9 @@ display_targets(struct pmcs_hw m, int verbose, int totals_only)
 		case EXPANDER:
 			dtype = "SMP";
 			smp_targets++;
+			break;
+		default:
+			dtype = "Unknown";
 			break;
 		}
 
@@ -1950,7 +1954,7 @@ display_phy(struct pmcs_phy phy, struct pmcs_phy *phyp, int verbose,
 	char		*asent = no;
 	char		*dead = no;
 	char		*changed = no;
-	char		route_attr, route_method;
+	char		route_attr, route_method = '\0';
 
 	switch (phy.dtype) {
 	case NOTHING:
@@ -1973,6 +1977,9 @@ display_phy(struct pmcs_phy phy, struct pmcs_phy *phyp, int verbose,
 		if (phy.configured) {
 			++exp_phys;
 		}
+		break;
+	default:
+		dtype = "Unknown";
 		break;
 	}
 
@@ -2555,7 +2562,7 @@ display_matching_work(struct pmcs_hw ss, uintmax_t index, uintmax_t snum,
 	uintptr_t	_wp;
 	boolean_t	printed_header = B_FALSE;
 	uint32_t	mask, mask_val, match_val;
-	char		*match_type;
+	char		*match_type = NULL;
 
 	if (index != UINT_MAX) {
 		match_type = "index";
@@ -2626,7 +2633,7 @@ pmcs_tag(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	uintmax_t		index = UINT_MAX;
 	int			args = 0;
 	void			*pmcs_state;
-	char			*state_str;
+	char			*state_str = NULL;
 	struct dev_info		dip;
 
 	if (!(flags & DCMD_ADDRSPEC)) {
@@ -2646,7 +2653,8 @@ pmcs_tag(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	if (mdb_getopts(argc, argv,
 	    'i', MDB_OPT_UINT64, &index,
 	    's', MDB_OPT_UINT64, &snum,
-	    't', MDB_OPT_UINT64, &tag_type) != argc)
+	    't', MDB_OPT_UINT64, &tag_type,
+	    NULL) != argc)
 		return (DCMD_USAGE);
 
 	/*
@@ -2926,10 +2934,10 @@ pmcs_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	uint_t			fwlog = FALSE;
 	boolean_t		devid_filter = FALSE;
 	uintptr_t		pdevid;
-	uint32_t		devid;
+	uint32_t		devid = 0;
 	int			rv = DCMD_OK;
 	void			*pmcs_state;
-	char			*state_str;
+	char			*state_str = NULL;
 	struct dev_info		dip;
 	per_iport_setting_t	pis;
 

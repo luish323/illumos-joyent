@@ -23,6 +23,7 @@
  * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2019 Joyent, Inc.
  * Copyright (c) 2013 by Delphix. All rights reserved.
+ * Copyright 2022 Garrett D'Amore
  */
 
 #include <mdb/mdb_param.h>
@@ -61,6 +62,7 @@
 #include <sys/panic.h>
 #include <regex.h>
 #include <sys/port_impl.h>
+#include <sys/contract/process_impl.h>
 
 #include "avl.h"
 #include "bio.h"
@@ -89,7 +91,6 @@
 #include "log.h"
 #include "mdi.h"
 #include "memory.h"
-#include "mmd.h"
 #include "modhash.h"
 #include "ndievents.h"
 #include "net.h"
@@ -141,6 +142,7 @@ pstat2ch(uchar_t state)
 #define	PS_TASKS	0x8
 #define	PS_PROJECTS	0x10
 #define	PS_ZONES	0x20
+#define	PS_SERVICES	0x40
 
 static int
 ps_threadprint(uintptr_t addr, const void *data, void *private)
@@ -270,6 +272,7 @@ typedef struct mdb_ps_proc {
 	struct sess	*p_sessp;
 	struct task	*p_task;
 	struct zone	*p_zone;
+	struct cont_process *p_ct_process;
 	pid_t		p_ppid;
 	uint_t		p_flag;
 	struct {
@@ -277,6 +280,12 @@ typedef struct mdb_ps_proc {
 		char		u_psargs[PSARGSZ];
 	} p_user;
 } mdb_ps_proc_t;
+
+/*
+ * A reasonable enough limit. Note that we purposefully let this column over-run
+ * if needed.
+ */
+#define	FMRI_LEN (128)
 
 int
 ps(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
@@ -289,6 +298,8 @@ ps(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	task_t tk;
 	kproject_t pj;
 	zone_t zn;
+	struct cont_process cp;
+	char fmri[FMRI_LEN] = "";
 
 	if (!(flags & DCMD_ADDRSPEC)) {
 		if (mdb_walk_dcmd("proc", "ps", argc, argv) == -1) {
@@ -301,6 +312,7 @@ ps(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	if (mdb_getopts(argc, argv,
 	    'f', MDB_OPT_SETBITS, PS_PSARGS, &prt_flags,
 	    'l', MDB_OPT_SETBITS, PS_PRTLWPS, &prt_flags,
+	    's', MDB_OPT_SETBITS, PS_SERVICES, &prt_flags,
 	    'T', MDB_OPT_SETBITS, PS_TASKS, &prt_flags,
 	    'P', MDB_OPT_SETBITS, PS_PROJECTS, &prt_flags,
 	    'z', MDB_OPT_SETBITS, PS_ZONES, &prt_flags,
@@ -308,15 +320,17 @@ ps(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		return (DCMD_USAGE);
 
 	if (DCMD_HDRSPEC(flags)) {
-		mdb_printf("%<u>%1s %6s %6s %6s %6s ",
+		mdb_printf("%<u>%-1s %-6s %-6s %-6s %-6s ",
 		    "S", "PID", "PPID", "PGID", "SID");
 		if (prt_flags & PS_TASKS)
-			mdb_printf("%5s ", "TASK");
+			mdb_printf("%-5s ", "TASK");
 		if (prt_flags & PS_PROJECTS)
-			mdb_printf("%5s ", "PROJ");
+			mdb_printf("%-5s ", "PROJ");
 		if (prt_flags & PS_ZONES)
-			mdb_printf("%5s ", "ZONE");
-		mdb_printf("%6s %10s %?s %s%</u>\n",
+			mdb_printf("%-5s ", "ZONE");
+		if (prt_flags & PS_SERVICES)
+			mdb_printf("%-40s ", "SERVICE");
+		mdb_printf("%-6s %-10s %-?s %-s%</u>\n",
 		    "UID", "FLAGS", "ADDR", "NAME");
 	}
 
@@ -334,17 +348,39 @@ ps(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		mdb_vread(&pj, sizeof (pj), (uintptr_t)tk.tk_proj);
 	if (prt_flags & PS_ZONES)
 		mdb_vread(&zn, sizeof (zn), (uintptr_t)pr.p_zone);
+	if ((prt_flags & PS_SERVICES) && pr.p_ct_process != NULL) {
+		mdb_vread(&cp, sizeof (cp), (uintptr_t)pr.p_ct_process);
 
-	mdb_printf("%c %6d %6d %6d %6d ",
+		if (mdb_read_refstr((uintptr_t)cp.conp_svc_fmri, fmri,
+		    sizeof (fmri)) <= 0)
+			(void) strlcpy(fmri, "?", sizeof (fmri));
+
+		/* Strip any standard prefix and suffix. */
+		if (strncmp(fmri, "svc:/", sizeof ("svc:/") - 1) == 0) {
+			char *i = fmri;
+			char *j = fmri + sizeof ("svc:/") - 1;
+			for (; *j != '\0'; i++, j++) {
+				if (strcmp(j, ":default") == 0)
+					break;
+				*i = *j;
+			}
+
+			*i = '\0';
+		}
+	}
+
+	mdb_printf("%-c %-6d %-6d %-6d %-6d ",
 	    pstat2ch(pr.p_stat), pid.pid_id, pr.p_ppid, pgid.pid_id,
 	    sid.pid_id);
 	if (prt_flags & PS_TASKS)
-		mdb_printf("%5d ", tk.tk_tkid);
+		mdb_printf("%-5d ", tk.tk_tkid);
 	if (prt_flags & PS_PROJECTS)
-		mdb_printf("%5d ", pj.kpj_id);
+		mdb_printf("%-5d ", pj.kpj_id);
 	if (prt_flags & PS_ZONES)
-		mdb_printf("%5d ", zn.zone_id);
-	mdb_printf("%6d 0x%08x %0?p %s\n",
+		mdb_printf("%-5d ", zn.zone_id);
+	if (prt_flags & PS_SERVICES)
+		mdb_printf("%-40s ", fmri);
+	mdb_printf("%-6d 0x%08x %0?p %-s\n",
 	    cred.cr_uid, pr.p_flag, addr,
 	    (prt_flags & PS_PSARGS) ? pr.p_user.u_psargs : pr.p_user.u_comm);
 
@@ -352,6 +388,49 @@ ps(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		(void) mdb_pwalk("thread", ps_threadprint, &prt_flags, addr);
 
 	return (DCMD_OK);
+}
+
+static void
+ps_help(void)
+{
+	mdb_printf("Display processes.\n\n"
+	    "Options:\n"
+	    "    -f\tDisplay command arguments\n"
+	    "    -l\tDisplay LWPs\n"
+	    "    -T\tDisplay tasks\n"
+	    "    -P\tDisplay projects\n"
+	    "    -s\tDisplay SMF FMRI\n"
+	    "    -z\tDisplay zones\n"
+	    "    -t\tDisplay threads\n\n");
+
+	mdb_printf("The resulting output is a table of the processes on the "
+	    "system.  The\n"
+	    "columns in the output consist of a combination of the "
+	    "following fields:\n\n");
+	mdb_printf("S\tProcess state.  Possible states are:\n"
+	    "\tS\tSleeping (SSLEEP)\n"
+	    "\tR\tRunnable (SRUN)\n"
+	    "\tZ\tZombie (SZOMB)\n"
+	    "\tI\tIdle (SIDL)\n"
+	    "\tO\tOn Cpu (SONPROC)\n"
+	    "\tT\tStopped (SSTOP)\n"
+	    "\tW\tWaiting (SWAIT)\n");
+
+	mdb_printf("PID\tProcess id.\n");
+	mdb_printf("PPID\tParent process id.\n");
+	mdb_printf("PGID\tProcess group id.\n");
+	mdb_printf("SID\tProcess id of the session leader.\n");
+	mdb_printf("TASK\tThe task id of the process.\n");
+	mdb_printf("PROJ\tThe project id of the process.\n");
+	mdb_printf("ZONE\tThe zone id of the process.\n");
+	mdb_printf("SERVICE The SMF service FMRI of the process.\n");
+	mdb_printf("UID\tThe user id of the process.\n");
+	mdb_printf("FLAGS\tThe process flags (see ::pflags).\n");
+	mdb_printf("ADDR\tThe kernel address of the proc_t structure of the "
+	    "process\n");
+	mdb_printf("NAME\tThe name (p_user.u_comm field) of the process.  If "
+	    "the -f flag\n"
+	    "\tis specified, the arguments of the process are displayed.\n");
 }
 
 #define	PG_NEWEST	0x0001
@@ -1982,13 +2061,25 @@ lminfo(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	return (mdb_pwalk("lock_graph", lminfo_cb, NULL, 0));
 }
 
+typedef struct mdb_whereopen {
+	uint_t mwo_flags;
+	uintptr_t mwo_target;
+	boolean_t mwo_found;
+} mdb_whereopen_t;
+
 /*ARGSUSED*/
 int
-whereopen_fwalk(uintptr_t addr, struct file *f, uintptr_t *target)
+whereopen_fwalk(uintptr_t addr, const void *farg, void *arg)
 {
-	if ((uintptr_t)f->f_vnode == *target) {
-		mdb_printf("file %p\n", addr);
-		*target = 0;
+	const struct file *f = farg;
+	mdb_whereopen_t *mwo = arg;
+
+	if ((uintptr_t)f->f_vnode == mwo->mwo_target) {
+		if ((mwo->mwo_flags & DCMD_PIPE_OUT) == 0 &&
+		    !mwo->mwo_found) {
+			mdb_printf("file %p\n", addr);
+		}
+		mwo->mwo_found = B_TRUE;
 	}
 
 	return (WALK_NEXT);
@@ -1996,17 +2087,19 @@ whereopen_fwalk(uintptr_t addr, struct file *f, uintptr_t *target)
 
 /*ARGSUSED*/
 int
-whereopen_pwalk(uintptr_t addr, void *ignored, uintptr_t *target)
+whereopen_pwalk(uintptr_t addr, const void *ignored, void *arg)
 {
-	uintptr_t t = *target;
+	mdb_whereopen_t *mwo = arg;
 
-	if (mdb_pwalk("file", (mdb_walk_cb_t)whereopen_fwalk, &t, addr) == -1) {
+	mwo->mwo_found = B_FALSE;
+	if (mdb_pwalk("file", whereopen_fwalk, mwo, addr) == -1) {
 		mdb_warn("couldn't file walk proc %p", addr);
 		return (WALK_ERR);
 	}
 
-	if (t == 0)
+	if (mwo->mwo_found) {
 		mdb_printf("%p\n", addr);
+	}
 
 	return (WALK_NEXT);
 }
@@ -2015,12 +2108,16 @@ whereopen_pwalk(uintptr_t addr, void *ignored, uintptr_t *target)
 int
 whereopen(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 {
-	uintptr_t target = addr;
+	mdb_whereopen_t mwo;
 
 	if (!(flags & DCMD_ADDRSPEC) || addr == 0)
 		return (DCMD_USAGE);
 
-	if (mdb_walk("proc", (mdb_walk_cb_t)whereopen_pwalk, &target) == -1) {
+	mwo.mwo_flags = flags;
+	mwo.mwo_target = addr;
+	mwo.mwo_found = B_FALSE;
+
+	if (mdb_walk("proc", whereopen_pwalk, &mwo) == -1) {
 		mdb_warn("can't proc walk");
 		return (DCMD_ERR);
 	}
@@ -2366,7 +2463,7 @@ kgrep_subr(kgrep_cb_func *cb, void *cbdata)
 
 	if (mdb_get_state() == MDB_STATE_RUNNING) {
 		mdb_warn("kgrep can only be run on a system "
-		    "dump or under kmdb; see dumpadm(1M)\n");
+		    "dump or under kmdb; see dumpadm(8)\n");
 		return (DCMD_ERR);
 	}
 
@@ -2898,7 +2995,7 @@ cpu_walk_init(mdb_walk_state_t *wsp)
 	int max_ncpus, i = 0;
 	uintptr_t current, first;
 	cpu_t cpu, panic_cpu;
-	uintptr_t panicstr, addr;
+	uintptr_t panicstr, addr = 0;
 	GElf_Sym sym;
 
 	cw = mdb_zalloc(sizeof (cpu_walk_t), UM_SLEEP | UM_GC);
@@ -3063,7 +3160,7 @@ cpuinfo_walk_cpu(uintptr_t addr, const cpu_t *cpu, cpuinfo_data_t *cid)
 	kthread_t t;
 	disp_t disp;
 	mdb_cpuinfo_proc_t p;
-	uintptr_t pinned;
+	uintptr_t pinned = 0;
 	char **flagbuf;
 	int nflaglines = 0, flagline = 0, bspl, rval = WALK_NEXT;
 
@@ -3924,7 +4021,7 @@ panicinfo(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 
 	if (!mdb_prop_postmortem) {
 		mdb_warn("panicinfo can only be run on a system "
-		    "dump; see dumpadm(1M)\n");
+		    "dump; see dumpadm(8)\n");
 		return (DCMD_ERR);
 	}
 
@@ -4012,6 +4109,8 @@ time_help(void)
 	    "  -x   report times in hexadecimal\n");
 }
 
+extern int cmd_refstr(uintptr_t, uint_t, int, const mdb_arg_t *);
+
 static const mdb_dcmd_t dcmds[] = {
 
 	/* from genunix.c */
@@ -4036,11 +4135,13 @@ static const mdb_dcmd_t dcmds[] = {
 	{ "panicinfo", NULL, "print panic information", panicinfo },
 	{ "pid2proc", "?", "convert PID to proc_t address", pid2proc },
 	{ "project", NULL, "display kernel project(s)", project },
-	{ "ps", "[-fltzTP]", "list processes (and associated thr,lwp)", ps },
+	{ "ps", "[-fltzTP]", "list processes (and associated thr,lwp)", ps,
+	    ps_help },
 	{ "pflags", NULL, "display various proc_t flags", pflags },
 	{ "pgrep", "[-x] [-n | -o] pattern",
 		"pattern match against all processes", pgrep },
 	{ "ptree", NULL, "print process tree", ptree },
+	{ "refstr", NULL, "print string from a refstr_t", cmd_refstr, NULL },
 	{ "sysevent", "?[-sv]", "print sysevent pending or sent queue",
 		sysevent},
 	{ "sysevent_channel", "?", "print sysevent channel database",
@@ -4163,9 +4264,11 @@ static const mdb_dcmd_t dcmds[] = {
 	{ "bufctl", ":[-vh] [-a addr] [-c caller] [-e earliest] [-l latest] "
 		"[-t thd]", "print or filter a bufctl", bufctl, bufctl_help },
 	{ "freedby", ":", "given a thread, print its freed buffers", freedby },
-	{ "kmalog", "?[ fail | slab ]",
-	    "display kmem transaction log and stack traces", kmalog },
-	{ "kmastat", NULL, "kernel memory allocator stats", kmastat },
+	{ "kmalog", "?[ fail | slab | zerosized ]",
+	    "display kmem transaction log and stack traces for specified type",
+	    kmalog },
+	{ "kmastat", "[-kmg]", "kernel memory allocator stats",
+	    kmastat },
 	{ "kmausers", "?[-ef] [cache ...]", "current medium and large users "
 		"of the kmem allocator", kmausers, kmausers_help },
 	{ "kmem_cache", "?[-n name]",
@@ -4232,19 +4335,6 @@ static const mdb_dcmd_t dcmds[] = {
 	{ "seg", ":", "print address space segment", seg },
 	{ "swapinfo", "?", "display a struct swapinfo", swapinfof },
 	{ "vnode2smap", ":[offset]", "translate vnode to smap", vnode2smap },
-
-	/* from mmd.c */
-	{ "multidata", ":[-sv]", "display a summarized multidata_t",
-		multidata },
-	{ "pattbl", ":", "display a summarized multidata attribute table",
-		pattbl },
-	{ "pattr2multidata", ":", "print multidata pointer from pattr_t",
-		pattr2multidata },
-	{ "pdesc2slab", ":", "print pdesc slab pointer from pdesc_t",
-		pdesc2slab },
-	{ "pdesc_verify", ":", "verify integrity of a pdesc_t", pdesc_verify },
-	{ "slab2multidata", ":", "print multidata pointer from pdesc_slab_t",
-		slab2multidata },
 
 	/* from modhash.c */
 	{ "modhash", "?[-ceht] [-k key] [-v val] [-i index]",
@@ -4641,14 +4731,6 @@ static const mdb_walker_t walkers[] = {
 		segvn_pages_walk_fini, SEGVN_PAGES_ALL },
 	{ "swapinfo", "walk swapinfo structures",
 		swap_walk_init, swap_walk_step, NULL },
-
-	/* from mmd.c */
-	{ "pattr", "walk pattr_t structures", pattr_walk_init,
-		mmdq_walk_step, mmdq_walk_fini },
-	{ "pdesc", "walk pdesc_t structures",
-		pdesc_walk_init, mmdq_walk_step, mmdq_walk_fini },
-	{ "pdesc_slab", "walk pdesc_slab_t structures",
-		pdesc_slab_walk_init, mmdq_walk_step, mmdq_walk_fini },
 
 	/* from modhash.c */
 	{ "modhash", "walk list of mod_hash structures", modhash_walk_init,

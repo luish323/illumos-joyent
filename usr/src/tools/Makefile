@@ -24,118 +24,115 @@
 # Copyright 2014 Garrett D'Amore <garrett@damore.org>
 # Copyright 2016 Toomas Soome <tsoome@me.com>
 # Copyright (c) 2016, Chris Fraire <cfraire@me.com>.
-# Copyright (c) 2019, Joyent, Inc.
+# Copyright 2019 Joyent, Inc.
 # Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2021 Jason King
 #
 
 include ../Makefile.master
 
-# Bootstrap problem: 'cw' must be built before anything else can be built.
-# 'install.bin' should be built next, being the 'install' target dependency
-# for everything else.
+# Bootstrap problem: some utilities are pre-requisites for building everything
+# else:
+#    - smatch - as it is a shadow compiler
+#    - cw - as it is used to drive builds
+#    - install.bin - being the 'install' target dependency
+#    - ctf - being used to generate CTF data
 #
-# Because of somewhat cyclic dependency between them, both cw and install.bin
-# override the way we install binaries in their Makefiles.
-BOOT_SUBDIRS= \
-	smatch \
-	.WAIT \
-	cw \
-	.WAIT \
-	install.bin \
-	.WAIT \
+# Anything built before 'install.bin' is present must override binary
+# installation rules in their makefiles. This includes the Makefile for
+# 'install.bin' itself.
+BOOT_SUBDIRS=		\
+	smatch		\
+	.WAIT		\
+	cw		\
+	.WAIT		\
+	install.bin	\
+	.WAIT		\
 	ctf
 
-COMMON_SUBDIRS= \
-	codereview \
-	codesign \
-	cscope-fast \
-	env \
-	findunref \
-	lintdump \
-	make \
-	makesoftcore \
-	ndrgen \
-	onbld \
-	protocmp \
-	protolist \
-	scripts
+COMMON_SUBDIRS=		\
+	codesign	\
+	cscope-fast	\
+	env		\
+	find_elf	\
+	findunref	\
+	lintdump	\
+	make		\
+	makesoftcore	\
+	ndrgen		\
+	onbld		\
+	protocmp	\
+	protolist	\
+	scripts		\
+	sgs
 
 #
 #  special versions of commands for use only in build
 #
 UNSHIPPED_SUBDIRS = \
+	$(SGSMSG) \
+	$(SGSLIBCONV) \
+	$(SGSLIBELF) \
+	$(SGSLIBLDDBG) \
+	$(SGSLIBLD) \
+	$(SGSLD) \
+	geniconvtbl \
 	localedef \
 	man \
 	mandoc \
+	rpcgen \
 	tic \
 	vtfontcvt \
 	zic
 
-sparc_SUBDIRS= \
-	chk4ubin \
-	stabs \
+sparc_SUBDIRS=			\
+	chk4ubin		\
+	stabs			\
 	tokenize
 
-i386_SUBDIRS=		\
-	aw		\
-	cpcgen		\
-	elfextract	\
-	mbh_patch	\
+i386_SUBDIRS=			\
+	cpcgen			\
+	elfextract		\
+	mbh_patch		\
 	btxld
 
-LINTSUBDIRS= \
-	codereview \
-	ctf \
-	cw \
-	findunref \
-	lintdump \
-	ndrgen \
-	protocmp \
-	protolist
-
-SUBDIRS= \
-	$($(MACH)_SUBDIRS) \
-	$(COMMON_SUBDIRS) \
+SUBDIRS=			\
+	$($(MACH)_SUBDIRS)	\
+	$(COMMON_SUBDIRS)	\
 	$(UNSHIPPED_SUBDIRS)
 
 include Makefile.tools
 
-ROOTDIRS= \
-	$(ROOTOPT) \
-	$(ROOTONBLD) \
-	$(ROOTONBLD)/bin \
-	$(ROOTONBLD)/bin/$(MACH) \
-	$(ROOTONBLD)/lib \
-	$(ROOTONBLD)/lib/$(MACH) \
-	$(ROOTONBLD)/lib/$(MACH)/64 \
-	$(ROOTONBLD)/lib/perl \
-	$(ROOTONBLD)/env \
-	$(ROOTONBLD)/etc \
-	$(ROOTONBLD)/etc/exception_lists \
-	$(ROOTONBLD)/share \
-	$(ROOTONBLD)/man \
+ROOTDIRS=					\
+	$(ROOTOPT)				\
+	$(ROOTONBLD)				\
+	$(ROOTONBLD)/bin			\
+	$(ROOTONBLD)/bin/$(MACH)		\
+	$(ROOTONBLD)/bin/$(MACH64)		\
+	$(ROOTONBLD)/lib			\
+	$(ROOTONBLD)/lib/$(MACH)		\
+	$(ROOTONBLD)/lib/$(MACH)/64		\
+	$(ROOTONBLD)/lib/perl			\
+	$(ROOTONBLD)/env			\
+	$(ROOTONBLD)/etc			\
+	$(ROOTONBLD)/etc/exception_lists	\
+	$(ROOTONBLD)/share			\
+	$(ROOTONBLD)/man			\
 	$(ROOTONBLD)/man/man1onbld
 
-$(BUILDPY2TOOLS)ROOTDIRS += \
-	$(ROOTONBLD)/lib/python$(PYTHON_VERSION) \
-	$(ROOTONBLD)/lib/python$(PYTHON_VERSION)/onbld \
-	$(ROOTONBLD)/lib/python$(PYTHON_VERSION)/onbld/Checks \
-	$(ROOTONBLD)/lib/python$(PYTHON_VERSION)/onbld/Scm
-
-$(BUILDPY3TOOLS)ROOTDIRS += \
-	$(ROOTONBLD)/lib/python$(PYTHON3_VERSION) \
-	$(ROOTONBLD)/lib/python$(PYTHON3_VERSION)/onbld \
-	$(ROOTONBLD)/lib/python$(PYTHON3_VERSION)/onbld/__pycache__ \
-	$(ROOTONBLD)/lib/python$(PYTHON3_VERSION)/onbld/Checks \
-	$(ROOTONBLD)/lib/python$(PYTHON3_VERSION)/onbld/Checks/__pycache__ \
-	$(ROOTONBLD)/lib/python$(PYTHON3_VERSION)/onbld/Scm \
+ROOTDIRS +=							\
+	$(ROOTONBLD)/lib/python$(PYTHON3_VERSION)				\
+	$(ROOTONBLD)/lib/python$(PYTHON3_VERSION)/onbld				\
+	$(ROOTONBLD)/lib/python$(PYTHON3_VERSION)/onbld/__pycache__		\
+	$(ROOTONBLD)/lib/python$(PYTHON3_VERSION)/onbld/Checks			\
+	$(ROOTONBLD)/lib/python$(PYTHON3_VERSION)/onbld/Checks/__pycache__	\
+	$(ROOTONBLD)/lib/python$(PYTHON3_VERSION)/onbld/Scm			\
 	$(ROOTONBLD)/lib/python$(PYTHON3_VERSION)/onbld/Scm/__pycache__
 
 all :=		TARGET= install
 install :=	TARGET= install
 clean :=	TARGET= clean
 clobber :=	TARGET= clobber
-lint :=		TARGET= lint
 _msg :=		TARGET= _msg
 
 .KEEP_STATE:
@@ -148,7 +145,6 @@ DOROOTDIRS= $(ROOTDIRS)
 clobber:= DOROOTDIRS=
 clean:= DOROOTDIRS=
 
-$(BUILDPY2TOOLS)DOROOTONBLDLIBPY= $(ROOTONBLDLIBPY)
 clobber:= DOROOTONBLDLIBPY=
 clean:= DOROOTONBLDLIBPY=
 
@@ -159,13 +155,13 @@ clean: $(SUBDIRS)
 clobber: $(SUBDIRS)
 	$(RM) -rf $(TOOLS_PROTO)
 
-lint: $(LINTSUBDIRS)
+bootstrap: $(BOOT_SUBDIRS)
 
 _msg: $(MSGSUBDIRS)
 
-.PARALLEL: $(SUBDIRS) $(CLOSED_SUBDIRS)
+.PARALLEL: $(SUBDIRS)
 
-$(SUBDIRS) $(CLOSED_SUBDIRS): $(BOOT_SUBDIRS)
+$(SUBDIRS): $(BOOT_SUBDIRS)
 
 $(BOOT_SUBDIRS) $(SUBDIRS): $$(DOROOTDIRS) $$(DOROOTONBLDLIBPY) FRC
 	@cd $@; pwd; $(MAKE) $(TARGET)
@@ -175,6 +171,6 @@ $(ROOTDIRS):
 	$(MKDIR) -p -m $(DIRMODE) $@
 
 $(ROOTONBLDLIBPY): $(ROOTDIRS)
-	$(RM) -r $@; $(SYMLINK) python$(PYTHON_VERSION) $@
+	$(RM) -r $@; $(SYMLINK) python$(PYTHON3_VERSION) $@
 
 FRC:

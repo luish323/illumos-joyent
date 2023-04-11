@@ -11,6 +11,7 @@
 
 /*
  * Copyright (c) 2019, Joyent, Inc.
+ * Copyright 2022 Oxide Computer Company
  */
 
 /*
@@ -266,6 +267,9 @@
  * xhci.c:		This provides the main kernel DDI interfaces and
  *			performs device initialization.
  *
+ * xhci_polled.c:	This provides the polled I/O functions that the
+ *			kernel debugger can use.
+ *
  * xhci.h:		This is the primary header file which defines
  *			illumos-specific data structures and constants to manage
  *			the system.
@@ -384,11 +388,23 @@
  *
  * Endpoint management is one of the key parts to the xhci driver as every
  * endpoint is a pipe that a device driver uses, so they are our primary
- * currency. Endpoints are enabled and disabled when the client device drivers
- * open and close a pipe. When an endpoint is enabled, we have to fill in an
- * endpoint's context structure with information about the endpoint. These
- * basically tell the controller important properties which it uses to ensure
- * that there is adequate bandwidth for the device.
+ * currency. An endpoint is enabled when the client device driver opens the
+ * associated pipe for the first time. When an endpoint is enabled, we have to
+ * fill in an endpoint's context structure with information about the endpoint.
+ * These basically tell the controller important properties which it uses to
+ * ensure that there is adequate bandwidth for the device.
+ *
+ * If the client device closes the pipe again we explicitly stop the endpoint,
+ * moving it to the Halted state, and take ownership of any transfers
+ * previously submitted to the ring but which have not yet completed. A client
+ * may open and close a pipe several times -- ugen(4D) in particular is known
+ * for this -- and we will stop and start the ring accordingly.
+ *
+ * It is tempting to fully unconfigure an endpoint when a pipe is closed, but
+ * some host controllers appear to exhibit undefined behaviour each time the
+ * endpoint is re-enabled this way; e.g., silently dropped transfers. As such,
+ * we wait until the whole device is being torn down to disable all previously
+ * enabled endpoints at once, as part of disabling the device slot.
  *
  * Each endpoint has its own ring as described in the previous section. We place
  * TRBs (transfer request blocks) onto a given ring to request I/O be performed.
@@ -673,6 +689,16 @@
  *    endpoint timer. Conversely, the endpoint specific logic should never enter
  *    this lock.
  *
+ * ----------
+ * Polled I/O
+ * ----------
+ *
+ * There is limited support for polled I/O in this driver for use by
+ * the kernel debugger. The driver currently only supports input from
+ * interrupt endpoints which is good enough for USB HID keyboard devices.
+ * Input from bulk endpoints and output are not supported which prevents
+ * using a serial console over USB for kernel debugging.
+ *
  * --------------------
  * Relationship to EHCI
  * --------------------
@@ -688,7 +714,7 @@
  * disappearing, we generally attempt to load the xHCI controller before the
  * EHCI controller. This logic is not done in the driver; however, it is done in
  * other parts of the kernel like in uts/common/io/consconfig_dacf.c in the
- * function consconfig_load_drivres().
+ * function consconfig_load_drivers().
  *
  * -----------
  * Future Work
@@ -1898,7 +1924,7 @@ xhci_ioctl(dev_t dev, int cmd, intptr_t arg, int mode, cred_t *credp,
 		xhci_t *xhcip = ddi_get_soft_state(xhci_soft_state,
 		    getminor(dev) & ~HUBD_IS_ROOT_HUB);
 
-		if (secpolicy_xhci(credp) != 0 ||
+		if (secpolicy_hwmanip(credp) != 0 ||
 		    crgetzoneid(credp) != GLOBAL_ZONEID)
 			return (EPERM);
 

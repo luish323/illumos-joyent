@@ -47,16 +47,16 @@
  * There are a few different components that make up SMF and are responsible
  * for different pieces of functionality that are used:
  *
- * svc.startd(1M): A daemon that is in charge of starting, stopping, and
+ * svc.startd(8): A daemon that is in charge of starting, stopping, and
  *     restarting services and instances.
- * svc.configd(1M): A daemon that manages the repository that stores
+ * svc.configd(8): A daemon that manages the repository that stores
  *     information, property groups, and state of the different services and
  *     instances.
  * libscf(3LIB): A C library that provides the glue for communicating,
  *     accessing, and updating information about services and instances.
- * svccfg(1M): A utility to add and remove services as well as change the
+ * svccfg(8): A utility to add and remove services as well as change the
  *     properties associated with different services and instances.
- * svcadm(1M): A utility to control the different instance of a service. You
+ * svcadm(8): A utility to control the different instance of a service. You
  *     can use this to enable and disable them among some other useful things.
  * svcs(1): A utility that reports on the status of various services on the
  *     system.
@@ -597,7 +597,7 @@ timestamp:
 
 	/* Read reconfigure property for recovery. */
 	if (scf_handle_decode_fmri(hndl, startd_reconfigure_fmri, NULL, NULL,
-	    NULL, NULL, prop, NULL) != -1 &&
+	    NULL, NULL, prop, 0) != -1 &&
 	    scf_property_get_value(prop, val) == 0)
 		(void) scf_value_get_boolean(val, &prop_reconfig);
 

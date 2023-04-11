@@ -11,39 +11,73 @@
 
 #
 # Copyright (c) 2012, 2016 by Delphix. All rights reserved.
-# Copyright 2019 Joyent, Inc.
+# Copyright 2020 Joyent, Inc.
+# Copyright 2021 Tintri by DDN, Inc. All rights reserved.
+# Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2023 Oxide Computer Company
 #
 
-SUBDIRS_i386 = i386
+SUBDIRS_i386 = i386 imc zen_umc
 
 SUBDIRS =       \
+		cores \
 		ddi_ufm \
+		definit \
 		file-locking \
+		ksensor \
+		libtopo \
 		pf_key \
 		poll \
+		portfs \
+		regression \
 		sdevfs \
 		secflags \
+		signalfd \
 		sigqueue \
 		sockfs \
 		spoof-ras \
+		stackalign \
 		stress \
+		syscall \
 		timer \
 		tmpfs \
+		uccid \
 		$(SUBDIRS_$(MACH))
 
 PROGS = \
-	OS-6097
+	clock_gettime \
+	eventfd \
+	odirectory \
+	OS-6097 \
+	ucontext \
+	writev
 
+CPPFLAGS += -D_REENTRANT
 PROGS32 = $(PROGS:%=%.32)
 PROGS64 = $(PROGS:%=%.64)
-
-OS-6097.32 :=	LDLIBS += -ldlpi
-OS-6097.64 :=	LDLIBS64 += -ldlpi
 
 ROOTOPTDIR = $(ROOT)/opt/os-tests/tests
 ROOTOPTPROGS = $(PROGS32:%=$(ROOTOPTDIR)/%) \
 	$(PROGS64:%=$(ROOTOPTDIR)/%) \
 	$(SCRIPTS:%=$(ROOTOPTDIR)/%)
+
+odirectory.32 :=	LDLIBS += -lsocket
+odirectory.64 :=	LDLIBS64 += -lsocket
+
+OS-6097.32 :=	LDLIBS += -ldlpi
+OS-6097.64 :=	LDLIBS64 += -ldlpi
+
+clock_gettime.32 :=	LDLIBS += -lproc
+clock_gettime.32 :=	CSTD = $(CSTD_GNU99)
+clock_gettime.64 :=	LDLIBS64 += -lproc
+clock_gettime.64 :=	CSTD = $(CSTD_GNU99)
+
+ucontext.32 :=		SMOFF += unreachable
+ucontext.64 :=		SMOFF += unreachable
+
+writev.32 :=		CPPFLAGS += -D_FILE_OFFSET_BITS=64
+writev.32 :=		CSTD = $(CSTD_GNU99)
+writev.64 :=		CSTD = $(CSTD_GNU99)
 
 include $(SRC)/cmd/Makefile.cmd
 
@@ -51,7 +85,6 @@ all     :=      TARGET = all
 install :=      TARGET = install
 clean   :=      TARGET = clean
 clobber :=      TARGET = clobber
-lint    :=      TARGET = lint
 
 .KEEP_STATE:
 
@@ -59,7 +92,7 @@ install: $(SUBDIRS) $(ROOTOPTPROGS)
 
 all: $(SUBDIRS) $(PROGS32) $(PROGS64)
 
-clean lint: $(SUBDIRS)
+clean: $(SUBDIRS)
 
 $(ROOTOPTPROGS): $(PROGS32) $(PROGS64) $(ROOTOPTDIR)
 

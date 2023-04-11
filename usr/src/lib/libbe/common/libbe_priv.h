@@ -24,7 +24,7 @@
  * Copyright 2013 Nexenta Systems, Inc. All rights reserved.
  * Copyright 2016 Toomas Soome <tsoome@me.com>
  * Copyright (c) 2015 by Delphix. All rights reserved.
- * Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2022 OmniOS Community Edition (OmniOSce) Association.
  */
 
 #ifndef	_LIBBE_PRIV_H
@@ -63,8 +63,7 @@ extern "C" {
 #define	BE_GRUB_STAGE_1		"/boot/grub/stage1"
 #define	BE_GRUB_STAGE_2		"/boot/grub/stage2"
 #define	BE_INSTALL_BOOT		"/usr/sbin/installboot"
-#define	BE_LOADER_STAGE_1	"/boot/pmbr"
-#define	BE_LOADER_STAGE_2	"/boot/gptzfsboot"
+#define	BE_LOADER_STAGES	"/boot"
 #define	BE_SPARC_BOOTBLK	"/lib/fs/zfs/bootblk"
 
 #define	ZFS_CLOSE(_zhp) \
@@ -143,6 +142,12 @@ struct be_defaults {
 	char		be_deflt_bename_starts_with[ZFS_MAX_DATASET_NAME_LEN];
 };
 
+typedef enum be_nextboot_state {
+	BE_NEXTBOOT_IGNORE = -1,
+	BE_NEXTBOOT_SET,
+	BE_NEXTBOOT_UNSET
+} be_nextboot_state_t;
+
 /* Library globals */
 extern libzfs_handle_t *g_zfs;
 extern boolean_t do_print;
@@ -174,8 +179,9 @@ int _be_destroy_snapshot(char *, char *);
 /* be_utils.c */
 boolean_t be_zfs_init(void);
 void be_zfs_fini(void);
-void be_make_root_ds(const char *, const char *, char *, int);
-void be_make_container_ds(const char *, char *, int);
+int be_make_root_ds(const char *, const char *, char *, int);
+int be_make_container_ds(const char *, char *, int);
+int be_make_root_container_ds(const char *, char *, int);
 char *be_make_name_from_ds(const char *, char *);
 int be_append_menu(char *, char *, char *, char *, char *);
 int be_remove_menu(char *, char *, char *);
@@ -201,7 +207,7 @@ int zfs_err_to_be_err(libzfs_handle_t *);
 int errno_to_be_err(int);
 
 /* be_activate.c */
-int _be_activate(char *);
+int _be_activate(char *, be_nextboot_state_t);
 int be_activate_current_be(void);
 boolean_t be_is_active_on_boot(char *);
 

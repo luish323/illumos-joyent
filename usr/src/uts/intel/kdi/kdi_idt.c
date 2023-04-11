@@ -77,7 +77,7 @@
 #include <sys/archsystm.h>
 #include <sys/kdi_impl.h>
 #include <sys/x_call.h>
-#include <ia32/sys/psw.h>
+#include <sys/psw.h>
 #include <vm/hat_i86.h>
 
 #define	KDI_GATE_NVECS	3
@@ -98,13 +98,6 @@ static kdi_main_t kdi_kmdb_main;
 
 kdi_drreg_t kdi_drreg;
 
-#ifndef __amd64
-/* Used to track the current set of valid kernel selectors. */
-uint32_t	kdi_cs;
-uint32_t	kdi_ds;
-uint32_t	kdi_fs;
-uint32_t	kdi_gs;
-#endif
 
 uintptr_t	kdi_kernel_handler;
 
@@ -298,7 +291,8 @@ kdi_cpu_init(void)
  * loaded at boot.
  */
 static int
-kdi_cpu_activate(void)
+kdi_cpu_activate(xc_arg_t arg1 __unused, xc_arg_t arg2 __unused,
+    xc_arg_t arg3 __unused)
 {
 	kdi_idt_gates_install(KCS_SEL, KDI_IDT_SAVE);
 	return (0);
@@ -330,12 +324,6 @@ kdi_activate(kdi_main_t main, kdi_cpusave_t *cpusave, uint_t ncpusave)
 	else
 		kdi_idt_init(KCS_SEL);
 
-	/* The initial selector set.  Updated by the debugger-entry code */
-#ifndef __amd64
-	kdi_cs = B32CODE_SEL;
-	kdi_ds = kdi_fs = kdi_gs = B32DATA_SEL;
-#endif
-
 	kdi_memranges[0].mr_base = kdi_segdebugbase;
 	kdi_memranges[0].mr_lim = kdi_segdebugbase + kdi_segdebugsize - 1;
 	kdi_nmemranges = 1;
@@ -346,13 +334,13 @@ kdi_activate(kdi_main_t main, kdi_cpusave_t *cpusave, uint_t ncpusave)
 	if (boothowto & RB_KMDB) {
 		kdi_idt_gates_install(KMDBCODE_SEL, KDI_IDT_NOSAVE);
 	} else {
-		xc_call(0, 0, 0, CPUSET2BV(cpuset),
-		    (xc_func_t)kdi_cpu_activate);
+		xc_call(0, 0, 0, CPUSET2BV(cpuset), kdi_cpu_activate);
 	}
 }
 
 static int
-kdi_cpu_deactivate(void)
+kdi_cpu_deactivate(xc_arg_t arg1 __unused, xc_arg_t arg2 __unused,
+    xc_arg_t arg3 __unused)
 {
 	kdi_idt_gates_restore();
 	return (0);
@@ -364,7 +352,7 @@ kdi_deactivate(void)
 	cpuset_t cpuset;
 	CPUSET_ALL(cpuset);
 
-	xc_call(0, 0, 0, CPUSET2BV(cpuset), (xc_func_t)kdi_cpu_deactivate);
+	xc_call(0, 0, 0, CPUSET2BV(cpuset), kdi_cpu_deactivate);
 	kdi_nmemranges = 0;
 }
 

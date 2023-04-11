@@ -44,7 +44,7 @@
  *
  *	This driver. It interfaces with device drivers and provides abstractions
  *	that the rest of the system consumes. All data links -- things managed
- *	with dladm(1M), are accessed through MAC.
+ *	with dladm(8), are accessed through MAC.
  *
  * GLDv3 DEVICE DRIVER
  *
@@ -65,7 +65,7 @@
  *	which is used for all unicast traffic addressed to the address of a MAC
  *	device. For example, when a VNIC is created, a default flow is created
  *	for the VNIC's MAC address. In addition, flows are created for broadcast
- *	groups and a user may create a flow with flowadm(1M).
+ *	groups and a user may create a flow with flowadm(8).
  *
  * CLASSIFICATION
  *
@@ -77,7 +77,7 @@
  *	destination MAC address.
  *
  *	The system also will do classification based on layer three and layer
- *	four properties. This is used to support things like flowadm(1M), which
+ *	four properties. This is used to support things like flowadm(8), which
  *	allows setting QoS and other properties on a per-flow basis.
  *
  * RING
@@ -230,8 +230,8 @@
  * capabilities and rules in place and then to supplement that with hardware
  * resources when available. In general, simple layer two classification is
  * sufficient and nothing else is used, unless a specific flow is created with
- * tools such as flowadm(1M) or bandwidth limits are set on a device with
- * dladm(1M).
+ * tools such as flowadm(8) or bandwidth limits are set on a device with
+ * dladm(8).
  *
  * RINGS AND GROUPS
  *
@@ -292,7 +292,7 @@
  *
  * MAC makes the determination as to which of these modes a given soft ring set
  * obtains based on parameters such as whether or not it's the primary mac
- * client, whether it's on a 10 GbE or faster device, user controlled dladm(1M)
+ * client, whether it's on a 10 GbE or faster device, user controlled dladm(8)
  * properties, and the nature of the hardware and the resources that it has.
  *
  * When there is no fanout, MAC does not create any soft rings for a device and
@@ -1361,9 +1361,7 @@ int mac_srs_worker_wakeup_ticks = 0;
 }
 
 /*
- * MAC_RX_SRS_TOODEEP
- *
- * Macro called as part of receive-side processing to determine if handling
+ * Threshold used in receive-side processing to determine if handling
  * can occur in situ (in the interrupt thread) or if it should be left to a
  * worker thread.  Note that the constant used to make this determination is
  * not entirely made-up, and is a result of some emprical validation. That
@@ -1376,11 +1374,6 @@ uint_t mac_rx_srs_stack_toodeep;
 #ifndef STACK_GROWTH_DOWN
 #error Downward stack growth assumed.
 #endif
-
-#define	MAC_RX_SRS_TOODEEP() (STACK_BIAS + (uintptr_t)getfp() - \
-	(uintptr_t)curthread->t_stkbase < mac_rx_srs_stack_needed && \
-	(++mac_rx_srs_stack_toodeep || (mac_rx_srs_stack_toodeep = 1)))
-
 
 /*
  * Drop the rx packet and advance to the next one in the chain.
@@ -2322,7 +2315,7 @@ check_again:
 				if (smcip->mci_mip->mi_promisc_list != NULL) {
 					mutex_exit(lock);
 					mac_promisc_dispatch(smcip->mci_mip,
-					    head, NULL);
+					    head, NULL, B_FALSE);
 					mutex_enter(lock);
 				}
 			}
@@ -3416,8 +3409,7 @@ mac_rx_srs_process(void *arg, mac_resource_handle_t srs, mblk_t *mp_chain,
 		 * latency, or if our stack is running deep, we should signal
 		 * the worker thread.
 		 */
-		if (loopback || !(mac_srs->srs_state & SRS_LATENCY_OPT) ||
-		    MAC_RX_SRS_TOODEEP()) {
+		if (loopback || !(mac_srs->srs_state & SRS_LATENCY_OPT)) {
 			/*
 			 * For loopback, We need to let the worker take
 			 * over as we don't want to continue in the same
@@ -3425,6 +3417,11 @@ mac_rx_srs_process(void *arg, mac_resource_handle_t srs, mblk_t *mp_chain,
 			 * overflows and may also end up using
 			 * resources (cpu) incorrectly.
 			 */
+			cv_signal(&mac_srs->srs_async);
+		} else if (STACK_BIAS + (uintptr_t)getfp() -
+		    (uintptr_t)curthread->t_stkbase < mac_rx_srs_stack_needed) {
+			if (++mac_rx_srs_stack_toodeep == 0)
+				mac_rx_srs_stack_toodeep = 1;
 			cv_signal(&mac_srs->srs_async);
 		} else {
 			/*
@@ -4346,14 +4343,6 @@ mac_tx_send(mac_client_handle_t mch, mac_ring_handle_t ring, mblk_t *mp_chain,
 			obytes += (mp->b_cont == NULL ? MBLKL(mp) :
 			    msgdsize(mp));
 
-			/*
-			 * Mark all packets as local so that a
-			 * receiver can determine if a packet arrived
-			 * from a local source or from the network.
-			 * This allows some consumers to avoid
-			 * unecessary work like checksum computation.
-			 */
-			DB_CKSUMFLAGS(mp) |= HW_LOCAL_MAC;
 			CHECK_VID_AND_ADD_TAG(mp);
 			mp = mac_provider_tx(mip, ring, mp, src_mcip);
 
@@ -4393,14 +4382,6 @@ mac_tx_send(mac_client_handle_t mch, mac_ring_handle_t ring, mblk_t *mp_chain,
 		pkt_size = (mp->b_cont == NULL ? MBLKL(mp) : msgdsize(mp));
 		obytes += pkt_size;
 		CHECK_VID_AND_ADD_TAG(mp);
-
-		/*
-		 * Mark all packets as local so that a receiver can
-		 * determine if a packet arrived from a local source
-		 * or from the network. This allows some consumers to
-		 * avoid unecessary work like checksum computation.
-		 */
-		DB_CKSUMFLAGS(mp) |= HW_LOCAL_MAC;
 
 		/*
 		 * Find the destination.
@@ -4448,17 +4429,21 @@ mac_tx_send(mac_client_handle_t mch, mac_ring_handle_t ring, mblk_t *mp_chain,
 				 * macro.
 				 */
 				if (mip->mi_promisc_list != NULL) {
-					mac_promisc_dispatch(mip, mp, src_mcip);
+					mac_promisc_dispatch(mip, mp, src_mcip,
+					    B_TRUE);
 				}
 
 				do_switch = ((src_mcip->mci_state_flags &
 				    dst_mcip->mci_state_flags &
 				    MCIS_CLIENT_POLL_CAPABLE) != 0);
 
-				(dst_flow_ent->fe_cb_fn)(
-				    dst_flow_ent->fe_cb_arg1,
-				    dst_flow_ent->fe_cb_arg2,
-				    mp, do_switch);
+				mac_hw_emul(&mp, NULL, NULL, MAC_ALL_EMULS);
+				if (mp != NULL) {
+					(dst_flow_ent->fe_cb_fn)(
+					    dst_flow_ent->fe_cb_arg1,
+					    dst_flow_ent->fe_cb_arg2,
+					    mp, do_switch);
+				}
 
 			}
 			FLOW_REFRELE(dst_flow_ent);

@@ -36,7 +36,7 @@
  */
 
 /*	Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T	*/
-/*	  All Rights Reserved  	*/
+/*	  All Rights Reserved	*/
 
 
 #include <stdio.h>
@@ -177,8 +177,8 @@ main(int argc, char **argv)
 	n_inserts = 0;
 	psave = saveargv;
 	(void) setlocale(LC_ALL, "");
-#if !defined(TEXT_DOMAIN)	/* Should be defined by cc -D 		*/
-#define	TEXT_DOMAIN "SYS_TEST"	/* Use this only if it weren't 		*/
+#if !defined(TEXT_DOMAIN)	/* Should be defined by cc -D		*/
+#define	TEXT_DOMAIN "SYS_TEST"	/* Use this only if it weren't		*/
 #endif
 	(void) textdomain(TEXT_DOMAIN);
 	if (init_yes() < 0) {
@@ -376,7 +376,7 @@ main(int argc, char **argv)
 	 */
 
 
-	mac -= optind;	/* dec arg count by what we've processed 	*/
+	mac -= optind;	/* dec arg count by what we've processed	*/
 	mav += optind;	/* inc to current mav				*/
 
 	procs = calloc(MAXPROCS, sizeof (pid_t));
@@ -718,7 +718,7 @@ getarg(char *arg)
  *
  *	Assumes that message has already been gettext()'d. It would be
  *	nice if we could just do the gettext() here, but we can't, since
- *	since xgettext(1M) wouldn't be able to pick up our error message.
+ *	since xgettext(1) wouldn't be able to pick up our error message.
  */
 /* PRINTFLIKE1 */
 static void
@@ -736,12 +736,12 @@ ermsg(char *messages, ...)
 }
 
 static int
-echoargs()
+echoargs(void)
 {
 	char	**anarg;
 	char	**tanarg;	/* tmp ptr			*/
-	int		i;
-	char		reply[LINE_MAX];
+	int	i;
+	char	reply[LINE_MAX];
 
 	tanarg = anarg = arglist-1;
 
@@ -773,7 +773,10 @@ echoargs()
 			break;
 		}
 	}
-	reply[i] = 0;
+	if (i < LINE_MAX)
+		reply[i] = '\0';
+	else
+		reply[LINE_MAX - 1] = '\0';
 
 	/* flush remainder of line if necessary */
 	if (i == LINE_MAX) {
@@ -1100,7 +1103,7 @@ parseargs(int ac, char **av)
 		/*
 		 * if we're doing special processing, and we've got a flag
 		 */
-		else if ((av[i][0] == '-') && (av[i][1] != NULL)) {
+		else if ((av[i][0] == '-') && (av[i][1] != '\0')) {
 			char	*def;
 
 			switch (av[i][1]) {
@@ -1119,11 +1122,11 @@ process_special:
 				 * be able to distinguish between a valid
 				 * suboption, and a command name.
 				 */
-				if (av[i][2] == NULL) {
+				if (av[i][2] == '\0') {
 					mav[++mac] = strdup(def);
 				} else {
 					/* clear out our version: */
-					mav[mac][2] = NULL;
+					mav[mac][2] = '\0';
 					mav[++mac] = strdup(&av[i][2]);
 				}
 				if (mav[mac] == NULL) {
@@ -1157,9 +1160,9 @@ process_special:
 				 * we move the subargument into our
 				 * mod'd argument list.
 				 */
-				if (av[i][2] != NULL) {
+				if (av[i][2] != '\0') {
 					/* first clean things up:	*/
-					mav[mac][2] = NULL;
+					mav[mac][2] = '\0';
 
 					/* now add the separation:	*/
 					++mac;	/* inc to next mod'd arg */

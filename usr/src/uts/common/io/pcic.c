@@ -79,7 +79,7 @@
 #include <sys/pcic_reg.h>
 #include <sys/pcic_var.h>
 
-#if defined(__i386) || defined(__amd64)
+#if defined(__x86)
 #include <sys/pci_cfgspace.h>
 #endif
 
@@ -829,7 +829,7 @@ pcic_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 	 */
 	if (pcic->pc_flags & PCF_PCIBUS) {
 		int class_code;
-#if defined(__i386) || defined(__amd64)
+#if defined(__x86)
 		pcic->pc_base = 0x1000000;
 		pcic->pc_bound = (uint32_t)~0;
 		pcic->pc_iobase = 0x1000;
@@ -1767,7 +1767,7 @@ pcic_setup_adapter(pcicdev_t *pcic)
 	int i;
 	int value, flags;
 
-#if defined(__i386) || defined(__amd64)
+#if defined(__x86)
 	pci_regspec_t *reg;
 	uchar_t bus, dev, func;
 	uint_t classcode;
@@ -1973,7 +1973,7 @@ pcic_setup_adapter(pcicdev_t *pcic)
 			ddi_put8(pcic->cfg_handle,
 			    pcic->cfgaddr + PCIC_DIAG_REG, cfg);
 
-#if defined(__i386) || defined(__amd64)
+#if defined(__x86)
 			/*
 			 * Some TI chips have 2 cardbus slots(function0 and
 			 * function1), and others may have just 1 cardbus slot.
@@ -4744,7 +4744,7 @@ pcic_set_interrupt(dev_info_t *dip, set_irq_handler_t *handler)
 		}
 
 		pcic->irq_current->intr =
-		    (ddi_intr_handler_t *)handler->handler;
+		    (ddi_intr_handler_t *)(uintptr_t)handler->handler;
 		pcic->irq_current->handler_id = handler->handler_id;
 		pcic->irq_current->arg1 = handler->arg1;
 		pcic->irq_current->arg2 = handler->arg2;
@@ -4757,7 +4757,7 @@ pcic_set_interrupt(dev_info_t *dip, set_irq_handler_t *handler)
 		break;
 
 	default:
-		intr->intr = (ddi_intr_handler_t *)handler->handler;
+		intr->intr = (ddi_intr_handler_t *)(uintptr_t)handler->handler;
 		intr->handler_id = handler->handler_id;
 		intr->arg1 = handler->arg1;
 		intr->arg2 = handler->arg2;
@@ -6333,6 +6333,7 @@ pcic_cb_disable_intr(dev_info_t *dip)
 	mutex_exit(&pcic->pc_lock);
 }
 
+#if defined(__sparc)
 static int
 log_pci_cfg_err(ushort_t e, int bridge_secondary)
 {
@@ -6363,7 +6364,6 @@ log_pci_cfg_err(ushort_t e, int bridge_secondary)
 	return (nerr);
 }
 
-#if defined(__sparc)
 static int
 pcic_fault(enum pci_fault_ops op, void *arg)
 {
@@ -6786,6 +6786,7 @@ pcic_cbus_powerctl(pcicdev_t *pcic, int socket)
 
 static int	pcic_do_pprintf = 0;
 
+#ifdef PCIC_DEBUG
 static void
 pcic_dump_debqueue(char *msg)
 {
@@ -6802,6 +6803,7 @@ pcic_dump_debqueue(char *msg)
 		debp = debp->next;
 	}
 }
+#endif /* PCIC_DEBUG */
 
 
 /* PRINTFLIKE3 */

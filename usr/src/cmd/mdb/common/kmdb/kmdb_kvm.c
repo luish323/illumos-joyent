@@ -22,7 +22,7 @@
  * Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2013 by Delphix. All rights reserved.
  *
- * Copyright (c) 2019, Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
  */
 
 #include <kmdb/kmdb_kvm.h>
@@ -571,7 +571,7 @@ kmt_status_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	mdb_printf("operating system: %s %s (%s)\n",
 	    uts.release, uts.version, uts.machine);
 
-	mdb_print_gitstatus();
+	mdb_print_buildversion();
 
 	if (mdb_readsym(uuid, sizeof (uuid),
 	    "dump_osimage_uuid") == sizeof (uuid) &&
@@ -1946,6 +1946,10 @@ kmt_wapt_info(mdb_tgt_t *t, mdb_sespec_t *sep, mdb_vespec_t *vep,
 		else
 			fmt = "stop on %s of I/O port [%p, %p)";
 		break;
+
+	default:
+		fmt = "stop on %s of unknown [%p, %p]";
+		break;
 	}
 
 	(void) mdb_iob_snprintf(buf, nbytes, fmt, desc + 1, wp->wp_addr,
@@ -2394,18 +2398,18 @@ kmt_destroy(mdb_tgt_t *t)
 
 static const mdb_tgt_ops_t kmt_ops = {
 	kmt_setflags,				/* t_setflags */
-	(int (*)()) mdb_tgt_notsup,		/* t_setcontext */
+	(int (*)())(uintptr_t)mdb_tgt_notsup,	/* t_setcontext */
 	kmt_activate,				/* t_activate */
-	(void (*)()) mdb_tgt_nop,		/* t_deactivate */
+	(void (*)())(uintptr_t)mdb_tgt_nop,	/* t_deactivate */
 	kmt_periodic,				/* t_periodic */
 	kmt_destroy,				/* t_destroy */
 	kmt_name,				/* t_name */
-	(const char *(*)()) mdb_conf_isa,	/* t_isa */
+	(const char *(*)())mdb_conf_isa,	/* t_isa */
 	kmt_platform,				/* t_platform */
 	kmt_uname,				/* t_uname */
 	kmt_dmodel,				/* t_dmodel */
-	(ssize_t (*)()) mdb_tgt_notsup,		/* t_aread */
-	(ssize_t (*)()) mdb_tgt_notsup,		/* t_awrite */
+	(ssize_t (*)())mdb_tgt_notsup,		/* t_aread */
+	(ssize_t (*)())mdb_tgt_notsup,		/* t_awrite */
 	kmt_read,				/* t_vread */
 	kmt_write,				/* t_vwrite */
 	kmt_pread,				/* t_pread */
@@ -2425,25 +2429,25 @@ static const mdb_tgt_ops_t kmt_ops = {
 	kmt_addr_to_ctf,			/* t_addr_to_ctf */
 	kmt_name_to_ctf,			/* t_name_to_ctf */
 	kmt_status,				/* t_status */
-	(int (*)()) mdb_tgt_notsup,		/* t_run */
+	(int (*)())(uintptr_t)mdb_tgt_notsup,	/* t_run */
 	kmt_step,				/* t_step */
 	kmt_step_out,				/* t_step_out */
 	kmt_next,				/* t_next */
 	kmt_continue,				/* t_cont */
-	(int (*)()) mdb_tgt_notsup,		/* t_signal */
+	(int (*)())(uintptr_t)mdb_tgt_notsup,	/* t_signal */
 	kmt_add_vbrkpt,				/* t_add_vbrkpt */
 	kmt_add_sbrkpt,				/* t_add_sbrkpt */
 	kmt_add_pwapt,				/* t_add_pwapt */
 	kmt_add_vwapt,				/* t_add_vwapt */
 	kmt_add_iowapt,				/* t_add_iowapt */
-	(int (*)()) mdb_tgt_null,		/* t_add_sysenter */
-	(int (*)()) mdb_tgt_null,		/* t_add_sysexit */
-	(int (*)()) mdb_tgt_null,		/* t_add_signal */
+	(int (*)())(uintptr_t)mdb_tgt_null,	/* t_add_sysenter */
+	(int (*)())(uintptr_t)mdb_tgt_null,	/* t_add_sysexit */
+	(int (*)())(uintptr_t)mdb_tgt_null,	/* t_add_signal */
 	kmt_add_trap,				/* t_add_fault */
 	kmt_getareg,				/* t_getareg */
 	kmt_putareg,				/* t_putareg */
-	(int (*)()) mdb_tgt_nop,		/* XXX t_stack_iter */
-	(int (*)()) mdb_tgt_notsup		/* t_auxv */
+	(int (*)())(uintptr_t)mdb_tgt_nop,	/* XXX t_stack_iter */
+	(int (*)())(uintptr_t)mdb_tgt_notsup	/* t_auxv */
 };
 
 /*

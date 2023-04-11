@@ -21,7 +21,7 @@
 #
 # Copyright (c) 1994, 2010, Oracle and/or its affiliates. All rights reserved.
 #
-# Copyright (c) 2018, Joyent, Inc.
+# Copyright 2020 Joyent, Inc.
 
 NETYPPROG =	rpc.yppasswdd
 DEFAULTFILES =	yppasswdd.dfl
@@ -43,7 +43,9 @@ ROOTDIRS =	$(NETSVC) $(NETYP)
 #LDLIBS +=	-lrpcsvc -lnsl -lcrypt -lintl -lgen
 LDLIBS +=	-lnsl -lnisdb -lc
 MAPFILES =	$(MAPFILE.INT) $(MAPFILE.NGB)
-LDFLAGS +=	$(MAPFILES:%=-M%)
+LDFLAGS +=	$(MAPFILES:%=-Wl,-M%)
+
+ZGUIDANCE =	-Wl,-zguidance=nounused
 
 # Pick up includes from library
 CPPFLAGS += -I$(SRC)/lib/libnisdb/yptol
@@ -59,7 +61,7 @@ RPCYPPASSWDDOBJ =	yppasswdd.o changepasswd.o
 
 CERRWARN +=		-_gcc=-Wno-implicit-function-declaration
 CERRWARN +=		-_gcc=-Wno-parentheses
-CERRWARN +=		-_gcc=-Wno-uninitialized
+CERRWARN +=		$(CNOWARN_UNINIT)
 
 # not linted
 SMATCH=off
@@ -69,7 +71,7 @@ SMATCH=off
 #
 SHAREDOBJ= ../shared/utils.o ../shared/lockmap.o ../shared/ancil.o
 
-OBJS = 			$(RPCYPPASSWDDOBJ) \
+OBJS =			$(RPCYPPASSWDDOBJ) \
 			$(COMMONOBJ)
 			# $(YPPWCONVOBJ) $(YPPASSMGMTOBJ)
 
@@ -102,8 +104,6 @@ $(NETYP)/%: %
 
 clean:
 	$(RM) $(OBJS)
-
-lint:	lint_SRCS
 
 check: $(CHKMANIFEST)
 

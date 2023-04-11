@@ -21,7 +21,7 @@
 #
 # Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
 #
-# Copyright (c) 2018, Joyent, Inc.
+# Copyright 2019 Joyent, Inc.
 # Copyright 2019 Peter Tribble.
 #
 
@@ -104,7 +104,7 @@ CERRWARN +=	-_gcc=-Wno-uninitialized
 # not linted
 SMATCH=off
 
-ASFLAGS= -P -D__STDC__ -DLOCORE -D_SYS_SYS_S -D_ASM $(CPPFLAGS)
+ASFLAGS= -D__STDC__ -DLOCORE -D_SYS_SYS_S -D_ASM $(CPPFLAGS)
 
 pics/%.o:= ASFLAGS += $(AS_PICFLAGS)
 

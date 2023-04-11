@@ -21,7 +21,7 @@
 /*
  * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Copyright 2016 Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
  */
 
 #include <sys/mutex.h>
@@ -68,7 +68,7 @@
  * special casing itself.
  *
  * A composite outcome of these two concepts is that we can now create
- * a tree of process contracts, rooted at init(1M), which represent
+ * a tree of process contracts, rooted at init(8), which represent
  * services and subservices that are reliably observed and can be
  * restarted when fatal errors occur.  The service management framework
  * (SMF) realizes this structure.
@@ -229,7 +229,7 @@ ctmpl_process_set(struct ct_template *tmpl, ct_kparam_t *kparam,
 	ct_param_t *param = &kparam->param;
 	contract_t *ct;
 	int error;
-	uint64_t param_value;
+	uint64_t param_value = 0;
 	char *str_value;
 
 	if ((param->ctpm_id == CTPP_SVC_FMRI) ||
@@ -737,13 +737,11 @@ contract_process_status(contract_t *ct, zone_t *zone, int detail, nvlist_t *nvl,
 	 * if we are in a local zone and svc_fmri was inherited from
 	 * the global zone, we provide fake svc_fmri and svc_ctid
 	 */
-	if (local_svc_zone_enter == 0||
+	if (local_svc_zone_enter == 0 ||
 	    zone->zone_uniqid == GLOBAL_ZONEUNIQID) {
 		if (detail > CTD_COMMON) {
 			VERIFY(nvlist_add_int32(nvl, CTPS_SVC_CTID,
 			    ctp->conp_svc_ctid) == 0);
-		}
-		if (detail == CTD_ALL) {
 			VERIFY(nvlist_add_string(nvl, CTPS_SVC_FMRI,
 			    refstr_value(ctp->conp_svc_fmri)) == 0);
 		}
@@ -751,8 +749,6 @@ contract_process_status(contract_t *ct, zone_t *zone, int detail, nvlist_t *nvl,
 		if (detail > CTD_COMMON) {
 			VERIFY(nvlist_add_int32(nvl, CTPS_SVC_CTID,
 			    local_svc_zone_enter) == 0);
-		}
-		if (detail == CTD_ALL) {
 			VERIFY(nvlist_add_string(nvl, CTPS_SVC_FMRI,
 			    CT_PR_SVC_FMRI_ZONE_ENTER) == 0);
 		}
@@ -791,7 +787,7 @@ contract_process_init(void)
 	    &contract_process_ops, contract_process_default);
 
 	/*
-	 * Create a template for use with init(1M) and other
+	 * Create a template for use with init(8) and other
 	 * kernel-started processes.
 	 */
 	sys_process_tmpl = kmem_alloc(sizeof (ctmpl_process_t), KM_SLEEP);

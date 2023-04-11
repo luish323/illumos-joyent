@@ -59,7 +59,7 @@ INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 #
 # depends on misc/pci_autoconfig misc/pcihp
 #
-LDFLAGS		+= -dy -Nmisc/pcihp
+LDFLAGS		+= -Nmisc/pcihp
 
 #
 # Name of the module is needed by the source, to distinguish from other
@@ -73,7 +73,7 @@ CFLAGS		+= -D_MODULE_NAME="\"$(MODULE)\""
 # Please do not carry these forward to new Makefiles.
 #
 CERRWARN	+= -_gcc=-Wno-parentheses
-CERRWARN	+= -_gcc=-Wno-uninitialized
+CERRWARN	+= $(CNOWARN_UNINIT)
 CERRWARN	+= -_gcc=-Wno-unused-function
 
 #

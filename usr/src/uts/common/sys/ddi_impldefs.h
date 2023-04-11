@@ -23,6 +23,7 @@
  * Copyright 2012 Garrett D'Amore <garrett@damore.org>.  All rights reserved.
  * Copyright 2016 Joyent, Inc.
  * Copyright (c) 2016 by Delphix. All rights reserved.
+ * Copyright 2022 Tintri by DDN, Inc. All rights reserved.
  */
 
 #ifndef _SYS_DDI_IMPLDEFS_H
@@ -289,6 +290,12 @@ struct dev_info  {
 	/* detach event data */
 	char	*devi_ev_path;
 	int	devi_ev_instance;
+
+	/*
+	 * Unbind callback data.
+	 */
+	kmutex_t	devi_unbind_lock;
+	list_t		devi_unbind_cbs;
 };
 
 #define	DEVI(dev_info_type)	((struct dev_info *)(dev_info_type))
@@ -623,7 +630,7 @@ struct dev_info  {
 #define	DEVI_SET_PCI(dip)	(DEVI(dip)->devi_flags |= (DEVI_PCI_DEVICE))
 
 char	*i_ddi_devi_class(dev_info_t *);
-int	i_ddi_set_devi_class(dev_info_t *, char *, int);
+int	i_ddi_set_devi_class(dev_info_t *, const char *, int);
 
 /*
  * This structure represents one piece of bus space occupied by a given
@@ -709,7 +716,7 @@ struct ddi_minor {
 	dev_t		dev;		/* device number */
 	int		spec_type;	/* block or char */
 	int		flags;		/* access flags */
-	char		*node_type;	/* block, byte, serial, network */
+	const char	*node_type;	/* block, byte, serial, network */
 	struct devplcy	*node_priv;	/* privilege for this minor */
 	mode_t		priv_mode;	/* default apparent privilege mode */
 };
@@ -877,6 +884,8 @@ typedef struct ddi_dma_impl {
 	uint_t		dmai_inuse;	/* active handle? */
 	uint_t		dmai_nwin;
 	uint_t		dmai_winsize;
+	uint_t		dmai_ncookies;
+	uint_t		dmai_curcookie;
 	caddr_t		dmai_nexus_private;
 	void		*dmai_iopte;
 	uint_t		*dmai_sbi;
@@ -901,6 +910,8 @@ typedef struct ddi_dma_impl {
  */
 typedef struct ddi_dma_impl {
 	ddi_dma_cookie_t *dmai_cookie; /* array of DMA cookies */
+	uint_t		dmai_ncookies;
+	uint_t		dmai_curcookie;
 	void		*dmai_private;
 
 	/*
@@ -1109,6 +1120,12 @@ typedef struct impl_devid {
  *			'E' |	// DEVID_ENCAP		<ascii_id>
  *			'a' |	// DEVID_ATA_SERIAL	<hex_id>
  *			'A' |	// DEVID_ATA_SERIAL	<ascii_id>
+ *			'd' |	// DEVID_NVME_NSID	<hex_id>
+ *			'D' |	// DEVID_NVME_NSID	<ascii_id>
+ *			'i' |	// DEVID_NVME_EUI64	<hex_id>
+ *			'I' |	// DEVID_NVME_EUI64	<ascii_id>
+ *			'g' |	// DEVID_NVME_NGUID	<hex_id>
+ *			'G' |	// DEVID_NVME_NGUID	<ascii_id>
  *			'u' |	// unknown		<hex_id>
  *			'U'	// unknown		<ascii_id>
  *				// NOTE:lower case -> <hex_id>
@@ -1169,6 +1186,9 @@ typedef struct impl_devid {
 	((b) == DEVID_FAB)		? 'f' :				\
 	((b) == DEVID_ENCAP)		? 'e' :				\
 	((b) == DEVID_ATA_SERIAL)	? 'a' :				\
+	((b) == DEVID_NVME_NSID)	? 'd' :				\
+	((b) == DEVID_NVME_EUI64)	? 'i' :				\
+	((b) == DEVID_NVME_NGUID)	? 'g' :				\
 	'u')						/* unknown */
 
 /* convert type field from ascii to binary */
@@ -1181,6 +1201,9 @@ typedef struct impl_devid {
 	(((c) == 'f') || ((c) == 'F'))	? DEVID_FAB :			\
 	(((c) == 'e') || ((c) == 'E'))	? DEVID_ENCAP :			\
 	(((c) == 'a') || ((c) == 'A'))	? DEVID_ATA_SERIAL :		\
+	(((c) == 'd') || ((c) == 'D'))	? DEVID_NVME_NSID :		\
+	(((c) == 'i') || ((c) == 'I'))	? DEVID_NVME_EUI64 :		\
+	(((c) == 'g') || ((c) == 'G'))	? DEVID_NVME_NGUID :		\
 	DEVID_MAXTYPE +1)				/* unknown */
 
 /* determine if the type should be forced to hex encoding (non-ascii) */
@@ -1188,6 +1211,8 @@ typedef struct impl_devid {
 	((b) == DEVID_SCSI3_WWN) ||	\
 	((b) == DEVID_SCSI3_VPD_EUI) ||	\
 	((b) == DEVID_SCSI3_VPD_NAA) ||	\
+	((b) == DEVID_NVME_EUI64) ||	\
+	((b) == DEVID_NVME_NGUID) ||	\
 	((b) == DEVID_FAB))
 
 /* determine if the type is from a scsi3 vpd */

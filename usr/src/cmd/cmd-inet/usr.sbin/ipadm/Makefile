@@ -22,6 +22,9 @@
 # Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
 #
+# Copyright 2020 Joyent, Inc.
+# Copyright 2021 Tintri by DDN, Inc. All rights reserved.
+#
 #
 
 PROG =		ipadm
@@ -39,17 +42,15 @@ COMMONSRCS=	$(CMDINETCOMMONDIR)/$(COMMONOBJS:%.o=%.c)
 SRCS=		$(LOCALSRCS) $(COMMONSRCS)
 
 CPPFLAGS +=	-I$(CMDINETCOMMONDIR)
-LDLIBS +=       -lofmt -linetutil -lipadm -lnvpair
+LDLIBS +=       -lofmt -linetutil -lipadm -lnvpair -lipmp -lcmdutils
 LINTFLAGS +=	-m
 
 ROOTUSRSBINLINKS = $(PROG:%=$(ROOTUSRSBIN)/%)
 
 # ipadm uses the ancillary data feature which is available only through
 # UNIX 98 standards version of Socket interface. This interface is supposed to
-# be accessed by -lxnet. In addition -lsocket is used to capture new
-# not-yet-standard interfaces. Someday -lxnet alone should be enough when IPv6
-# inspired new interfaces are part of standards.
-LDLIBS +=	-lxnet -lsocket
+# be accessed by -lxnet.
+LDLIBS +=	-lxnet
 
 # these #defines are required to use UNIX 98 interfaces
 _D_UNIX98_EXTN= -D_XOPEN_SOURCE=500 -D__EXTENSIONS__

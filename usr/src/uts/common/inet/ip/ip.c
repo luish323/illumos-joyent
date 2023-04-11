@@ -24,7 +24,9 @@
  * Copyright (c) 1990 Mentat Inc.
  * Copyright (c) 2017 OmniTI Computer Consulting, Inc. All rights reserved.
  * Copyright (c) 2016 by Delphix. All rights reserved.
- * Copyright (c) 2019 Joyent, Inc. All rights reserved.
+ * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2021 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Company
  */
 
 #include <sys/types.h>
@@ -95,6 +97,7 @@
 #include <netinet/igmp.h>
 #include <netinet/ip_mroute.h>
 #include <inet/ipp_common.h>
+#include <inet/cc.h>
 
 #include <net/pfkeyv2.h>
 #include <inet/sadb.h>
@@ -2403,6 +2406,7 @@ ipoptp_next(ipoptp_t *optp)
 	 * its there, and make sure it points to either something
 	 * inside this option, or the end of the option.
 	 */
+	pointer = IPOPT_EOL;
 	switch (opt) {
 	case IPOPT_RR:
 	case IPOPT_TS:
@@ -2842,6 +2846,20 @@ icmp_pkt(mblk_t *mp, void *stuff, size_t len, ip_recv_attr_t *ira)
 	len_needed = IPH_HDR_LENGTH(ipha);
 	if (ipha->ipha_protocol == IPPROTO_ENCAP ||
 	    ipha->ipha_protocol == IPPROTO_IPV6) {
+		/*
+		 * NOTE: It is posssible that the inner packet is poorly
+		 * formed (e.g. IP version is corrupt, or v6 extension headers
+		 * got cut off).  The receiver of the ICMP message should see
+		 * what we saw.  In the absence of a sane inner-packet (which
+		 * protocol types IPPPROTO_ENCAP and IPPROTO_IPV6 indicate
+		 * would be an IP header), we should send the size of what is
+		 * normally expected to be there (either sizeof (ipha_t) or
+		 * sizeof (ip6_t).  It may be useful for diagnostic purposes.
+		 *
+		 * ALSO NOTE: "inner_ip6h" is the inner packet header, v4 or v6.
+		 */
+		ip6_t *inner_ip6h = (ip6_t *)((uchar_t *)ipha + len_needed);
+
 		if (!pullupmsg(mp, -1)) {
 			BUMP_MIB(&ipst->ips_ip_mib, ipIfStatsOutDiscards);
 			ip_drop_output("ipIfStatsOutDiscards", mp, NULL);
@@ -2851,13 +2869,20 @@ icmp_pkt(mblk_t *mp, void *stuff, size_t len, ip_recv_attr_t *ira)
 		ipha = (ipha_t *)mp->b_rptr;
 
 		if (ipha->ipha_protocol == IPPROTO_ENCAP) {
-			len_needed += IPH_HDR_LENGTH(((uchar_t *)ipha +
-			    len_needed));
+			/*
+			 * Check the inner IP version here to guard against
+			 * bogons.
+			 */
+			if (IPH_HDR_VERSION(inner_ip6h) == IPV4_VERSION) {
+				len_needed +=
+				    IPH_HDR_LENGTH(((uchar_t *)inner_ip6h));
+			} else {
+				len_needed = sizeof (ipha_t);
+			}
 		} else {
-			ip6_t *ip6h = (ip6_t *)((uchar_t *)ipha + len_needed);
-
 			ASSERT(ipha->ipha_protocol == IPPROTO_IPV6);
-			len_needed += ip_hdr_length_v6(mp, ip6h);
+			/* function called next-line checks inner IP version */
+			len_needed += ip_hdr_length_v6(mp, inner_ip6h);
 		}
 	}
 	len_needed += ipst->ips_ip_icmp_return;
@@ -3726,10 +3751,17 @@ ip_get_pmtu(ip_xmit_attr_t *ixa)
 
 	pmtu = IP_MAXPACKET;
 	/*
-	 * Decide whether whether IPv4 sets DF
-	 * For IPv6 "no DF" means to use the 1280 mtu
+	 * We need to determine if it is acceptable to set DF for IPv4 or not
+	 * and for IPv6 if we need to use the minimum MTU. If a connection has
+	 * opted into path MTU discovery, then we can use 'DF' in IPv4 and do
+	 * not have to constrain ourselves to the IPv6 minimum MTU. There is a
+	 * second consideration here: IXAF_DONTFRAG. This is set as a result of
+	 * someone setting the IP_DONTFRAG or IPV6_DONTFRAG socket option. In
+	 * such a case, it is acceptable to set DF for IPv4 and to use a larger
+	 * MTU. Note, the actual MTU is constrained by the ill_t later on in
+	 * this function.
 	 */
-	if (ixa->ixa_flags & IXAF_PMTU_DISCOVERY) {
+	if (ixa->ixa_flags & (IXAF_PMTU_DISCOVERY | IXAF_DONTFRAG)) {
 		ixa->ixa_flags |= IXAF_PMTU_IPV4_DF;
 	} else {
 		ixa->ixa_flags &= ~IXAF_PMTU_IPV4_DF;
@@ -4123,8 +4155,6 @@ ip_modclose(ill_t *ill)
 	rw_destroy(&ill->ill_mcast_lock);
 	mutex_destroy(&ill->ill_mcast_serializer);
 	list_destroy(&ill->ill_nce);
-	cv_destroy(&ill->ill_dlpi_capab_cv);
-	mutex_destroy(&ill->ill_dlpi_capab_lock);
 
 	/*
 	 * Now we are done with the module close pieces that
@@ -5791,7 +5821,7 @@ ip_net_mask(ipaddr_t addr)
 	ipaddr_t mask = 0;
 	uchar_t	*maskp = (uchar_t *)&mask;
 
-#if defined(__i386) || defined(__amd64)
+#if defined(__x86)
 #define	TOTALLY_BRAIN_DAMAGED_C_COMPILER
 #endif
 #ifdef  TOTALLY_BRAIN_DAMAGED_C_COMPILER
@@ -6339,6 +6369,9 @@ ip_opt_set_multicast_group(conn_t *connp, t_scalar_t name,
 		optfn = ip_opt_delete_group;
 		break;
 	default:
+		/* Should not be reached. */
+		fmode = MODE_IS_INCLUDE;
+		optfn = NULL;
 		ASSERT(0);
 	}
 
@@ -6468,6 +6501,9 @@ ip_opt_set_multicast_sources(conn_t *connp, t_scalar_t name,
 		optfn = ip_opt_delete_group;
 		break;
 	default:
+		/* Should not be reached. */
+		optfn = NULL;
+		fmode = 0;
 		ASSERT(0);
 	}
 
@@ -8936,6 +8972,8 @@ ip_forward_options(mblk_t *mp, ipha_t *ipha, ill_t *dst_ill,
 
 	ip2dbg(("ip_forward_options\n"));
 	dst = ipha->ipha_dst;
+	opt = NULL;
+
 	for (optval = ipoptp_first(&opts, ipha);
 	    optval != IPOPT_EOL;
 	    optval = ipoptp_next(&opts)) {
@@ -9022,6 +9060,7 @@ ip_forward_options(mblk_t *mp, ipha_t *ipha, ill_t *dst_ill,
 			opt[IPOPT_OFFSET] += IP_ADDR_LEN;
 			break;
 		case IPOPT_TS:
+			off = 0;
 			/* Insert timestamp if there is room */
 			switch (opt[IPOPT_POS_OV_FLG] & 0x0F) {
 			case IPOPT_TS_TSONLY:
@@ -9047,7 +9086,6 @@ ip_forward_options(mblk_t *mp, ipha_t *ipha, ill_t *dst_ill,
 				 */
 				cmn_err(CE_PANIC, "ip_forward_options: "
 				    "unknown IT - bug in ip_input_options?\n");
-				return (B_TRUE);	/* Keep "lint" happy */
 			}
 			if (opt[IPOPT_OFFSET] - 1 + off > optlen) {
 				/* Increase overflow counter */
@@ -9187,6 +9225,7 @@ ip_input_local_options(mblk_t *mp, ipha_t *ipha, ip_recv_attr_t *ira)
 	ip_stack_t	*ipst = ill->ill_ipst;
 
 	ip2dbg(("ip_input_local_options\n"));
+	opt = NULL;
 
 	for (optval = ipoptp_first(&opts, ipha);
 	    optval != IPOPT_EOL;
@@ -9249,6 +9288,7 @@ ip_input_local_options(mblk_t *mp, ipha_t *ipha, ip_recv_attr_t *ira)
 			opt[IPOPT_OFFSET] += IP_ADDR_LEN;
 			break;
 		case IPOPT_TS:
+			off = 0;
 			/* Insert timestamp if there is romm */
 			switch (opt[IPOPT_POS_OV_FLG] & 0x0F) {
 			case IPOPT_TS_TSONLY:
@@ -9274,7 +9314,6 @@ ip_input_local_options(mblk_t *mp, ipha_t *ipha, ip_recv_attr_t *ira)
 				 */
 				cmn_err(CE_PANIC, "ip_input_local_options: "
 				    "unknown IT - bug in ip_input_options?\n");
-				return (B_TRUE);	/* Keep "lint" happy */
 			}
 			if (opt[IPOPT_OFFSET] - 1 + off > optlen) {
 				/* Increase overflow counter */
@@ -9343,6 +9382,7 @@ ip_input_options(ipha_t *ipha, ipaddr_t dst, mblk_t *mp,
 	ire_t		*ire;
 
 	ip2dbg(("ip_input_options\n"));
+	opt = NULL;
 	*errorp = 0;
 	for (optval = ipoptp_first(&opts, ipha);
 	    optval != IPOPT_EOL;
@@ -11891,6 +11931,7 @@ ip_output_local_options(ipha_t *ipha, ip_stack_t *ipst)
 	ipaddr_t	dst;
 	uint32_t	ts;
 	timestruc_t	now;
+	uint32_t	off = 0;
 
 	for (optval = ipoptp_first(&opts, ipha);
 	    optval != IPOPT_EOL;
@@ -11899,7 +11940,6 @@ ip_output_local_options(ipha_t *ipha, ip_stack_t *ipst)
 		optlen = opts.ipoptp_len;
 		ASSERT((opts.ipoptp_flags & IPOPTP_ERROR) == 0);
 		switch (optval) {
-			uint32_t off;
 		case IPOPT_SSRR:
 		case IPOPT_LSRR:
 			off = opt[IPOPT_OFFSET];
@@ -11969,7 +12009,6 @@ ip_output_local_options(ipha_t *ipha, ip_stack_t *ipst)
 				 */
 				cmn_err(CE_PANIC, "ip_output_local_options: "
 				    "unknown IT - bug in ip_output_options?\n");
-				return;	/* Keep "lint" happy */
 			}
 			if (opt[IPOPT_OFFSET] - 1 + off > optlen) {
 				/* Increase overflow counter */
@@ -12548,6 +12587,7 @@ ip_process_ioctl(ipsq_t *ipsq, queue_t *q, mblk_t *mp, void *arg)
 	}
 
 	ci.ci_ipif = NULL;
+	extract_funcp = NULL;
 	switch (ipip->ipi_cmd_type) {
 	case MISC_CMD:
 	case MSFILT_CMD:
@@ -12729,6 +12769,7 @@ ip_wput_nondata(queue_t *q, mblk_t *mp)
 	else
 		connp = NULL;
 
+	iocp = NULL;
 	switch (DB_TYPE(mp)) {
 	case M_IOCTL:
 		/*
@@ -12939,6 +12980,7 @@ ip_output_options(mblk_t *mp, ipha_t *ipha, ip_xmit_attr_t *ixa, ill_t *ill)
 
 	ip2dbg(("ip_output_options\n"));
 
+	opt = NULL;
 	dst = ipha->ipha_dst;
 	for (optval = ipoptp_first(&opts, ipha);
 	    optval != IPOPT_EOL;
@@ -13911,6 +13953,7 @@ ip_kstat2_init(netstackid_t stackid, ip_stat_t *ip_statisticsp)
 		{ "conn_in_recvslla",		KSTAT_DATA_UINT64 },
 		{ "conn_in_recvucred",		KSTAT_DATA_UINT64 },
 		{ "conn_in_recvttl",		KSTAT_DATA_UINT64 },
+		{ "conn_in_recvtos",		KSTAT_DATA_UINT64 },
 		{ "conn_in_recvhopopts",	KSTAT_DATA_UINT64 },
 		{ "conn_in_recvhoplimit",	KSTAT_DATA_UINT64 },
 		{ "conn_in_recvdstopts",	KSTAT_DATA_UINT64 },

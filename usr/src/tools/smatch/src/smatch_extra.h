@@ -30,6 +30,9 @@ struct data_info {
 	struct range_list *value_ranges;
 	sval_t fuzzy_max;
 	unsigned int hard_max:1;
+	unsigned int capped:1;
+	unsigned int treat_untagged:1;
+	unsigned int set:1;
 };
 DECLARE_ALLOCATOR(data_info);
 
@@ -41,10 +44,12 @@ struct range_list *rl_one(void);
 char *show_rl(struct range_list *list);
 int str_to_comparison_arg(const char *c, struct expression *call, int *comparison, struct expression **arg);
 void str_to_rl(struct symbol *type, char *value, struct range_list **rl);
-void call_results_to_rl(struct expression *call, struct symbol *type, char *value, struct range_list **rl);
+void call_results_to_rl(struct expression *call, struct symbol *type, const char *value, struct range_list **rl);
 
 struct data_range *alloc_range(sval_t min, sval_t max);
 struct data_range *alloc_range_perm(sval_t min, sval_t max);
+
+int rl_fits_in_type(struct range_list *rl, struct symbol *type);
 
 struct range_list *alloc_rl(sval_t min, sval_t max);
 struct range_list *clone_rl(struct range_list *list);
@@ -70,8 +75,11 @@ int possibly_false_rl_LR(int comparison, struct range_list *a, struct range_list
 int rl_has_sval(struct range_list *rl, sval_t sval);
 int ranges_equiv(struct data_range *one, struct data_range *two);
 
+bool is_err_ptr(sval_t sval);
+
 int rl_equiv(struct range_list *one, struct range_list *two);
 int is_whole_rl(struct range_list *rl);
+int is_unknown_ptr(struct range_list *rl);
 int is_whole_rl_non_zero(struct range_list *rl);
 int estate_is_unknown(struct smatch_state *state);
 
@@ -80,7 +88,6 @@ sval_t rl_max(struct range_list *rl);
 int rl_to_sval(struct range_list *rl, sval_t *sval);
 struct symbol *rl_type(struct range_list *rl);
 
-struct range_list *rl_invert(struct range_list *orig);
 struct range_list *rl_filter(struct range_list *rl, struct range_list *filter);
 struct range_list *rl_intersection(struct range_list *one, struct range_list *two);
 struct range_list *rl_union(struct range_list *one, struct range_list *two);
@@ -95,6 +102,7 @@ struct range_list *rl_truncate_cast(struct symbol *type, struct range_list *rl);
 struct range_list *cast_rl(struct symbol *type, struct range_list *rl);
 int get_implied_rl(struct expression *expr, struct range_list **rl);
 int get_absolute_rl(struct expression *expr, struct range_list **rl);
+void set_real_absolute(struct expression *expr, struct smatch_state *state);
 int get_real_absolute_rl(struct expression *expr, struct range_list **rl);
 struct range_list *var_to_absolute_rl(struct expression *expr);
 int custom_get_absolute_rl(struct expression *expr,
@@ -117,6 +125,7 @@ struct smatch_state *alloc_estate_rl(struct range_list *rl);
 struct smatch_state *alloc_estate_whole(struct symbol *type);
 struct smatch_state *clone_estate(struct smatch_state *state);
 struct smatch_state *clone_estate_cast(struct symbol *type, struct smatch_state *state);
+struct smatch_state *clone_partial_estate(struct smatch_state *state, struct range_list *rl);
 
 struct smatch_state *merge_estates(struct smatch_state *s1, struct smatch_state *s2);
 
@@ -140,12 +149,17 @@ int estate_has_hard_max(struct smatch_state *state);
 void estate_set_hard_max(struct smatch_state *state);
 void estate_clear_hard_max(struct smatch_state *state);
 int estate_get_hard_max(struct smatch_state *state, sval_t *sval);
+bool estate_capped(struct smatch_state *state);
+void estate_set_capped(struct smatch_state *state);
+bool estate_treat_untagged(struct smatch_state *state);
+void estate_set_treat_untagged(struct smatch_state *state);
+bool estate_new(struct smatch_state *state);
+void estate_set_new(struct smatch_state *state);
 
 int estate_get_single_value(struct smatch_state *state, sval_t *sval);
 struct smatch_state *get_implied_estate(struct expression *expr);
 
 struct smatch_state *estate_filter_sval(struct smatch_state *orig, sval_t filter);
-struct smatch_state *estate_filter_range(struct smatch_state *orig, sval_t filter_min, sval_t filter_max);
 struct data_info *clone_dinfo_perm(struct data_info *dinfo);
 struct smatch_state *clone_estate_perm(struct smatch_state *state);
 
@@ -204,8 +218,10 @@ struct expression *array_element_expression(struct expression *array, struct exp
 struct expression *symbol_expression(struct symbol *sym);
 struct expression *string_expression(char *str);
 struct expression *compare_expression(struct expression *left, int op, struct expression *right);
+struct expression *call_expression(struct expression *fn, struct expression_list *args);
 struct expression *unknown_value_expression(struct expression *expr);
 int is_fake_call(struct expression *expr);
+struct expression *gen_expression_from_name_sym(const char *name, struct symbol *sym);
 struct expression *gen_expression_from_key(struct expression *arg, const char *key);
 void free_tmp_expressions(void);
 void expr_set_parent_expr(struct expression *expr, struct expression *parent);

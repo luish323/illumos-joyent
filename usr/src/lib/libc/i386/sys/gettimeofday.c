@@ -22,13 +22,13 @@
 extern int __clock_gettime_sys(clockid_t, timespec_t *);
 
 int
-gettimeofday(struct timeval *tv, void *tz)
+gettimeofday(struct timeval *tv, void *tz __unused)
 {
 	comm_page_t *cp = (comm_page_t *)__uberdata.ub_comm_page;
 
 	/*
 	 * Perform a NULL check before attempting to store the result directly.
-	 * The old fasttrop logic would perform this same check, but after the
+	 * The old fasttrap logic would perform this same check, but after the
 	 * call into hrestime().
 	 */
 	if (tv == NULL) {
@@ -40,9 +40,10 @@ gettimeofday(struct timeval *tv, void *tz)
 	 * and layout of their members, the conversion can be done in-place.
 	 */
 	if (cp != NULL && __cp_can_gettime(cp) != 0) {
-		__cp_clock_gettime_realtime(cp, (struct timespec *)tv);
+		(void) __cp_clock_gettime_realtime(cp, (struct timespec *)tv);
 	} else {
-		__clock_gettime_sys(CLOCK_REALTIME, (struct timespec *)tv);
+		(void) __clock_gettime_sys(CLOCK_REALTIME,
+		    (struct timespec *)tv);
 	}
 	/* Convert from tv_nsec to tv_usec */
 	tv->tv_usec /= 1000;

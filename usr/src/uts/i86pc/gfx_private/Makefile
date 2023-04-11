@@ -47,7 +47,7 @@ GFXP_VGATEXT_SRC	= $(UTSBASE)/i86pc/io/gfx_private
 #
 #	dependency
 #
-LDFLAGS	+=      -dy -Nmisc/pci_autoconfig
+LDFLAGS	+=      -Nmisc/pci_autoconfig
 
 #
 #	Include common rules.
@@ -65,7 +65,7 @@ INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 # to investigate and remove these for maximum coverage.
 # Please do not carry these forward to new Makefiles.
 #
-CERRWARN	+= -_gcc=-Wno-uninitialized
+CERRWARN	+= $(CNOWARN_UNINIT)
 CERRWARN	+= -_gcc=-Wno-parentheses
 
 #

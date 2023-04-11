@@ -10,7 +10,8 @@
  */
 
 /*
- * Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2019 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2022 RackTop Systems, Inc.
  */
 
 
@@ -256,34 +257,43 @@ smb2_tq_work(void *arg)
 	smb_srqueue_runq_exit(srq);
 }
 
+/*
+ * Any non-zero return code and we'll drop the connection.
+ * Other than that, return codes are just informative eg.
+ * when looking at dtrace logs, which return did we take?
+ */
 static int
 smb3_decrypt_msg(smb_request_t *sr)
 {
 	int save_offset;
 
 	if (sr->session->dialect < SMB_VERS_3_0) {
-		cmn_err(CE_WARN, "encrypted message in SMB 2.x");
+		/* Encrypted message in SMB 2.x */
 		return (-1);
+	}
+	if ((sr->session->srv_cap & SMB2_CAP_ENCRYPTION) == 0) {
+		/* Should have srv_cap SMB2_CAP_ENCRYPTION flag set! */
+		return (-2);
 	}
 
 	sr->encrypted = B_TRUE;
 	save_offset = sr->command.chain_offset;
 	if (smb3_decode_tform_header(sr) != 0) {
-		cmn_err(CE_WARN, "bad transform header");
-		return (-1);
+		/* Bad transform header */
+		return (-3);
 	}
 	sr->command.chain_offset = save_offset;
 
 	sr->tform_ssn = smb_session_lookup_ssnid(sr->session,
 	    sr->smb3_tform_ssnid);
 	if (sr->tform_ssn == NULL) {
-		cmn_err(CE_WARN, "transform header: session not found");
-		return (-1);
+		/* Session not found */
+		return (-4);
 	}
 
 	if (smb3_decrypt_sr(sr) != 0) {
-		cmn_err(CE_WARN, "smb3 decryption failed");
-		return (-1);
+		/* Decryption failed */
+		return (-5);
 	}
 
 	return (0);
@@ -325,32 +335,34 @@ smb2_credit_decrease(smb_request_t *sr)
 	smb_session_t *session = sr->session;
 	uint16_t cur, d;
 
+	ASSERT3U(sr->smb2_credit_request, <, sr->smb2_credit_charge);
+
 	mutex_enter(&session->s_credits_mutex);
 	cur = session->s_cur_credits;
+	ASSERT(cur > 0);
 
 	/* Handle credit decrease. */
 	d = sr->smb2_credit_charge - sr->smb2_credit_request;
-	cur -= d;
-	if (cur & 0x8000) {
-		/*
-		 * underflow (bad credit charge or request)
-		 * leave credits unchanged (response=charge)
-		 */
-		cur = session->s_cur_credits;
-		sr->smb2_credit_response = sr->smb2_credit_charge;
-		DTRACE_PROBE1(smb2__credit__neg, smb_request_t *, sr);
-	}
 
 	/*
-	 * The server MUST ensure that the number of credits
-	 * held by the client is never reduced to zero.
+	 * Prevent underflow of current credits, and
+	 * enforce a minimum of one credit, per:
 	 * [MS-SMB2] 3.3.1.2
 	 */
-	if (cur == 0) {
+	if (d >= cur) {
+		/*
+		 * Tried to give up more credits than we should.
+		 * Reduce the decrement.
+		 */
+		d = cur - 1;
 		cur = 1;
-		sr->smb2_credit_response += 1;
-		DTRACE_PROBE1(smb2__credit__min, smb_request_t *, sr);
+		DTRACE_PROBE1(smb2__credit__neg, smb_request_t *, sr);
+	} else {
+		cur -= d;
 	}
+
+	ASSERT3U(d, <=, sr->smb2_credit_charge);
+	sr->smb2_credit_response = sr->smb2_credit_charge - d;
 
 	DTRACE_PROBE3(smb2__credit__decrease,
 	    smb_request_t *, sr, int, (int)cur,
@@ -369,23 +381,26 @@ smb2_credit_increase(smb_request_t *sr)
 	smb_session_t *session = sr->session;
 	uint16_t cur, d;
 
+	ASSERT3U(sr->smb2_credit_request, >, sr->smb2_credit_charge);
+
 	mutex_enter(&session->s_credits_mutex);
 	cur = session->s_cur_credits;
 
 	/* Handle credit increase. */
 	d = sr->smb2_credit_request - sr->smb2_credit_charge;
-	cur += d;
 
 	/*
 	 * If new credits would be above max,
 	 * reduce the credit grant.
 	 */
-	if (cur > session->s_max_credits) {
-		d = cur - session->s_max_credits;
+	if (d > (session->s_max_credits - cur)) {
+		d = session->s_max_credits - cur;
 		cur = session->s_max_credits;
-		sr->smb2_credit_response -= d;
-		DTRACE_PROBE1(smb2__credit__max, smb_request_t, sr);
+		DTRACE_PROBE1(smb2__credit__max, smb_request_t *, sr);
+	} else {
+		cur += d;
 	}
+	sr->smb2_credit_response = sr->smb2_credit_charge + d;
 
 	DTRACE_PROBE3(smb2__credit__increase,
 	    smb_request_t *, sr, int, (int)cur,
@@ -694,9 +709,7 @@ cmd_start:
 			 * Note that Session.EncryptData can only be TRUE when
 			 * we're talking 3.x.
 			 */
-
-			if (sr->uid_user->u_encrypt ==
-			    SMB_CONFIG_REQUIRED &&
+			if (sr->uid_user->u_encrypt == SMB_CONFIG_REQUIRED &&
 			    !sr->encrypted) {
 				smb2sr_put_error(sr,
 				    NT_STATUS_ACCESS_DENIED);
@@ -822,18 +835,20 @@ cmd_start:
 	 */
 	if ((sdd->sdt_flags & SDDF_SUPPRESS_UID) == 0 &&
 	    !sr->encrypted && sr->uid_user != NULL &&
-	    (sr->uid_user->u_sign_flags & SMB_SIGNING_CHECK) != 0) {
+	    (sr->uid_user->u_sign_flags & SMB_SIGNING_ENABLED) != 0) {
 		/*
-		 * This request type should be signed, and
-		 * we're configured to require signatures.
+		 * If the request is signed, check the signature.
+		 * Otherwise, if signing is required, deny access.
 		 */
-		if ((sr->smb2_hdr_flags & SMB2_FLAGS_SIGNED) == 0) {
-			smb2sr_put_error(sr, NT_STATUS_ACCESS_DENIED);
-			goto cmd_done;
-		}
-		rc = smb2_sign_check_request(sr);
-		if (rc != 0) {
-			DTRACE_PROBE1(smb2__sign__check, smb_request_t *, sr);
+		if ((sr->smb2_hdr_flags & SMB2_FLAGS_SIGNED) != 0) {
+			if (smb2_sign_check_request(sr) != 0) {
+				smb2sr_put_error(sr, NT_STATUS_ACCESS_DENIED);
+				DTRACE_PROBE1(smb2__sign__check,
+				    smb_request_t *, sr);
+				goto cmd_done;
+			}
+		} else if (
+		    (sr->uid_user->u_sign_flags & SMB_SIGNING_CHECK) != 0) {
 			smb2sr_put_error(sr, NT_STATUS_ACCESS_DENIED);
 			goto cmd_done;
 		}
@@ -855,7 +870,6 @@ cmd_start:
 	 * when we sent the interim reply.
 	 */
 	if (!sr->smb2_async) {
-		sr->smb2_credit_response = sr->smb2_credit_request;
 		if (sr->smb2_credit_request < sr->smb2_credit_charge) {
 			smb2_credit_decrease(sr);
 		}
@@ -910,7 +924,7 @@ cmd_done:
 		cmn_err(CE_NOTE, "handler for %u returned 0x%x",
 		    sr->smb2_cmd_code, rc);
 #endif
-		sr->smb2_status = NT_STATUS_INTERNAL_ERROR;
+		smb2sr_put_error(sr, NT_STATUS_INTERNAL_ERROR);
 		break;
 	case SDRC_ERROR:
 		/*
@@ -921,6 +935,7 @@ cmd_done:
 		 */
 		if (sr->smb2_status == 0)
 			sr->smb2_status = NT_STATUS_INVALID_PARAMETER;
+		smb2sr_put_error(sr, sr->smb2_status);
 		break;
 	case SDRC_DROP_VC:
 		disconnect = B_TRUE;
@@ -968,6 +983,19 @@ cmd_done:
 	 */
 	(void) smb2_encode_header(sr, B_TRUE);
 
+	/*
+	 * Cannot move this into smb2_session_setup() - encoded header required.
+	 */
+	if (session->dialect >= SMB_VERS_3_11 &&
+	    sr->smb2_cmd_code == SMB2_SESSION_SETUP &&
+	    sr->smb2_status == NT_STATUS_MORE_PROCESSING_REQUIRED) {
+		if (smb31_preauth_sha512_calc(sr, &sr->reply,
+		    sr->uid_user->u_preauth_hashval,
+		    sr->uid_user->u_preauth_hashval) != 0)
+			cmn_err(CE_WARN, "(3) Preauth hash calculation "
+			    "failed");
+	}
+
 	/* Don't sign if we're going to encrypt */
 	if (sr->tform_ssn == NULL &&
 	    (sr->smb2_hdr_flags & SMB2_FLAGS_SIGNED) != 0)
@@ -979,6 +1007,16 @@ cmd_done:
 	 */
 	if (!sr->smb2_async && sr->smb2_next_command != 0)
 		goto cmd_start;
+
+	/*
+	 * If we have a durable handle, and this operation updated
+	 * the nvlist, write it out (before smb2_send_reply).
+	 */
+	if (sr->dh_nvl_dirty) {
+		sr->dh_nvl_dirty = B_FALSE;
+		smb2_dh_update_nvfile(sr);
+	}
+
 	smb2_send_reply(sr);
 	if (sr->smb2_async && sr->smb2_next_command != 0) {
 		MBC_FLUSH(&sr->reply);	/* New reply buffer. */
@@ -990,6 +1028,9 @@ cleanup:
 	if (disconnect)
 		smb_session_disconnect(session);
 
+	/*
+	 * Do "postwork" for oplock (and maybe other things)
+	 */
 	if (sr->sr_postwork != NULL)
 		smb2sr_run_postwork(sr);
 
@@ -1091,8 +1132,8 @@ cmd_start:
 		disconnect = B_TRUE;
 		goto cleanup;
 	}
-	sr->smb2_hdr_flags |=  (SMB2_FLAGS_SERVER_TO_REDIR |
-				SMB2_FLAGS_ASYNC_COMMAND);
+	sr->smb2_hdr_flags |= (SMB2_FLAGS_SERVER_TO_REDIR |
+	    SMB2_FLAGS_ASYNC_COMMAND);
 	sr->smb2_async_id = SMB2_ASYNCID(sr);
 
 	/*
@@ -1174,7 +1215,6 @@ cmd_start:
 	 * credit decrease was done by the caller.
 	 */
 	if (sr->smb2_cmd_hdr != saved_cmd_hdr) {
-		sr->smb2_credit_response = sr->smb2_credit_request;
 		if (sr->smb2_credit_request < sr->smb2_credit_charge) {
 			smb2_credit_decrease(sr);
 		}
@@ -1461,8 +1501,7 @@ smb2_send_reply(smb_request_t *sr)
 
 	if ((session->capabilities & SMB2_CAP_ENCRYPTION) == 0 ||
 	    sr->tform_ssn == NULL) {
-		if (smb_session_send(sr->session, 0, &sr->reply) == 0)
-			sr->reply.chain = 0;
+		(void) smb_session_send(sr->session, 0, &sr->reply);
 		return;
 	}
 
@@ -1487,8 +1526,8 @@ smb2_send_reply(smb_request_t *sr)
 		goto errout;
 	}
 
-	if (smb_session_send(sr->session, 0, &enc_reply) == 0)
-		enc_reply.chain = 0;
+	(void) smb_session_send(sr->session, 0, &enc_reply);
+	kmem_free(tmpbuf, buflen);
 	return;
 
 errout:
@@ -1569,6 +1608,66 @@ smb2sr_put_error_data(smb_request_t *sr, uint32_t status, mbuf_chain_t *mbc)
 		    0,	/* reserved */		/* w */
 		    0);				/* l. */
 	}
+}
+
+/*
+ * Build an SMB2 error context response (dialect 3.1.1).
+ */
+void
+smb2sr_put_error_ctx(smb_request_t *sr, uint32_t status, uint32_t errid,
+    mbuf_chain_t *mbc)
+{
+	DWORD len;
+
+	/*
+	 * The common dispatch code writes this when it
+	 * updates the SMB2 header before sending.
+	 */
+	sr->smb2_status = status;
+
+	/* Rewind to the end of the SMB header. */
+	sr->reply.chain_offset = sr->smb2_reply_hdr + SMB2_HDR_SIZE;
+
+	/*
+	 *  Error Context is 8-byte header plus encaps. data (ErrorContextData),
+	 *  which can be zero-length.
+	 */
+	if (mbc != NULL && (len = MBC_LENGTH(mbc)) != 0) {
+		(void) smb_mbc_encodef(
+		    &sr->reply,
+		    "wbblllC",
+		    9,		/* StructSize */	/* w */
+		    1,		/* ErrorContextCount */	/* b */
+		    0,		/* reserved */		/* b */
+		    8+len,	/* ByteCount */		/* l */
+		    len,	/* ErrorDataLength */	/* l */
+		    errid,	/* ErrorId */		/* l */
+		    mbc);				/* C */
+	} else {
+		(void) smb_mbc_encodef(
+		    &sr->reply,
+		    "wbblll",
+		    9,		/* StructSize */	/* w */
+		    1,		/* ErrorContextCount */	/* b */
+		    0,		/* reserved */		/* b */
+		    8,		/* ByteCount */		/* l */
+		    0,		/* ErrorDataLength */	/* l */
+		    errid);	/* ErrorId */		/* l */
+	}
+}
+
+/*
+ * Build an SMB2 error context response with SMB2_ERROR_ID_DEFAULT ErrorId.
+ *
+ * This only handles the case we currently need, encapsulating a
+ * single error data section inside an SMB2_ERROR_ID_DEFAULT
+ * error context type (which is type zero, and that's what
+ * the zero on the end of this function name refers to).
+ */
+void
+smb2sr_put_error_ctx0(smb_request_t *sr, uint32_t status, mbuf_chain_t *mbc)
+{
+	return (smb2sr_put_error_ctx(sr, status, SMB2_ERROR_ID_DEFAULT, mbc));
 }
 
 /*
@@ -1723,11 +1822,21 @@ smb2sr_run_postwork(smb_request_t *top_sr)
 
 		switch (post_sr->smb2_cmd_code) {
 		case SMB2_OPLOCK_BREAK:
-			smb_oplock_send_brk(post_sr);
+			smb_oplock_send_break(post_sr);
 			break;
 		default:
 			ASSERT(0);
 		}
+
+		/*
+		 * If we have a durable handle, and this operation
+		 * updated the nvlist, write it out.
+		 */
+		if (post_sr->dh_nvl_dirty) {
+			post_sr->dh_nvl_dirty = B_FALSE;
+			smb2_dh_update_nvfile(post_sr);
+		}
+
 		post_sr->sr_state = SMB_REQ_STATE_COMPLETED;
 		smb_request_free(post_sr);
 	}

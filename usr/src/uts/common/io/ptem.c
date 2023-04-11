@@ -20,7 +20,7 @@
  * CDDL HEADER END
  */
 /*	Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T	*/
-/*	  All Rights Reserved  	*/
+/*	  All Rights Reserved	*/
 
 
 /*
@@ -97,9 +97,9 @@ _info(struct modinfo *modinfop)
  */
 static int ptemopen(queue_t *, dev_t  *, int, int, cred_t *);
 static int ptemclose(queue_t *, int, cred_t *);
-static void ptemrput(queue_t *, mblk_t *);
-static void ptemwput(queue_t *, mblk_t *);
-static void ptemwsrv(queue_t *);
+static int ptemrput(queue_t *, mblk_t *);
+static int ptemwput(queue_t *, mblk_t *);
+static int ptemwsrv(queue_t *);
 
 static struct module_info ptem_info = {
 	0xabcd,
@@ -111,7 +111,7 @@ static struct module_info ptem_info = {
 };
 
 static struct qinit ptemrinit = {
-	(int (*)()) ptemrput,
+	ptemrput,
 	NULL,
 	ptemopen,
 	ptemclose,
@@ -121,8 +121,8 @@ static struct qinit ptemrinit = {
 };
 
 static struct qinit ptemwinit = {
-	(int (*)()) ptemwput,
-	(int (*)()) ptemwsrv,
+	ptemwput,
+	ptemwsrv,
 	ptemopen,
 	ptemclose,
 	nulldev,
@@ -267,7 +267,7 @@ ptemclose(queue_t *q, int flag, cred_t *credp)
  *
  * This is called from the module or driver downstream.
  */
-static void
+static int
 ptemrput(queue_t *q, mblk_t *mp)
 {
 	struct iocblk *iocp;	/* M_IOCTL data */
@@ -401,7 +401,7 @@ ptemrput(queue_t *q, mblk_t *mp)
 	case M_IOCACK:
 	case M_IOCNAK:
 		/*
-		 * We only pass write-side ioctls through to the master that
+		 * We only pass write-side ioctls through to the manager that
 		 * we've already ACKed or NAKed to the stream head.  Thus, we
 		 * discard ones arriving from below, since they're redundant
 		 * from the point of view of modules above us.
@@ -425,6 +425,7 @@ ptemrput(queue_t *q, mblk_t *mp)
 		putnext(q, mp);
 		break;
 	}
+	return (0);
 }
 
 
@@ -437,7 +438,7 @@ ptemrput(queue_t *q, mblk_t *mp)
  *	basically just giving up and reporting failure.  It really ought to
  *	set up bufcalls and only fail when it's absolutely necessary.
  */
-static void
+static int
 ptemwput(queue_t *q, mblk_t *mp)
 {
 	struct ptem *ntp = (struct ptem *)q->q_ptr;
@@ -514,7 +515,7 @@ ptemwput(queue_t *q, mblk_t *mp)
 			putnext(q, mp);
 			break;
 		}
-		return;
+		return (0);
 	}
 	/*
 	 * If our queue is nonempty or flow control persists
@@ -546,13 +547,13 @@ ptemwput(queue_t *q, mblk_t *mp)
 			 */
 			default:
 				(void) ptemwmsg(q, mp);
-				return;
+				return (0);
 			}
 			break;
 
 		case M_DELAY: /* tty delays not supported */
 			freemsg(mp);
-			return;
+			return (0);
 
 		case M_DATA:
 			if ((mp->b_wptr - mp->b_rptr) < 0) {
@@ -560,28 +561,29 @@ ptemwput(queue_t *q, mblk_t *mp)
 				 * Free all bad length messages.
 				 */
 				freemsg(mp);
-				return;
+				return (0);
 			} else if ((mp->b_wptr - mp->b_rptr) == 0) {
 				if (!(ntp->state & IS_PTSTTY)) {
 					freemsg(mp);
-					return;
+					return (0);
 				}
 			}
 		}
 		(void) putq(q, mp);
-		return;
+		return (0);
 	}
 	/*
 	 * fast path into ptemwmsg to dispose of mp.
 	 */
 	if (!ptemwmsg(q, mp))
 		(void) putq(q, mp);
+	return (0);
 }
 
 /*
  * ptem write queue service procedure.
  */
-static void
+static int
 ptemwsrv(queue_t *q)
 {
 	mblk_t *mp;
@@ -592,6 +594,7 @@ ptemwsrv(queue_t *q)
 			break;
 		}
 	}
+	return (0);
 }
 
 
@@ -623,7 +626,7 @@ ptemwmsg(queue_t *q, mblk_t *mp)
 		 * of the M_IOCTL message is made and passed
 		 * downstream.  Eventually the PCKT module, if
 		 * it has been pushed, should pick up this message.
-		 * If the PCKT module has not been pushed the master
+		 * If the PCKT module has not been pushed the manager
 		 * side stream head will free it.
 		 */
 		iocp = (struct iocblk *)mp->b_rptr;
@@ -753,7 +756,7 @@ out:
 
 			/*
 			 * TCSBRK meaningful if data part of message is 0
-			 * cf. termio(7).
+			 * cf. termio(4I).
 			 */
 			if (!(*(int *)mp->b_cont->b_rptr))
 				(void) putnextctl(q, M_BREAK);
@@ -840,8 +843,9 @@ out:
 
 		default:
 			/*
-			 * End of the line.  The slave driver doesn't see any
-			 * ioctls that we don't explicitly pass along to it.
+			 * End of the line.  The subsidiary driver doesn't see
+			 * any ioctls that we don't explicitly pass along to
+			 * it.
 			 */
 			miocnak(q, mp, 0, EINVAL);
 			break;
@@ -980,14 +984,14 @@ ptioc(queue_t *q, mblk_t *mp, int qside)
 				(void) putnextctl1(q, M_SIG, SIGWINCH);
 			/*
 			 * Message may have come in as an M_IOCDATA; pass it
-			 * to the master side as an M_IOCTL.
+			 * to the manager side as an M_IOCTL.
 			 */
 			mp->b_datap->db_type = M_IOCTL;
 			if (qside == WRSIDE) {
 				/*
 				 * Need a copy of this message to pass on to
 				 * the PCKT module, only if the M_IOCTL
-				 * orginated from the slave side.
+				 * orginated from the subsidiary side.
 				 */
 				if ((pckt_msgp = copymsg(mp)) == NULL) {
 					miocnak(q, mp, 0, EAGAIN);
@@ -1007,7 +1011,7 @@ ptioc(queue_t *q, mblk_t *mp, int qside)
 
 	case TIOCSIGNAL: {
 		/*
-		 * This ioctl can emanate from the master side in remote
+		 * This ioctl can emanate from the manager side in remote
 		 * mode only.
 		 */
 		int	sig;
@@ -1031,8 +1035,8 @@ ptioc(queue_t *q, mblk_t *mp, int qside)
 		}
 
 		/*
-		 * Send an M_PCSIG message up the slave's read side and
-		 * respond back to the master with an ACK or NAK as
+		 * Send an M_PCSIG message up the subsidiary's read side and
+		 * respond back to the manager with an ACK or NAK as
 		 * appropriate.
 		 */
 		if (putnextctl1(q, M_PCSIG, sig) == 0) {

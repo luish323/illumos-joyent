@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2013 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2019 Nexenta by DDN, Inc. All rights reserved.
  */
 
 /*
@@ -41,6 +41,7 @@ uint32_t smb2_qfs_attr(smb_request_t *);
 uint32_t smb2_qfs_control(smb_request_t *);
 uint32_t smb2_qfs_fullsize(smb_request_t *);
 uint32_t smb2_qfs_obj_id(smb_request_t *);
+uint32_t smb2_qfs_sectorsize(smb_request_t *);
 
 uint32_t
 smb2_qinfo_fs(smb_request_t *sr, smb_queryinfo_t *qi)
@@ -71,9 +72,18 @@ smb2_qinfo_fs(smb_request_t *sr, smb_queryinfo_t *qi)
 	case FileFsObjectIdInformation:	/* 8 */
 		status = smb2_qfs_obj_id(sr);
 		break;
-
-	default:
+	case FileFsDriverPathInformation:	/* 9 */
+	case FileFsVolumeFlagsInformation:	/* A */
 		status = NT_STATUS_INVALID_INFO_CLASS;
+		break;
+	case FileFsSectorSizeInformation:	/* B */
+		status = smb2_qfs_sectorsize(sr);
+		break;
+	default: /* there are some infoclasses we don't yet handle */
+		status = NT_STATUS_INVALID_INFO_CLASS;
+#ifdef	DEBUG
+		cmn_err(CE_NOTE, "unknown InfoClass 0x%x", qi->qi_InfoClass);
+#endif
 		break;
 	}
 
@@ -90,6 +100,7 @@ smb2_qfs_volume(smb_request_t *sr)
 	smb_node_t *snode;
 	fsid_t fsid;
 	uint32_t LabelLength;
+	int rc;
 
 	if (!STYPE_ISDSK(tree->t_res_type))
 		return (NT_STATUS_INVALID_PARAMETER);
@@ -102,14 +113,16 @@ smb2_qfs_volume(smb_request_t *sr)
 	/*
 	 * NT has the "supports objects" flag set to 1.
 	 */
-	(void) smb_mbc_encodef(
-	    &sr->raw_data, "qllb.U",
-	    0LL,	/* Volume creation time (q) */
+	rc = smb_mbc_encodef(
+	    &sr->raw_data, "Tllb.U",
+	    &tree->t_create_time,	/*	(T) */
 	    fsid.val[0],	/* serial no.   (l) */
 	    LabelLength,		/*	(l) */
 	    0,		/* Supports objects	(b) */
 	    /* reserved				(.) */
 	    tree->t_volume);		/*	(U) */
+	if (rc != 0)
+		return (NT_STATUS_BUFFER_OVERFLOW);
 
 	return (0);
 }
@@ -131,12 +144,14 @@ smb2_qfs_size(smb_request_t *sr)
 	if (rc)
 		return (smb_errno2status(rc));
 
-	(void) smb_mbc_encodef(
+	rc = smb_mbc_encodef(
 	    &sr->raw_data, "qqll",
 	    fssize.fs_caller_units,
 	    fssize.fs_caller_avail,
 	    fssize.fs_sectors_per_unit,
 	    fssize.fs_bytes_per_sector);
+	if (rc != 0)
+		return (NT_STATUS_BUFFER_OVERFLOW);
 
 	return (0);
 }
@@ -158,13 +173,15 @@ smb2_qfs_fullsize(smb_request_t *sr)
 	if (rc)
 		return (smb_errno2status(rc));
 
-	(void) smb_mbc_encodef(
+	rc = smb_mbc_encodef(
 	    &sr->raw_data, "qqqll",
 	    fssize.fs_caller_units,
 	    fssize.fs_caller_avail,
 	    fssize.fs_volume_avail,
 	    fssize.fs_sectors_per_unit,
 	    fssize.fs_bytes_per_sector);
+	if (rc != 0)
+		return (NT_STATUS_BUFFER_OVERFLOW);
 
 	return (0);
 }
@@ -178,6 +195,7 @@ smb2_qfs_device(smb_request_t *sr)
 	smb_tree_t *tree = sr->tid_tree;
 	uint32_t DeviceType;
 	uint32_t Characteristics;
+	int rc;
 
 	if (!STYPE_ISDSK(tree->t_res_type))
 		return (NT_STATUS_INVALID_PARAMETER);
@@ -185,10 +203,12 @@ smb2_qfs_device(smb_request_t *sr)
 	DeviceType = FILE_DEVICE_DISK;
 	Characteristics = FILE_DEVICE_IS_MOUNTED;
 
-	(void) smb_mbc_encodef(
+	rc = smb_mbc_encodef(
 	    &sr->raw_data, "ll",
 	    DeviceType,
 	    Characteristics);
+	if (rc != 0)
+		return (NT_STATUS_BUFFER_OVERFLOW);
 
 	return (0);
 }
@@ -203,6 +223,7 @@ smb2_qfs_attr(smb_request_t *sr)
 	char *fsname;
 	uint32_t namelen;
 	uint32_t FsAttr;
+	int rc;
 
 	/* This call is OK on all tree types. */
 	switch (tree->t_res_type & STYPE_MASK) {
@@ -237,12 +258,14 @@ smb2_qfs_attr(smb_request_t *sr)
 	if (tree->t_flags & SMB_TREE_SPARSE)
 		FsAttr |= FILE_SUPPORTS_SPARSE_FILES;
 
-	(void) smb_mbc_encodef(
+	rc = smb_mbc_encodef(
 	    &sr->raw_data, "lllU",
 	    FsAttr,
 	    MAXNAMELEN-1,
 	    namelen,
 	    fsname);
+	if (rc != 0)
+		return (NT_STATUS_BUFFER_OVERFLOW);
 
 	return (0);
 }
@@ -254,6 +277,7 @@ uint32_t
 smb2_qfs_control(smb_request_t *sr)
 {
 	smb_tree_t *tree = sr->tid_tree;
+	int rc;
 
 	if (!STYPE_ISDSK(tree->t_res_type))
 		return (NT_STATUS_INVALID_PARAMETER);
@@ -265,7 +289,7 @@ smb2_qfs_control(smb_request_t *sr)
 		return (NT_STATUS_VOLUME_NOT_UPGRADED);
 	}
 
-	(void) smb_mbc_encodef(
+	rc = smb_mbc_encodef(
 	    &sr->raw_data, "qqqqqll",
 	    0,		/* free space start filtering - MUST be 0 */
 	    0,		/* free space threshold - MUST be 0 */
@@ -274,6 +298,8 @@ smb2_qfs_control(smb_request_t *sr)
 	    SMB_QUOTA_UNLIMITED,	/* default quota limit */
 	    FILE_VC_QUOTA_ENFORCE,	/* fs control flag */
 	    0);				/* pad bytes */
+	if (rc != 0)
+		return (NT_STATUS_BUFFER_OVERFLOW);
 
 	return (0);
 }
@@ -286,4 +312,117 @@ uint32_t
 smb2_qfs_obj_id(smb_request_t *sr)
 {
 	return (NT_STATUS_INVALID_PARAMETER);
+}
+
+/*
+ * Not sure yet where these should go.
+ * Flags in FileFsSectorSizeInformation
+ */
+
+#define	SSINFO_FLAGS_ALIGNED_DEVICE	0x00000001
+// When set, this flag indicates that the first physical sector of the device
+// is aligned with the first logical sector. When not set, the first physical
+// sector of the device is misaligned with the first logical sector.
+
+#define	SSINFO_FLAGS_PARTITION_ALIGNED_ON_DEVICE	0x00000002
+// When set, this flag indicates that the partition is aligned to physical
+// sector boundaries on the storage device.
+
+#define	SSINFO_FLAGS_NO_SEEK_PENALTY	0x00000004
+// When set, the device reports that it does not incur a seek penalty (this
+// typically indicates that the device does not have rotating media, such as
+// flash-based disks).
+
+#define	SSINFO_FLAGS_TRIM_ENABLED	0x00000008
+// When set, the device supports TRIM operations, either T13 (ATA) TRIM or
+// T10 (SCSI/SAS) UNMAP.
+
+#define	SSINFO_OFFSET_UNKNOWN		0xffffffff
+// For "Alignment" fields below
+
+/*
+ * We have to lie to Windows Hyper-V about our logical record size,
+ * because with larger sizes it fails setting up a virtual disk.
+ */
+int smb2_max_logical_sector_size = 4096;
+
+/*
+ * FileFsSectorSizeInformation
+ *
+ * Returns a FILE_FS_SECTOR_SIZE_INFORMATION
+ * See: [MS-FSCC] 2.5.8 FileFsSizeInformation
+ *
+ * LogicalBytesPerSector (4 bytes): ... number of bytes in a logical sector
+ *   for the device backing the volume. This field is the unit of logical
+ *   addressing for the device and is not the unit of atomic write.
+ * PhysicalBytesPerSectorForAtomicity (4 bytes): ... number of bytes in a
+ *   physical sector for the device backing the volume.  This is the reported
+ *   physical sector size of the device and is the unit of atomic write.
+ * PhysicalBytesPerSectorForPerformance (4 bytes): ... number of bytes in a
+ *   physical sector for the device backing the volume. This is the reported
+ *   physical sector size of the device and is the unit of performance.
+ * FileSystemEffectivePhysicalBytesPerSectorForAtomicity (4 bytes): unit, in
+ *   bytes, that the file system on the volume will use for internal operations
+ *   that require alignment and atomicity.
+ * Flags (4 bytes): See ...
+ * ByteOffsetForSectorAlignment (4 bytes): ... logical sector offset within the
+ *   first physical sector where the first logical sector is placed, in bytes.
+ *   If this value is set to SSINFO_OFFSET_UNKNOWN (0xffffffff), there was
+ *   insufficient information to compute this field.
+ * ByteOffsetForPartitionAlignment (4 bytes): ... byte offset from the first
+ *   physical sector where the first partition is placed. If this value is
+ *   set to SSINFO_OFFSET_UNKNOWN (0xffffffff), there was either insufficient
+ *   information or an error was encountered in computing this field.
+ */
+uint32_t
+smb2_qfs_sectorsize(smb_request_t *sr)
+{
+	smb_fssize_t		fssize;
+	smb_tree_t *tree = sr->tid_tree;
+	uint32_t lbps, pbps;
+	uint32_t flags, unk;
+	int rc;
+
+	if (!STYPE_ISDSK(tree->t_res_type))
+		return (NT_STATUS_INVALID_PARAMETER);
+
+	rc = smb_fssize(sr, &fssize);
+	if (rc)
+		return (smb_errno2status(rc));
+
+	// PhysicalBytesPerSector
+	pbps = fssize.fs_bytes_per_sector;
+
+	// LogicalBytesPerSector
+	lbps = fssize.fs_sectors_per_unit * pbps;
+	if (lbps > smb2_max_logical_sector_size)
+		lbps = smb2_max_logical_sector_size;
+
+	// Flags
+	// We include "no seek penalty" because our files are
+	// always ZFS-backed, which can reorder things on disk.
+	// Leaving out SSINFO_FLAGS_TRIM_ENABLED for now.
+	flags = SSINFO_FLAGS_ALIGNED_DEVICE |
+		SSINFO_FLAGS_PARTITION_ALIGNED_ON_DEVICE |
+		SSINFO_FLAGS_NO_SEEK_PENALTY;
+
+	// ByteOffsetForSectorAlignment
+	// ByteOffsetForPartitionAlignment
+	// Just say "unknown" for these two.
+	unk = SSINFO_OFFSET_UNKNOWN;
+
+	rc = smb_mbc_encodef(
+	    &sr->raw_data,
+	    "lllllll",
+	    lbps, // LogicalBytesPerSector
+	    pbps, // PhysicalBytesPerSectorForAtomicity
+	    lbps, // PhysicalBytesPerSectorForPerformance
+	    pbps, // FileSystemEffectivePhysicalBytesPerSectorForAtomicity
+	    flags,
+	    unk, unk);
+
+	if (rc != 0)
+		return (NT_STATUS_BUFFER_OVERFLOW);
+
+	return (0);
 }

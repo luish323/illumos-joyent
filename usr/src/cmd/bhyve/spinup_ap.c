@@ -27,6 +27,18 @@
  *
  * $FreeBSD$
  */
+/*
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
+ *
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * http://www.illumos.org/license/CDDL.
+ *
+ * Copyright 2020 Oxide Computer Company
+ */
 
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
@@ -44,22 +56,22 @@ __FBSDID("$FreeBSD$");
 #include "bhyverun.h"
 #include "spinup_ap.h"
 
+#ifdef __FreeBSD__
 static void
-spinup_ap_realmode(struct vmctx *ctx, int newcpu, uint64_t *rip)
+spinup_ap_realmode(struct vmctx *ctx, int newcpu, uint64_t rip)
 {
 	int vector, error;
 	uint16_t cs;
 	uint64_t desc_base;
 	uint32_t desc_limit, desc_access;
 
-	vector = *rip >> PAGE_SHIFT;
-	*rip = 0;
+	vector = rip >> PAGE_SHIFT;
 
 	/*
 	 * Update the %cs and %rip of the guest so that it starts
 	 * executing real mode code at at 'vector << 12'.
 	 */
-	error = vm_set_register(ctx, newcpu, VM_REG_GUEST_RIP, *rip);
+	error = vm_set_register(ctx, newcpu, VM_REG_GUEST_RIP, 0);
 	assert(error == 0);
 
 	error = vm_get_desc(ctx, newcpu, VM_REG_GUEST_CS, &desc_base,
@@ -75,9 +87,10 @@ spinup_ap_realmode(struct vmctx *ctx, int newcpu, uint64_t *rip)
 	error = vm_set_register(ctx, newcpu, VM_REG_GUEST_CS, cs);
 	assert(error == 0);
 }
+#endif /* __FreeBSD__ */
 
-int
-spinup_ap(struct vmctx *ctx, int vcpu, int newcpu, uint64_t rip)
+void
+spinup_ap(struct vmctx *ctx, int newcpu, uint64_t rip)
 {
 	int error;
 
@@ -87,24 +100,9 @@ spinup_ap(struct vmctx *ctx, int vcpu, int newcpu, uint64_t rip)
 	error = vcpu_reset(ctx, newcpu);
 	assert(error == 0);
 
-	fbsdrun_set_capabilities(ctx, newcpu);
+#ifdef	__FreeBSD__
+	spinup_ap_realmode(ctx, newcpu, rip);
 
-	/*
-	 * Enable the 'unrestricted guest' mode for 'newcpu'.
-	 *
-	 * Set up the processor state in power-on 16-bit mode, with the CS:IP
-	 * init'd to the specified low-mem 4K page.
-	 */
-	error = vm_set_capability(ctx, newcpu, VM_CAP_UNRESTRICTED_GUEST, 1);
-	assert(error == 0);
-
-	spinup_ap_realmode(ctx, newcpu, &rip);
-
-#ifdef __FreeBSD__
-	fbsdrun_addcpu(ctx, vcpu, newcpu, rip);
-#else
-	fbsdrun_addcpu(ctx, vcpu, newcpu, rip, false);
+	vm_resume_cpu(ctx, newcpu);
 #endif
-
-	return (newcpu);
 }

@@ -66,7 +66,7 @@ static struct smatch_state *unmatched_state(struct sm_state *sm)
 {
 	struct smatch_state *state;
 
-	state = get_state(SMATCH_EXTRA, sm->name, sm->sym);
+	state = __get_state(SMATCH_EXTRA, sm->name, sm->sym);
 	if (state)
 		return state;
 	return alloc_estate_whole(estate_type(sm->state));
@@ -116,14 +116,13 @@ static struct range_list *generify_mtag_range(struct smatch_state *state)
 	 * pointer and it's like, "Sorry bro, that's not possible."
 	 *
 	 */
-	rl = rl_intersection(estate_rl(state), valid_ptr_rl);
-	if (!rl)
-		return estate_rl(state);
-
+	rl = estate_rl(state);
 	FOR_EACH_PTR(rl, drange) {
 		if (drange->min.value != drange->max.value)
 			continue;
-		if (drange->min.value > -4096 && drange->min.value <= 0)
+		if (drange->min.value == 0)
+			continue;
+		if (is_err_ptr(drange->min))
 			continue;
 		return rl_union(valid_ptr_rl, rl);
 	} END_FOR_EACH_PTR(drange);
@@ -156,6 +155,9 @@ static void print_return_value_param(int return_id, char *return_ranges, struct 
 			continue;
 		old = get_state_stree(start_states, SMATCH_EXTRA, tmp->name, tmp->sym);
 		if (old && rl_equiv(estate_rl(old), estate_rl(state)))
+			continue;
+
+		if (is_ignored_kernel_data(param_name))
 			continue;
 
 		rl = generify_mtag_range(state);
@@ -193,6 +195,7 @@ void register_param_limit(int id)
 {
 	my_id = id;
 
+	set_dynamic_states(my_id);
 	add_hook(&save_start_states, AFTER_DEF_HOOK);
 	add_hook(&free_start_states, AFTER_FUNC_HOOK);
 

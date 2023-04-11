@@ -22,6 +22,8 @@
 /*
  * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ *
+ * Copyright 2021 Joyent, Inc.
  */
 
 #include <stdio.h>
@@ -79,6 +81,7 @@ int x_length = 0x7fffffff;
 FILE *namefile;
 boolean_t Pflg;
 boolean_t Iflg;
+boolean_t fflg;
 boolean_t qflg;
 boolean_t rflg;
 #ifdef	DEBUG
@@ -228,7 +231,7 @@ main(int argc, char **argv)
 	}
 	(void) setvbuf(stdout, NULL, _IOLBF, BUFSIZ);
 
-	while ((c = getopt(argc, argv, "at:CPDSi:o:Nn:s:d:I:vVp:f:c:x:U?rqz:Z"))
+	while ((c = getopt(argc, argv, "at:CPDSi:o:Nn:s:d:I:vVp:fc:x:U?rqz:Z"))
 	    != EOF) {
 		switch (c) {
 		case 'a':
@@ -306,21 +309,7 @@ main(int argc, char **argv)
 			}
 			break;
 		case 'f':
-			(void) gethostname(self, MAXHOSTNAMELEN);
-			p = strchr(optarg, ':');
-			if (p) {
-				*p = '\0';
-				if (strcmp(optarg, self) == 0 ||
-				    strcmp(p+1, self) == 0)
-				(void) fprintf(stderr,
-				"Warning: cannot capture packets from %s\n",
-				    self);
-				*p = ' ';
-			} else if (strcmp(optarg, self) == 0)
-				(void) fprintf(stderr,
-				"Warning: cannot capture packets from %s\n",
-				    self);
-			argstr = optarg;
+			fflg = B_TRUE;
 			break;
 		case 'x':
 			p = optarg;
@@ -776,45 +765,45 @@ usage(void)
 {
 	(void) fprintf(stderr, "\nUsage:  snoop\n");
 	(void) fprintf(stderr,
-	"\t[ -a ]			# Listen to packets on audio\n");
+	"\t[ -a ]                       # Listen to packets on audio\n");
 	(void) fprintf(stderr,
-	"\t[ -d link ]		# Listen on named link\n");
+	"\t[ -d link ]                  # Listen on named link\n");
 	(void) fprintf(stderr,
-	"\t[ -s snaplen ]		# Truncate packets\n");
+	"\t[ -s snaplen ]               # Truncate packets\n");
 	(void) fprintf(stderr,
-	"\t[ -I IP interface ]		# Listen on named IP interface\n");
+	"\t[ -I IP interface ]          # Listen on named IP interface\n");
 	(void) fprintf(stderr,
-	"\t[ -c count ]		# Quit after count packets\n");
+	"\t[ -c count ]                 # Quit after count packets\n");
 	(void) fprintf(stderr,
-	"\t[ -P ]			# Turn OFF promiscuous mode\n");
+	"\t[ -P ]                       # Turn OFF promiscuous mode\n");
 	(void) fprintf(stderr,
-	"\t[ -D ]			# Report dropped packets\n");
+	"\t[ -D ]                       # Report dropped packets\n");
 	(void) fprintf(stderr,
-	"\t[ -S ]			# Report packet size\n");
+	"\t[ -S ]                       # Report packet size\n");
 	(void) fprintf(stderr,
-	"\t[ -i file ]		# Read previously captured packets\n");
+	"\t[ -i file ]                  # Read previously captured packets\n");
 	(void) fprintf(stderr,
-	"\t[ -o file ]		# Capture packets in file\n");
+	"\t[ -o file ]                  # Capture packets in file\n");
 	(void) fprintf(stderr,
-	"\t[ -n file ]		# Load addr-to-name table from file\n");
+	"\t[ -n file ]                  # Load addr-to-name table from file\n");
 	(void) fprintf(stderr,
-	"\t[ -N ]			# Create addr-to-name table\n");
+	"\t[ -N ]                       # Create addr-to-name table\n");
 	(void) fprintf(stderr,
-	"\t[ -t  r|a|d ]		# Time: Relative, Absolute or Delta\n");
+	"\t[ -t  r|a|d ]                # Time: Relative, Absolute or Delta\n");
 	(void) fprintf(stderr,
-	"\t[ -v ]			# Verbose packet display\n");
+	"\t[ -v ]                       # Verbose packet display\n");
 	(void) fprintf(stderr,
-	"\t[ -V ]			# Show all summary lines\n");
+	"\t[ -V ]                       # Show all summary lines\n");
 	(void) fprintf(stderr,
-	"\t[ -p first[,last] ]	# Select packet(s) to display\n");
+	"\t[ -p first[,last] ]          # Select packet(s) to display\n");
 	(void) fprintf(stderr,
-	"\t[ -x offset[,length] ]	# Hex dump from offset for length\n");
+	"\t[ -x offset[,length] ]       # Hex dump from offset for length\n");
 	(void) fprintf(stderr,
-	"\t[ -C ]			# Print packet filter code\n");
+	"\t[ -C ]                       # Print packet filter code\n");
 	(void) fprintf(stderr,
-	"\t[ -q ]			# Suppress printing packet count\n");
+	"\t[ -q ]                       # Suppress printing packet count\n");
 	(void) fprintf(stderr,
-	"\t[ -r ]			# Do not resolve address to name\n");
+	"\t[ -r ]                       # Do not resolve address to name\n");
 	(void) fprintf(stderr,
 	"\t[ -z zone ]		# Open links from named zone\n");
 	(void) fprintf(stderr,

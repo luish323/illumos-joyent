@@ -25,6 +25,8 @@
 #
 # Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
 #
+# Copyright 2020 Joyent, Inc.
+#
 
 LIBRARY=	libcrle.a
 VERS=		.1
@@ -40,10 +42,12 @@ include		$(SRC)/cmd/sgs/Makefile.com
 
 SRCDIR =	../common
 
+ZGUIDANCE =	-Wl,-zguidance=nounused
+
 LDLIBS +=	$(ZRECORD) -lmapmalloc $(DLLIB) -lc
 
-CPPFLAGS +=	-I$(SRCBASE)/lib/libc/inc -I$(SRC)/common/sgsrtcid
-DYNFLAGS +=	$(VERSREF) $(CONVLIBDIR) -lconv $(CC_USE_PROTO)
+CPPFLAGS +=	-I$(SRC)/lib/libc/inc -I$(SRC)/common/sgsrtcid
+DYNFLAGS +=	$(VERSREF) $(CONVLIBDIR) -lconv
 
 BLTDEFS=	msg.h
 BLTDATA=	msg.c

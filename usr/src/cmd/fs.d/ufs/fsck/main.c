@@ -4,7 +4,7 @@
  */
 
 /*	Copyright (c) 1983, 1984, 1985, 1986, 1987, 1988, 1989 AT&T	*/
-/*	  All Rights Reserved  	*/
+/*	  All Rights Reserved	*/
 
 
 /*
@@ -174,6 +174,41 @@ char *magic_fs[] = {
 	"/usr",			/* MAGIC_USR */
 	NULL			/* MAGIC_LIMIT */
 };
+
+daddr32_t bflag;
+daddr32_t n_blks;
+daddr32_t maxfsblock;
+int debug;
+int errorlocked;
+int exitstat;
+int fflag;
+int fsmodified;
+int fswritefd;
+int iscorrupt;
+int islog;
+int islogok;
+int interrupted;
+int mflag;
+int mountfd;
+int overflowed_lf;
+int rflag;
+int reattached_dir;
+int broke_dir_link;
+int verbose;
+char hotroot;
+char mountedfs;
+char nflag;
+char preen;
+char rerun;
+char *blockmap;
+char *devname;
+char yflag;
+short *lncntp;
+ushort_t *statemap;
+fsck_ino_t maxino;
+fsck_ino_t countdirs;
+fsck_ino_t n_files;
+void *limbo_dirs;
 
 int
 main(int argc, char *argv[])
@@ -495,7 +530,7 @@ recount:
 
 		while (limbo_dirs != NULL) {
 			limbo_victim = *(fsck_ino_t *)limbo_dirs;
-			if (limbo_victim != NULL) {
+			if (limbo_victim != 0) {
 				(void) tdelete((void *)limbo_victim,
 				    &limbo_dirs,
 				    ino_t_cmp);

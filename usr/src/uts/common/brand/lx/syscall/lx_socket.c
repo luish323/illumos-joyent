@@ -22,8 +22,8 @@
 /*
  * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Copyright 2018 Joyent, Inc.
- * Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2022 Joyent, Inc.
  */
 
 #include <sys/errno.h>
@@ -54,6 +54,7 @@
 #include <netinet/tcp.h>
 #include <netinet/igmp.h>
 #include <netinet/icmp6.h>
+#include <inet/cc.h>
 #include <inet/tcp_impl.h>
 #include <lx_errno.h>
 
@@ -111,6 +112,9 @@ typedef struct lx_group_req32 {
 /* lxsad_flags */
 #define	LXSAD_FL_STRCRED	0x1
 #define	LXSAD_FL_EMULSEQPKT	0x2
+/* These two work together to implement Linux SO_REUSEADDR semantics. */
+#define	LXSAD_FL_EMULRUADDR	0x4
+#define	LXSAD_FL_EMULRUPORT	0x8
 
 static lx_socket_aux_data_t *lx_sad_acquire(vnode_t *);
 
@@ -702,12 +706,16 @@ static lx_cmsg_xlate_t lx_cmsg_xlate_tbl[] = {
 	    LX_IPPROTO_IP, LX_IP_PKTINFO, cmsg_conv_generic },
 	{ IPPROTO_IP, IP_RECVTTL, stol_conv_recvttl,
 	    LX_IPPROTO_IP, LX_IP_TTL, NULL },
+	{ IPPROTO_IP, IP_RECVTOS, cmsg_conv_generic,
+	    LX_IPPROTO_IP, LX_IP_TOS, cmsg_conv_generic },
 	{ IPPROTO_IP, IP_TTL, cmsg_conv_generic,
 	    LX_IPPROTO_IP, LX_IP_TTL, cmsg_conv_generic },
 	{ IPPROTO_IPV6, IPV6_HOPLIMIT, cmsg_conv_generic,
 	    LX_IPPROTO_IPV6, LX_IPV6_HOPLIMIT, cmsg_conv_generic },
 	{ IPPROTO_IPV6, IPV6_PKTINFO, cmsg_conv_generic,
-	    LX_IPPROTO_IPV6, LX_IPV6_PKTINFO, cmsg_conv_generic }
+	    LX_IPPROTO_IPV6, LX_IPV6_PKTINFO, cmsg_conv_generic },
+	{ IPPROTO_IPV6, IPV6_TCLASS, cmsg_conv_generic,
+	    LX_IPPROTO_IPV6, LX_IPV6_TCLASS, cmsg_conv_generic }
 };
 
 #define	LX_MAX_CMSG_XLATE	\
@@ -1397,6 +1405,18 @@ lx_socket_create(int domain, int type, int protocol, int options, file_t **fpp,
 	vnode_t *vp;
 	file_t *fp;
 	int err, fd;
+
+	/*
+	 * EACCES is returned in Linux when the user isn't allowed to use a
+	 * "ping socket". EACCES is also used by the iputils-ping userland
+	 * application to determine if fallback to SOCK_RAW is necessary.
+	 *
+	 * This can be removed if we ever implement SOCK_DGRAM + IPPROTO_ICMP.
+	 */
+	if ((domain == AF_INET && type == SOCK_DGRAM && protocol ==
+	    IPPROTO_ICMP) || (domain == AF_INET6 && type == SOCK_DGRAM &&
+	    protocol == IPPROTO_ICMPV6))
+		return (EACCES);
 
 	/* logic cloned from so_socket */
 	so = socket_create(domain, type, protocol, NULL, NULL, SOCKET_SLEEP,
@@ -2648,7 +2668,7 @@ static const lx_sockopt_map_t ltos_ip_sockopts[LX_IP_UNICAST_IF + 1] = {
 	{ OPTNOTSUP, 0 },			/* IP_MTUDISCOVER	*/
 	{ OPTNOTSUP, 0 },			/* IP_RECVERR		*/
 	{ IP_RECVTTL, sizeof (int) },		/* IP_RECVTTL		*/
-	{ OPTNOTSUP, 0 },			/* IP_RECVTOS		*/
+	{ IP_RECVTOS, sizeof (int) },		/* IP_RECVTOS		*/
 	{ OPTNOTSUP, 0 },			/* IP_MTU		*/
 	{ OPTNOTSUP, 0 },			/* IP_FREEBIND		*/
 	{ OPTNOTSUP, 0 },			/* IP_IPSEC_POLICY	*/
@@ -2758,7 +2778,7 @@ static const lx_sockopt_map_t ltos_ipv6_sockopts[LX_IPV6_TCLASS + 1] = {
 	{ OPTNOTSUP, 0 },
 	{ OPTNOTSUP, 0 },
 	{ OPTNOTSUP, 0 },
-	{ OPTNOTSUP, 0 },			/* IPV6_RECVTCLASS	*/
+	{ IPV6_RECVTCLASS, sizeof (int) },	/* IPV6_RECVTCLASS	*/
 	{ IPV6_TCLASS, sizeof (int) }		/* IPV6_TCLASS		*/
 };
 
@@ -2806,8 +2826,8 @@ static const lx_sockopt_map_t ltos_tcp_sockopts[LX_TCP_NOTSENT_LOWAT + 1] = {
 	{ OPTNOTSUP, 0 },			/* TCP_DEFER_ACCEPT - in code */
 	{ OPTNOTSUP, 0 },			/* TCP_WINDOW_CLAMP - in code */
 	{ OPTNOTSUP, 0 },			/* TCP_INFO		*/
-	{ OPTNOTSUP, 0 },			/* TCP_QUICKACK - in code */
-	{ OPTNOTSUP, 0 },			/* TCP_CONGESTION	*/
+	{ TCP_QUICKACK, sizeof (int) },		/* TCP_QUICKACK		*/
+	{ TCP_CONGESTION, CC_ALGO_NAME_MAX },	/* TCP_CONGESTION	*/
 	{ OPTNOTSUP, 0 },			/* TCP_MD5SIG		*/
 	{ OPTNOTSUP, 0 },
 	{ OPTNOTSUP, 0 },			/* TCP_THIN_LINEAR_TIMEOUTS */
@@ -3018,6 +3038,220 @@ lx_mcast_common(sonode_t *so, int level, int optname, void *optval,
 	return (error);
 }
 
+
+/*
+ * NOTE: For now, the following mess applies to TCP (i.e. AF_INET{,6} +
+ * SOCK_STREAM) only, until we enable SO_REUSEPORT for other socket/protocol
+ * types as well.  The lx_so_needs_reusehandling() macro indicates what
+ * socket(s) apply to the following mess.
+ */
+#define	lx_so_needs_reusehandling(so)	((so)->so_type == SOCK_STREAM && \
+	((so)->so_family == AF_INET || (so)->so_family == AF_INET6))
+
+/*
+ * So in Linux, the SO_REUSEADDR includes, essentially, SO_REUSEPORT as part
+ * of its functionality.  Experiments on CentOS 7 with a 3.10-ish kernel show
+ * that querying on SO_REUSEPORT show it's "off" if SO_REUSEADDR gets set.
+ * This means we can't count on directly querying the native socket state. We
+ * munge things here in LX-land to essentially turn on both REUSEADDR and
+ * REUSEPORT in native conn_t state for LX processes that set SO_REUSEADDR.
+ *
+ * We also keep track if the wily Linux app sends BOTH REUSEADDR and REUSEPORT
+ * down. We can return that both are on, or if it uses just REUSEADDR, we
+ * don't return yes for a check of REUSEPORT.  This means our conn_t state may
+ * be different than what an LX process will see.  "REUSEPORT" for LX may be
+ * off, but internally it will be on.
+ *
+ * BEGIN CSTYLED
+ * State table for internal conn_reuse{addr,port}:
+ *
+ * LX ADDR,PORT  Int. ADDR,PORT  New ADDR  New LX    New Int.  LXchg?  Intchg?
+ * ============  ==============  ========  ======    ========  ======  =======
+ *
+ * off,off       off,off         off       off,off   off,off   NO      NO
+ *
+ * off,off       off,off         on        on,off    on,on     YES     YES(2)
+ *
+ * off,on        off,on          off       off,on    off,on    NO      NO
+ *
+ * off,on        off,on          on        on,on     on,on     YES     YES
+ *
+ * on,off        on,on           off       off,off   off,off   YES     YES(2)
+ *
+ * on,off        on,on           on        on,off    on,on     NO      NO
+ *
+ * on,on         on,on           off       off,on    off,on    YES     YES
+ *
+ * on,on         on,on           on        on,on     on,on     NO      NO
+ *
+ *
+ * LX ADDR,PORT  Int. ADDR,PORT  New PORT  New LX    New Int.  LXchg?  Intchg?
+ * ============  ==============  ========  ======    ========  ======  =======
+ *
+ * off,off       off,off         off       off,off   off,off   NO      NO
+ *
+ * off,off       off,off         on        off,on    off,on    YES     YES
+ *
+ * off,on        off,on          off       off,off   off,off   YES     YES
+ *
+ * off,on        off,on          on        off,on    off,on    NO      NO
+ *
+ * on,off        on,on           off       on,off    on,on     NO      NO
+ *
+ * on,off        on,on           on        on,on     on,on     YES     NO
+ *
+ * on,on         on,on           off       on,off    on,on     YES     NO
+ *
+ * on,on         on,on           on        on,on     on,on     NO      NO
+ *
+ * END CSTYLED
+ *
+ * For setting these options, we need to obey the state table above.
+ * For getting REUSEADDR, the native stack handles it already.
+ * For getting REUSEPORT, we'll have to track the auxiliary data's flags.
+ */
+static int
+lx_set_reuse_handler(sonode_t *so, int optname, void *optval, socklen_t optlen)
+{
+	lx_socket_aux_data_t *sad;
+	boolean_t enable;
+	int error;
+
+	if (optlen != sizeof (int))
+		return (EINVAL);
+	enable = (*((int *)optval) != 0);
+
+	ASSERT(optname == LX_SO_REUSEADDR || optname == LX_SO_REUSEPORT);
+	sad = lx_sad_acquire(SOTOV(so));
+
+	/*
+	 * lx_sad_acquire() holds its mutex for us.  This protects us
+	 * against racing option-setters on the same socket.
+	 */
+	if (optname == LX_SO_REUSEADDR) {
+		/* Check if already set to what we want! */
+		if (enable ==
+		    ((sad->lxsad_flags & LXSAD_FL_EMULRUADDR) != 0)) {
+			mutex_exit(&sad->lxsad_lock);
+			return (0);
+		}
+
+		/*
+		 * At this point, we know we need to change SO_REUSEADDR,
+		 * Linux-style.  We know these are supported options too,
+		 * so we don't bother with any lookup.
+		 */
+		error = socket_setsockopt(so, SOL_SOCKET, SO_REUSEADDR,
+		    optval, optlen, CRED());
+		if (error != 0) {
+			mutex_exit(&sad->lxsad_lock);
+			return (error);
+		}
+		if (enable)
+			sad->lxsad_flags |= LXSAD_FL_EMULRUADDR;
+		else
+			sad->lxsad_flags &= ~LXSAD_FL_EMULRUADDR;
+
+		/*
+		 * At THIS point, we need to figure out if we ALSO need to
+		 * toggle the native-side SO_REUSEPORT state because Linux's
+		 * SO_REUSEADDR ALSO include the moral equivalent of
+		 * SO_REUSEPORT.  There may be further subtleties, but for now
+		 * assume a Linux app that uses SO_REUSEADDR wants that
+		 * SO_REUSEPORT functionality thrown in for free.
+		 *
+		 * Check for SO_REUSEPORT already enabled first.
+		 */
+		if ((sad->lxsad_flags & LXSAD_FL_EMULRUPORT) != 0) {
+			/* Someone turned on REUSEPORT first, we're good. */
+			mutex_exit(&sad->lxsad_lock);
+			return (0);
+		}
+
+		/*
+		 * Fall through to REUSEPORT setting, it'll know it's a
+		 * supplement based on (optname == SO_REUSEADDR).
+		 */
+	} else if (enable ==
+	    ((sad->lxsad_flags & LXSAD_FL_EMULRUPORT) != 0)) {
+		/*
+		 * If we reach here, we're setting REUSEPORT to what it's
+		 * already set.
+		 */
+		ASSERT3U(optname, ==, LX_SO_REUSEPORT);
+		mutex_exit(&sad->lxsad_lock);
+		return (0);
+	}
+
+	if (optname == LX_SO_REUSEPORT &&
+	    ((sad->lxsad_flags & LXSAD_FL_EMULRUADDR) != 0)) {
+		/*
+		 * Corner case: REUSEPORT change *but* REUSEADDR is still
+		 * enabled.  We must not alter conn_t/native state here, as
+		 * REUSEADDR *needs* REUSEPORT enabled on conn_t/native state.
+		 * If we want to enable REUSEPORT, the setsockopt would be a
+		 * NOP.  If want to disable it, we MUST NOT turn off native
+		 * REUSEPORT lest we break Linux-like behavior, and instead
+		 * merely turn off the LXSAD_FL_EMULRUPORT flag.
+		 */
+		error = 0;
+	} else {
+		/*
+		 * At this point, we need to change REUSEPORT.  We may be
+		 * doing it for an actual REUSEPORT change, OR for Linux
+		 * REUSEADDR semantics.  As earlier, we know the option map
+		 * lookup is superfluous.
+		 */
+		error = socket_setsockopt(so, SOL_SOCKET, SO_REUSEPORT, optval,
+		    optlen, CRED());
+	}
+
+	if (error != 0 && optname == LX_SO_REUSEADDR) {
+		int addr_error, revert_to_optval;
+
+		ASSERT0(sad->lxsad_flags & LXSAD_FL_EMULRUPORT);
+		/*
+		 * We need more cleanup if the REUSEPORT change fails during
+		 * an actual REUSEADDR set.
+		 */
+		if (enable) {
+			sad->lxsad_flags &= ~LXSAD_FL_EMULRUADDR;
+			revert_to_optval = 0;
+		} else {
+			sad->lxsad_flags |= LXSAD_FL_EMULRUADDR;
+			revert_to_optval = 1;
+		}
+
+		/* Just hardwire it, we're in trouble! */
+		addr_error = socket_setsockopt(so, SOL_SOCKET, SO_REUSEADDR,
+		    &revert_to_optval, optlen, CRED());
+		if (addr_error != 0) {
+			/*
+			 * Well this sucks, we really shot ourselves in the
+			 * foot.  We should somehow signal a catastrophic
+			 * error. For now, just return the one we had earlier.
+			 */
+			DTRACE_PROBE1(lx__reuse__seconderr, int, addr_error);
+			mutex_exit(&sad->lxsad_lock);
+			return (error);
+		}
+		/*
+		 * Else we managed successfully to clean up and can fall
+		 * through the normal error path.
+		 */
+	} else if (error == 0 && optname == LX_SO_REUSEPORT) {
+		/* We successfully changed REUSEPORT explicitly. */
+		if (enable)
+			sad->lxsad_flags |= LXSAD_FL_EMULRUPORT;
+		else
+			sad->lxsad_flags &= ~LXSAD_FL_EMULRUPORT;
+	}
+	/* Else it's an error for an explicit REUSEPORT, just return. */
+
+	mutex_exit(&sad->lxsad_lock);
+	return (error);
+}
+
 static int
 lx_setsockopt_ip(sonode_t *so, int optname, void *optval, socklen_t optlen)
 {
@@ -3175,8 +3409,8 @@ lx_setsockopt_tcp(sonode_t *so, int optname, void *optval, socklen_t optlen)
 	uint32_t rto_max, abrt_thresh;
 	boolean_t abrt_changed = B_FALSE, rto_max_changed = B_FALSE;
 
-	if (optname == LX_TCP_WINDOW_CLAMP || optname == LX_TCP_QUICKACK) {
-		/* It appears safe to lie and say we did these. */
+	if (optname == LX_TCP_WINDOW_CLAMP) {
+		/* It appears safe to lie and say we did this. */
 		return (0);
 	}
 
@@ -3402,6 +3636,18 @@ lx_setsockopt_socket(sonode_t *so, int optname, void *optval, socklen_t optlen)
 		 */
 		return (0);
 
+	case LX_SO_REUSEADDR:
+	case LX_SO_REUSEPORT:
+		if (lx_so_needs_reusehandling(so)) {
+			/*
+			 * See lx_set_reuse_handler's comments for the oddness
+			 * of REUSE* in some cases.
+			 */
+			return (lx_set_reuse_handler(so, optname, optval,
+			    optlen));
+		}
+		break;
+
 	case LX_SO_PASSCRED:
 		/*
 		 * In many cases, the Linux SO_PASSCRED is mapped to the SunOS
@@ -3594,6 +3840,16 @@ lx_getsockopt_icmpv6(sonode_t *so, int optname, void *optval,
 	return (error);
 }
 
+/*
+ * When attempting to get socket options on AF_UNIX sockets we need to be a bit
+ * careful with the returned errno values. It turns out different OSes return
+ * different errno values here:
+ *     - illumos: ENOPROTOOPT
+ *     - Linux: EOPNOTSUPP
+ *     - FreeBSD: EINVAL
+ * Therefore we remap ENOPROTOOPT to EOPNOTSUPP when a userland program attempts
+ * to get one of the various TCP_XXX options under this condition.
+ */
 static int
 lx_getsockopt_tcp(sonode_t *so, int optname, void *optval, socklen_t *optlen)
 {
@@ -3604,7 +3860,6 @@ lx_getsockopt_tcp(sonode_t *so, int optname, void *optval, socklen_t *optlen)
 
 	switch (optname) {
 	case LX_TCP_WINDOW_CLAMP:
-	case LX_TCP_QUICKACK:
 		/*
 		 * We do not support these options but some apps rely on them.
 		 * Rather than return an error we just return 0.  This isn't
@@ -3613,7 +3868,10 @@ lx_getsockopt_tcp(sonode_t *so, int optname, void *optval, socklen_t *optlen)
 		 * oath.
 		 */
 		if (*optlen < sizeof (int)) {
-			error = EINVAL;
+			return (EINVAL);
+		}
+		if (so->so_family == AF_UNIX) {
+			return (EOPNOTSUPP);
 		} else {
 			*intval = 0;
 		}
@@ -3635,12 +3893,12 @@ lx_getsockopt_tcp(sonode_t *so, int optname, void *optval, socklen_t *optlen)
 			    TCP_CONN_NOTIFY_THRESHOLD, &syn_backoff, &len, 0,
 			    cr);
 			if (error != 0)
-				return (error);
+				goto out;
 			error = socket_getsockopt(so, IPPROTO_TCP,
 			    TCP_CONN_ABORT_THRESHOLD, &syn_abortconn, &len, 0,
 			    cr);
 			if (error != 0)
-				return (error);
+				goto out;
 
 			syn_cnt = 0;
 			while (syn_backoff < syn_abortconn) {
@@ -3654,7 +3912,7 @@ lx_getsockopt_tcp(sonode_t *so, int optname, void *optval, socklen_t *optlen)
 			*optlen = sizeof (int);
 		}
 
-		return (error);
+		goto out;
 
 	case LX_TCP_DEFER_ACCEPT:
 		/*
@@ -3672,7 +3930,7 @@ lx_getsockopt_tcp(sonode_t *so, int optname, void *optval, socklen_t *optlen)
 			if ((error = socket_getsockopt(so, SOL_FILTER,
 			    FIL_LIST, fi, &len, 0, cr)) != 0) {
 				*optlen = sizeof (int);
-				return (error);
+				goto out;
 			}
 
 			*intval = 0;
@@ -3686,17 +3944,26 @@ lx_getsockopt_tcp(sonode_t *so, int optname, void *optval, socklen_t *optlen)
 			}
 		}
 		*optlen = sizeof (int);
-		return (error);
+		goto out;
 	default:
 		break;
 	}
 
 	if (!lx_sockopt_lookup(sockopts_tbl, &optname, optlen)) {
+		if (optname <= sockopts_tbl.lpo_max &&
+		    so->so_family == AF_UNIX) {
+			return (EOPNOTSUPP);
+		}
 		return (ENOPROTOOPT);
 	}
 
 	error = socket_getsockopt(so, IPPROTO_TCP, optname, optval, optlen, 0,
 	    cr);
+
+out:
+	if (error == ENOPROTOOPT && so->so_family == AF_UNIX) {
+		return (EOPNOTSUPP);
+	}
 	return (error);
 }
 
@@ -3707,8 +3974,23 @@ lx_getsockopt_socket(sonode_t *so, int optname, void *optval,
 	int error = 0;
 	int *intval = (int *)optval;
 	lx_proto_opts_t sockopts_tbl = PROTO_SOCKOPTS(ltos_socket_sockopts);
+	lx_socket_aux_data_t *sad;
 
 	switch (optname) {
+	case LX_SO_PROTOCOL:
+		/*
+		 * We need to special-case netlink and AF_UNIX too.
+		 */
+		if (so->so_family != AF_LX_NETLINK && so->so_family != AF_UNIX)
+			break;	/* Common-case it. */
+		if (*optlen < sizeof (int)) {
+			error = EINVAL;
+		} else {
+			*intval = so->so_protocol;
+		}
+		*optlen = sizeof (int);
+		return (error);
+
 	case LX_SO_TYPE:
 		/*
 		 * Special handling for connectionless AF_UNIX sockets.
@@ -3716,8 +3998,6 @@ lx_getsockopt_socket(sonode_t *so, int optname, void *optval,
 		 */
 		if (so->so_family == AF_UNIX &&
 		    (so->so_mode & SM_CONNREQUIRED) == 0) {
-			lx_socket_aux_data_t *sad;
-
 			if (*optlen < sizeof (int))
 				return (EINVAL);
 			sad = lx_sad_acquire(SOTOV(so));
@@ -3751,8 +4031,6 @@ lx_getsockopt_socket(sonode_t *so, int optname, void *optval,
 		 */
 		if (so->so_family == AF_UNIX &&
 		    (so->so_mode & SM_CONNREQUIRED) != 0) {
-			lx_socket_aux_data_t *sad;
-
 			if (*optlen < sizeof (int)) {
 				return (EINVAL);
 			}
@@ -3764,6 +4042,23 @@ lx_getsockopt_socket(sonode_t *so, int optname, void *optval,
 			return (0);
 		}
 		break;
+
+	case LX_SO_REUSEPORT:
+		/*
+		 * See lx_so_needs_reusehandling() and lx_set_reuse_handler()
+		 * for the sordid details.
+		 */
+		if (!lx_so_needs_reusehandling(so))
+			break;
+
+		if (*optlen < sizeof (int))
+			return (EINVAL);
+		sad = lx_sad_acquire(SOTOV(so));
+		*optlen = sizeof (int);
+		*intval =
+		    (sad->lxsad_flags & LXSAD_FL_EMULRUPORT) == 0 ? 0 : 1;
+		mutex_exit(&sad->lxsad_lock);
+		return (0);
 
 	case LX_SO_PEERCRED:
 		if (*optlen < sizeof (struct lx_ucred)) {

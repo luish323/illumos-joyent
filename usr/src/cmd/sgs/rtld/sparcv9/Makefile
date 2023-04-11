@@ -25,7 +25,7 @@
 #
 
 # Object lists are organized into primary (most frequently used code) and
-# secondary lists (less frequently used code, ie. a.out support).
+# secondary lists (less frequently used code).
 
 P_COMOBJS=	debugdata.o \
 		analyze.o	elf.o		external.o	globals.o \
@@ -52,7 +52,7 @@ CRTI=		pics/crti.o
 CRTN=		pics/crtn.o
 CRTS=		$(CRTI)		$(CRTN)
 
-CHKSRCS=	$(SRCBASE)/uts/common/krtld/reloc.h
+CHKSRCS=	$(SRC)/uts/common/krtld/reloc.h
 
 BASEPLAT =	sparc
 
@@ -90,7 +90,7 @@ CONVLIBDIR =	$(CONVLIBDIR64)
 
 all:		$(RTLD)
 
-install:	all $(ROOTDYNLIB64)
+install:	all $(ROOTDYNLIB64) $(ROOTCOMPATLINKS64)
 
 adbmacros:	adb .WAIT $(ADBSCRIPTS)
 
@@ -101,4 +101,4 @@ pics/%.o:	../sparc/%.c
 		$(POST_PROCESS_O)
 
 include		$(SRC)/cmd/sgs/rtld/Makefile.targ
-include		../../Makefile.sub.64
+include		$(SRC)/Makefile.master.64

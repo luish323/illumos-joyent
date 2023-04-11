@@ -12,18 +12,24 @@
 #
 # Copyright (c) 2012 by Delphix. All rights reserved.
 # Copyright 2015 Garrett D'Amore <garrett@damore.org>
-# Copyright (c) 2018, Joyent, Inc.
+# Copyright 2019 Joyent, Inc.
+# Copyright 2022 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2023 Bill Sommerfeld <sommerfeld@alum.mit.edu>
 #
 
 SUBDIRS = \
 	catopen \
+	err \
 	fpround \
+	i18n \
 	newlocale \
 	nl_langinfo \
 	priv_gettext \
+	qsort \
 	random \
 	regex \
 	select \
+	stdio \
 	strerror \
 	symbols \
 	threads \
@@ -33,14 +39,19 @@ SUBDIRS = \
 PROGS = \
 	env-OS-4089 \
 	aligned_alloc \
+	asprintf-14933 \
 	c11_threads \
 	c11_tss \
 	call_once \
+	closefrom \
 	endian \
 	env-7076 \
 	fnmatch \
+	isatty \
+	memchr \
 	memset_s \
 	posix_memalign \
+	printf-15294 \
 	printf-9511 \
 	psignal-5097 \
 	quick_exit_order \
@@ -50,16 +61,15 @@ PROGS = \
 	timespec_get \
 	wcsncasecmp \
 	wcsncasecmp-7344 \
-	wcsncasecmp-7350
+	wcsncasecmp-7350 \
+	uchar \
+	utimes
 
 SCRIPTS = \
 	quick_exit \
 	psignal
 
 CPPFLAGS += -D_REENTRANT
-
-# needs work
-SMOFF += all_func_returns,snprintf_overflow
 
 PROGS32 = $(PROGS:%=%.32)
 PROGS64 = \
@@ -71,10 +81,16 @@ aligned_alloc.64 :=	LDLIBS64 += -lproc
 posix_memalign.32 :=	LDLIBS += -lproc
 posix_memalign.64 :=	LDLIBS64 += -lproc
 
+asprintf-14933.32 :=	CSTD=$(GNU_C99)
+asprintf-14933.64 :=	CSTD=$(GNU_C99)
+
 memset_s.32 :=	CPPFLAGS += -D__STDC_WANT_LIB_EXT1__=1
 memset_s.64 :=	CPPFLAGS += -D__STDC_WANT_LIB_EXT1__=1
 set_constraint_handler_s.32 := CPPFLAGS += -D__STDC_WANT_LIB_EXT1__=1
 set_constraint_handler_s.64 := CPPFLAGS += -D__STDC_WANT_LIB_EXT1__=1
+
+isatty.32 :=	CSTD=$(GNU_C99)
+isatty.64 :=	CSTD=$(GNU_C99)
 
 ROOTOPTDIR = $(ROOT)/opt/libc-tests/tests
 ROOTOPTPROGS = $(PROGS32:%=$(ROOTOPTDIR)/%) \

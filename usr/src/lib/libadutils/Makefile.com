@@ -34,19 +34,17 @@ OBJECTS =	adutils.o addisc.o adutils_threadfuncs.o \
 include ../../Makefile.lib
 
 CSTD=	$(CSTD_GNU99)
-C99LMODE=	-Xc99=%all
 
-LIBS =		$(DYNLIB) $(LINTLIB)
+LIBS =		$(DYNLIB)
 LDLIBS +=	-lldap -lresolv -lsocket -lnsl -lc
 SRCDIR =	../common
-$(LINTLIB):=	SRCS = $(SRCDIR)/$(LINTSRC)
 
 CFLAGS +=	$(CCVERBOSE)
 CPPFLAGS +=	-D_REENTRANT -I$(SRCDIR)
 CPPFLAGS +=	-I$(SRC)/lib/libldap5/include/ldap
 
 CERRWARN +=	-_gcc=-Wno-type-limits
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 
 # not linted
 SMATCH=off
@@ -55,9 +53,6 @@ SMATCH=off
 
 all: $(LIBS)
 
-lint: lintcheck
 
-LINTFLAGS += -erroff=E_CONSTANT_CONDITION
-LINTFLAGS64 += -erroff=E_CONSTANT_CONDITION
 
 include ../../Makefile.targ

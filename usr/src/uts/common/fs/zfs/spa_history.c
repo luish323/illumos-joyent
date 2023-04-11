@@ -334,7 +334,7 @@ spa_history_log_sync(void *arg, dmu_tx_t *tx)
 		 * posted as a result of the ZPOOL_HIST_CMD key being present
 		 * it would result in only one sysevent being posted with the
 		 * full command line arguments, requiring the consumer to know
-		 * how to parse and understand zfs(1M) command invocations.
+		 * how to parse and understand zfs(8) command invocations.
 		 */
 		spa_history_log_notify(spa, nvl);
 	} else if (nvlist_exists(nvl, ZPOOL_HIST_IOCTL)) {
@@ -384,10 +384,15 @@ spa_history_log_nvl(spa_t *spa, nvlist_t *nvl)
 {
 	int err = 0;
 	dmu_tx_t *tx;
-	nvlist_t *nvarg;
+	nvlist_t *nvarg, *in_nvl = NULL;
 
 	if (spa_version(spa) < SPA_VERSION_ZPOOL_HISTORY || !spa_writeable(spa))
 		return (SET_ERROR(EINVAL));
+
+	err = nvlist_lookup_nvlist(nvl, ZPOOL_HIST_INPUT_NVL, &in_nvl);
+	if (err == 0) {
+		(void) nvlist_remove_all(in_nvl, ZPOOL_HIDDEN_ARGS);
+	}
 
 	tx = dmu_tx_create_dd(spa_get_dsl(spa)->dp_mos_dir);
 	err = dmu_tx_assign(tx, TXG_WAIT);

@@ -21,12 +21,10 @@
  */
 
 /*
- * Copyright 2018, Richard Lowe.
- */
-/*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  *
+ * Copyright 2018 Richard Lowe.
  * Copyright 2019 Joyent, Inc.
  */
 
@@ -38,14 +36,17 @@
  *
  */
 
-/* If you modify this file, you must increment CW_VERSION */
-#define	CW_VERSION	"4.0"
+/*
+ * If you modify this file, you must increment CW_VERSION.
+ * This is a semver, * incompatible changes should bump the major, anything
+ * else the minor.
+ */
+#define	CW_VERSION	"8.0"
 
 /*
  * -#		Verbose mode
  * -###		Show compiler commands built by driver, no compilation
  * -A<name[(tokens)]>	Preprocessor predicate assertion
- * -B<[static|dynamic]>	Specify dynamic or static binding
  * -C		Prevent preprocessor from removing comments
  * -c		Compile only - produce .o files, suppress linking
  * -cg92	Alias for -xtarget=ss1000
@@ -66,7 +67,6 @@
  * -fsingle	Use single-precision arithmetic (-Xt and -Xs modes only)
  * -ftrap=<t>	Select floating-point trapping mode in effect at startup
  * -fstore	force floating pt. values to target precision on assignment
- * -G		Build a dynamic shared library
  * -g		Compile for debugging
  * -H		Print path name of each file included during compilation
  * -h <name>	Assign <name> to generated dynamic shared library
@@ -158,7 +158,6 @@
  * -c				pass-thru
  * -cg92			-m32 -mcpu=v8 -mtune=supersparc (SPARC only)
  * -D<name[=token]>		pass-thru
- * -dy or -dn			-Wl,-dy or -Wl,-dn
  * -E				pass-thru
  * -erroff=E_EMPTY_TRANSLATION_UNIT ignore
  * -errtags=%all		-Wall
@@ -173,10 +172,8 @@
  * -fsingle[=<n>]		error
  * -ftrap=<t>			error
  * -fstore			error
- * -G				pass-thru
  * -g				pass-thru
  * -H				pass-thru
- * -h <name>			pass-thru
  * -I<dir>			pass-thru
  * -i				pass-thru
  * -keeptmp			-save-temps
@@ -197,8 +194,6 @@
  * -Q[y|n]			error
  * -R<dir[:dir]>		pass-thru
  * -S				pass-thru
- * -s				-Wl,-s
- * -t				-Wl,-t
  * -U<name>			pass-thru
  * -V				--version
  * -v				-Wall
@@ -243,8 +238,6 @@
  * -xtime			error
  * -xtransition			-Wtransition
  * -xunroll=n			error
- * -W0,-xdbggen=no%usedonly	-fno-eliminate-unused-debug-symbols
- *				-fno-eliminate-unused-debug-types
  * -Y<c>,<dir>			error
  * -YA,<dir>			error
  * -YI,<dir>			-nostdinc -I<dir>
@@ -259,6 +252,7 @@
 #include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
 #include <dirent.h>
@@ -306,6 +300,7 @@ typedef struct {
 typedef struct cw_ictx {
 	struct cw_ictx	*i_next;
 	cw_compiler_t	*i_compiler;
+	char		*i_linker;
 	struct aelist	*i_ae;
 	uint32_t	i_flags;
 	int		i_oldargc;
@@ -423,7 +418,7 @@ newae(struct aelist *ael, const char *arg)
 {
 	struct ae *ae;
 
-	if ((ae = calloc(sizeof (*ae), 1)) == NULL)
+	if ((ae = calloc(1, sizeof (*ae))) == NULL)
 		nomem();
 	ae->ae_arg = strdup(arg);
 	if (ael->ael_tail == NULL)
@@ -437,9 +432,9 @@ newae(struct aelist *ael, const char *arg)
 static cw_ictx_t *
 newictx(void)
 {
-	cw_ictx_t *ctx = calloc(sizeof (cw_ictx_t), 1);
+	cw_ictx_t *ctx = calloc(1, sizeof (cw_ictx_t));
 	if (ctx)
-		if ((ctx->i_ae = calloc(sizeof (struct aelist), 1)) == NULL) {
+		if ((ctx->i_ae = calloc(1, sizeof (struct aelist))) == NULL) {
 			free(ctx);
 			return (NULL);
 		}
@@ -495,7 +490,7 @@ Xsmode(struct aelist *h)
 }
 
 static void
-usage()
+usage(void)
 {
 	extern char *__progname;
 	(void) fprintf(stderr,
@@ -593,13 +588,13 @@ discard_file_name(cw_ictx_t *ctx, const char *path)
 	return (ret);
 }
 
-static boolean_t
+static bool
 is_source_file(const char *path)
 {
 	char *ext = strrchr(path, '.');
 
 	if ((ext == NULL) || (*(ext + 1) == '\0'))
-		return (B_FALSE);
+		return (false);
 
 	ext += 1;
 
@@ -608,12 +603,27 @@ is_source_file(const char *path)
 	    (strcmp(ext, "i") == 0) ||
 	    (strcasecmp(ext, "s") == 0) ||
 	    (strcmp(ext, "cpp") == 0)) {
-		return (B_TRUE);
+		return (true);
 	}
 
-	return (B_FALSE);
+	return (false);
 }
 
+static bool
+is_asm_file(const char *path)
+{
+	char *ext = strrchr(path, '.');
+
+	if ((ext == NULL) || (*(ext + 1) == '\0'))
+		return (false);
+
+	ext += 1;
+
+	if (strcasecmp(ext, "s") == 0)
+		return (true);
+
+	return (false);
+}
 
 static void
 do_gcc(cw_ictx_t *ctx)
@@ -673,13 +683,6 @@ do_gcc(cw_ictx_t *ctx)
 		if (*arg == '-') {
 			arglen--;
 		} else {
-			/*
-			 * Discard inline files that gcc doesn't grok
-			 */
-			if (!in_output && arglen > 3 &&
-			    strcmp(arg + arglen - 3, ".il") == 0)
-				continue;
-
 			if (!in_output && is_source_file(arg))
 				c_files++;
 
@@ -789,7 +792,6 @@ do_gcc(cw_ictx_t *ctx)
 			break;
 		case 'A':
 		case 'g':
-		case 'h':
 		case 'I':
 		case 'i':
 		case 'L':
@@ -822,16 +824,6 @@ do_gcc(cw_ictx_t *ctx)
 				newae(ctx->i_ae, "-ffreestanding");
 			break;
 		case 'd':
-			if (arglen == 2) {
-				if (strcmp(arg, "-dy") == 0) {
-					newae(ctx->i_ae, "-Wl,-dy");
-					break;
-				}
-				if (strcmp(arg, "-dn") == 0) {
-					newae(ctx->i_ae, "-Wl,-dn");
-					break;
-				}
-			}
 			if (strcmp(arg, "-dalign") == 0) {
 				/*
 				 * -dalign forces alignment in some cases;
@@ -864,10 +856,6 @@ do_gcc(cw_ictx_t *ctx)
 			}
 			error(arg);
 			break;
-		case 'G':
-			newae(ctx->i_ae, "-shared");
-			nolibc = 1;
-			break;
 		case 'k':
 			if (strcmp(arg, "-keeptmp") == 0) {
 				newae(ctx->i_ae, "-save-temps");
@@ -895,30 +883,6 @@ do_gcc(cw_ictx_t *ctx)
 			}
 			error(arg);
 			break;
-		case 'B':	/* linker options */
-		case 'M':
-		case 'z':
-			{
-				char *opt;
-				size_t len;
-				char *s;
-
-				if (arglen == 1) {
-					opt = *++ctx->i_oldargv;
-					if (opt == NULL || *opt == '\0')
-						error(arg);
-					ctx->i_oldargc--;
-				} else {
-					opt = arg + 2;
-				}
-				len = strlen(opt) + 7;
-				if ((s = malloc(len)) == NULL)
-					nomem();
-				(void) snprintf(s, len, "-Wl,-%c%s", c, opt);
-				newae(ctx->i_ae, s);
-				free(s);
-			}
-			break;
 		case 'O':
 			if (arglen == 1) {
 				newae(ctx->i_ae, "-O");
@@ -939,19 +903,14 @@ do_gcc(cw_ictx_t *ctx)
 			nolibc = 1;
 			break;
 		case 's':
-			if (arglen == 1) {
-				newae(ctx->i_ae, "-Wl,-s");
+			if (strcmp(arg, "-shared") == 0) {
+				newae(ctx->i_ae, "-shared");
+				nolibc = 1;
 				break;
 			}
 			error(arg);
 			break;
-		case 't':
-			if (arglen == 1) {
-				newae(ctx->i_ae, "-Wl,-t");
-				break;
-			}
-			error(arg);
-			break;
+
 		case 'V':
 			if (arglen == 1) {
 				ctx->i_flags &= ~CW_F_ECHO;
@@ -994,13 +953,6 @@ do_gcc(cw_ictx_t *ctx)
 				 * Generate tests at the top of loops.
 				 * There is no direct gcc equivalent, ignore.
 				 */
-				break;
-			}
-			if (strcmp(arg, "-W0,-xdbggen=no%usedonly") == 0) {
-				newae(ctx->i_ae,
-				    "-fno-eliminate-unused-debug-symbols");
-				newae(ctx->i_ae,
-				    "-fno-eliminate-unused-debug-types");
 				break;
 			}
 			if (strcmp(arg, "-W2,-xwrap_int") == 0) {
@@ -1209,14 +1161,6 @@ do_gcc(cw_ictx_t *ctx)
 			/* Just ignore -YS,... for now */
 			if (strncmp(arg, "S,", 2) == 0)
 				break;
-			if (strncmp(arg, "l,", 2) == 0) {
-				char *s = strdup(arg);
-				s[0] = '-';
-				s[1] = 'B';
-				newae(ctx->i_ae, s);
-				free(s);
-				break;
-			}
 			if (strncmp(arg, "I,", 2) == 0) {
 				char *s = strdup(arg);
 				s[0] = '-';
@@ -1349,7 +1293,13 @@ do_smatch(cw_ictx_t *ctx)
 		char *arg = ctx->i_oldargv[i];
 
 		if (strcmp(arg, "-_smatch=off") == 0) {
-			ctx->i_flags &= ~ (CW_F_EXEC | CW_F_ECHO);
+			ctx->i_flags &= ~(CW_F_EXEC | CW_F_ECHO);
+			return;
+		}
+
+		/* smatch can't handle asm */
+		if ((arg[0] != '-') && is_asm_file(arg)) {
+			ctx->i_flags &= ~(CW_F_EXEC | CW_F_ECHO);
 			return;
 		}
 	}
@@ -1468,6 +1418,14 @@ prepctx(cw_ictx_t *ctx)
 		(void) fflush(stdout);
 	}
 
+	/*
+	 * If LD_ALTEXEC is already set, the expectation would be that that
+	 * link-editor is run, as such we need to leave it the environment
+	 * alone and let that happen.
+	 */
+	if ((ctx->i_linker != NULL) && (getenv("LD_ALTEXEC") == NULL))
+		setenv("LD_ALTEXEC", ctx->i_linker, 1);
+
 	if (!(ctx->i_flags & CW_F_XLATE))
 		return;
 
@@ -1487,13 +1445,33 @@ prepctx(cw_ictx_t *ctx)
 static int
 invoke(cw_ictx_t *ctx)
 {
-	char **newargv;
+	char **newargv, *makeflags;
 	int ac;
 	struct ae *a;
 
-	if ((newargv = calloc(sizeof (*newargv), ctx->i_ae->ael_argc + 1)) ==
-	    NULL)
+	newargv = calloc(ctx->i_ae->ael_argc + 1, sizeof (*newargv));
+	if (newargv == NULL)
 		nomem();
+
+	/*
+	 * Check to see if the silent make flag is present (-s), if so, do not
+	 * echo. The MAKEFLAGS environment variable is set by dmake. By
+	 * observation it appears to place short flags without any arguments
+	 * first followed by any long form flags or flags with arguments.
+	 */
+	makeflags = getenv("MAKEFLAGS");
+	if (makeflags != NULL) {
+		size_t makeflags_len = strlen(makeflags);
+		for (size_t i = 0; i < makeflags_len; i++) {
+			if (makeflags[i] == 's') {
+				ctx->i_flags &= ~CW_F_ECHO;
+				break;
+			}
+			/* end of short flags */
+			if (makeflags[i] == ' ')
+				break;
+		}
+	}
 
 	if (ctx->i_flags & CW_F_ECHO)
 		(void) fprintf(stderr, "+ ");
@@ -1715,18 +1693,19 @@ main(int argc, char **argv)
 	cw_compiler_t shadows[10];
 	int nshadows = 0;
 	int ret = 0;
-	boolean_t do_serial = B_FALSE;
-	boolean_t do_exec = B_FALSE;
-	boolean_t vflg = B_FALSE;
-	boolean_t Cflg = B_FALSE;
-	boolean_t cflg = B_FALSE;
-	boolean_t nflg = B_FALSE;
+	bool do_serial;
+	bool do_exec;
+	bool vflg = false;
+	bool Cflg = false;
+	bool cflg = false;
+	bool nflg = false;
 	char *tmpdir;
 
 	cw_ictx_t *main_ctx;
 
 	static struct option longopts[] = {
 		{ "compiler", no_argument, NULL, 'c' },
+		{ "linker", required_argument, NULL, 'l' },
 		{ "noecho", no_argument, NULL, 'n' },
 		{ "primary", required_argument, NULL, 'p' },
 		{ "shadow", required_argument, NULL, 's' },
@@ -1741,13 +1720,17 @@ main(int argc, char **argv)
 	while ((ch = getopt_long(argc, argv, "C", longopts, NULL)) != -1) {
 		switch (ch) {
 		case 'c':
-			cflg = B_TRUE;
+			cflg = true;
 			break;
 		case 'C':
-			Cflg = B_TRUE;
+			Cflg = true;
+			break;
+		case 'l':
+			if ((main_ctx->i_linker = strdup(optarg)) == NULL)
+				nomem();
 			break;
 		case 'n':
-			nflg = B_TRUE;
+			nflg = true;
 			break;
 		case 'p':
 			if (primary.c_path != NULL) {
@@ -1766,7 +1749,7 @@ main(int argc, char **argv)
 			nshadows++;
 			break;
 		case 'v':
-			vflg = B_TRUE;
+			vflg = true;
 			break;
 		default:
 			(void) fprintf(stderr, "Did you forget '--'?\n");
@@ -1779,8 +1762,8 @@ main(int argc, char **argv)
 		usage();
 	}
 
-	do_serial = (getenv("CW_SHADOW_SERIAL") == NULL) ? B_FALSE : B_TRUE;
-	do_exec = (getenv("CW_NO_EXEC") == NULL) ? B_TRUE : B_FALSE;
+	do_serial = getenv("CW_SHADOW_SERIAL") != NULL;
+	do_exec = getenv("CW_NO_EXEC") == NULL;
 
 	/* Leave room for argv[0] */
 	argc -= (optind - 1);

@@ -24,8 +24,8 @@
 # Copyright (c) 2013, OmniTI Computer Consulting, Inc. All rights reserved.
 # Copyright 2013 Garrett D'Amore <garrett@damore.org>
 # Copyright 2018 Nexenta Systems, Inc.
-# Copyright (c) 2019, Joyent, Inc.
-# Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2019 Joyent, Inc.
+# Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
 #
 
 LIBCBASE=	.
@@ -33,7 +33,6 @@ LIBCDIR=	$(SRC)/lib/libc
 LIBRARY=	libc.a
 LIB_PIC=	libc_pic.a
 VERS=		.1
-CPP=		/usr/lib/cpp
 TARGET_ARCH=	amd64
 
 # include comm page definitions
@@ -103,6 +102,8 @@ COMOBJS=			\
 	bcopy.o			\
 	bsearch.o		\
 	bzero.o			\
+	explicit_bzero.o	\
+	memmem.o		\
 	qsort.o			\
 	strtol.o		\
 	strtoul.o		\
@@ -265,6 +266,7 @@ COMSYSOBJS=			\
 	sigprocmsk.o		\
 	sigsendset.o		\
 	sigsuspend.o		\
+	ssp.o			\
 	statfs.o		\
 	statvfs.o		\
 	stty.o			\
@@ -277,6 +279,7 @@ COMSYSOBJS=			\
 	ulimit.o		\
 	umask.o			\
 	umount2.o		\
+	upanic.o		\
 	utssys.o		\
 	uucopy.o		\
 	vhangup.o		\
@@ -388,7 +391,6 @@ PORTGEN=			\
 	euclen.o		\
 	event_port.o		\
 	execvp.o		\
-	explicit_bzero.o	\
 	fattach.o		\
 	fdetach.o		\
 	fdopendir.o		\
@@ -467,7 +469,7 @@ PORTGEN=			\
 	madvise.o		\
 	malloc.o		\
 	memalign.o		\
-	memmem.o		\
+	memrchr.o		\
 	memset_s.o		\
 	mkdev.o			\
 	mkdtemp.o		\
@@ -516,6 +518,7 @@ PORTGEN=			\
 	readdir.o		\
 	readdir_r.o		\
 	reallocarray.o		\
+	reallocf.o		\
 	recallocarray.o		\
 	realpath.o		\
 	reboot.o		\
@@ -638,6 +641,7 @@ PORTSTDIO=			\
 	_filbuf.o		\
 	_findbuf.o		\
 	_flsbuf.o		\
+	_stdio_flags.o		\
 	_wrtchk.o		\
 	clearerr.o		\
 	ctermid.o		\
@@ -653,6 +657,7 @@ PORTSTDIO=			\
 	fileno.o		\
 	flockf.o		\
 	flush.o			\
+	fmemopen.o		\
 	fopen.o			\
 	fpos.o			\
 	fputc.o			\
@@ -670,6 +675,8 @@ PORTSTDIO=			\
 	gets.o			\
 	getw.o			\
 	mse.o			\
+	open_memstream.o	\
+	open_wmemstream.o	\
 	popen.o			\
 	putc.o			\
 	putchar.o		\
@@ -742,6 +749,8 @@ PORTI18N_COND=			\
 PORTLOCALE=			\
 	big5.o			\
 	btowc.o			\
+	c16rtomb.o		\
+	c32rtomb.o		\
 	collate.o		\
 	collcmp.o		\
 	euc.o			\
@@ -767,6 +776,8 @@ PORTLOCALE=			\
 	mbftowc.o		\
 	mblen.o			\
 	mbrlen.o		\
+	mbrtoc16.o		\
+	mbrtoc32.o		\
 	mbrtowc.o		\
 	mbsinit.o		\
 	mbsnrtowcs.o		\
@@ -875,7 +886,8 @@ UNWINDMACHOBJS=			\
 pics/unwind.o:= COPTFLAG64 =
 
 UNWINDASMOBJS=			\
-	unwind_frame.o
+	unwind_frame.o		\
+	unwind_wrap.o
 
 # Preserved solely to ease maintenance of 32-bit and 64-bit library builds
 # This macro should ALWAYS be empty; native APIs are already 'large file'.
@@ -1027,7 +1039,7 @@ CFLAGS64 += -xinline=
 
 CERRWARN += -_gcc=-Wno-parentheses
 CERRWARN += -_gcc=-Wno-switch
-CERRWARN += -_gcc=-Wno-uninitialized
+CERRWARN += $(CNOWARN_UNINIT)
 CERRWARN += -_gcc=-Wno-unused-value
 CERRWARN += -_gcc=-Wno-unused-label
 CERRWARN += -_gcc=-Wno-unused-variable
@@ -1053,14 +1065,19 @@ CFLAGS64 += $(XSTRCONST)
 
 ALTPICS= $(TRACEOBJS:%=pics/%)
 
-$(DYNLIB) := BUILD.SO = $(LD) -o $@ -G $(DYNFLAGS) $(PICS) $(ALTPICS) $(EXTPICS)
+$(DYNLIB) := BUILD.SO = $(LD) -o $@ $(GSHARED) $(DYNFLAGS) $(PICS) $(ALTPICS) $(EXTPICS)
 
 MAPFILES =	$(LIBCDIR)/port/mapfile-vers
 
 CPPFLAGS=	-D_REENTRANT -D$(MACH64) -D__$(MACH64) $(THREAD_DEBUG) \
 		-I. -I$(LIBCBASE)/inc -I$(LIBCDIR)/inc $(CPPFLAGS.master)
-ASFLAGS=	$(AS_PICFLAGS) -P -D__STDC__ -D_ASM $(CPPFLAGS) \
-		$(amd64_AS_XARCH)
+
+# __XOPEN_OR_POSIX is necessary to avoid implicit _LARGEFILE_SOURCE which
+# breaks the libc compilation environment.
+ASFLAGS=	$(AS_PICFLAGS) -D_ASM \
+		$(CPPFLAGS) $(amd64_XARCH) -D__XOPEN_OR_POSIX=1
+ASFLAGS64=	$(AS_PICFLAGS) -D_ASM \
+		$(CPPFLAGS) $(amd64_XARCH) -D__XOPEN_OR_POSIX=1
 
 # As a favor to the dtrace syscall provider, libc still calls the
 # old syscall traps that have been obsoleted by the *at() interfaces.
@@ -1079,7 +1096,7 @@ DYNFLAGS +=	$(RTLDINFO)
 # are marked 'protected' in the mapfiles, this is a minimal set (15 to 20).
 DYNFLAGS +=	-znow
 
-BUILD.s=	$(AS) $(ASFLAGS) $< -o $@
+BUILD.s=	$(AS) $(ASFLAGS) $< -c -o $@
 
 # Override this top level flag so the compiler builds in its native
 # C99 mode.  This has been enabled to support the complex arithmetic
@@ -1109,50 +1126,6 @@ CLOBBERFILES +=	$(LIB_PIC)
 # $(DYNLIB) $(LIB_PIC) := DYNOBJS = _rtbootld.o
 $(DYNLIB) := CRTI = crti.o
 $(DYNLIB) := CRTN = crtn.o
-
-# Files which need the threads .il inline template
-TIL=				\
-	aio.o			\
-	alloc.o			\
-	assfail.o		\
-	atexit.o		\
-	atfork.o		\
-	cancel.o		\
-	door_calls.o		\
-	err.o			\
-	errno.o			\
-	lwp.o			\
-	ma.o			\
-	machdep.o		\
-	posix_aio.o		\
-	pthr_attr.o		\
-	pthr_barrier.o		\
-	pthr_cond.o		\
-	pthr_mutex.o		\
-	pthr_rwlock.o		\
-	pthread.o		\
-	rand.o			\
-	rwlock.o		\
-	scalls.o		\
-	sched.o			\
-	sema.o			\
-	sigaction.o		\
-	sigev_thread.o		\
-	spawn.o			\
-	stack.o			\
-	synch.o			\
-	tdb_agent.o		\
-	thr.o			\
-	thread_interface.o	\
-	thread_pool.o		\
-	thrp_unwind.o		\
-	tls.o			\
-	tmem.o			\
-	tsd.o
-
-$(TIL:%=pics/%) := CFLAGS64 += $(LIBCBASE)/threads/amd64.il
-
-# pics/mul64.o := CFLAGS64 += crt/mul64.il
 
 # large-file-aware components that should be built large
 
@@ -1191,13 +1164,15 @@ pics/arc4random.o :=	CPPFLAGS += -I$(SRC)/common/crypto/chacha
 pics/__clock_gettime.o := CPPFLAGS += $(COMMPAGE_CPPFLAGS)
 pics/gettimeofday.o := CPPFLAGS += $(COMMPAGE_CPPFLAGS)
 
+#
+# Disable the stack protector due to issues with bootstrapping rtld. See
+# cmd/sgs/rtld/Makefile.com for more information.
+#
+STACKPROTECT = none
+
 .KEEP_STATE:
 
 all: $(LIBS) $(LIB_PIC)
-
-# object files that depend on inline template
-$(TIL:%=pics/%): $(LIBCBASE)/threads/amd64.il
-# pics/mul64.o: crt/mul64.il
 
 # include common libc targets
 include ../Makefile.targ
@@ -1221,7 +1196,9 @@ ASSYMDEP_OBJS=			\
 
 $(ASSYMDEP_OBJS:%=pics/%): assym.h
 
-GENASSYM_C = $(LIBCDIR)/$(MACH64)/genassym.c
+# assym.h build rules
+
+GENASSYM_C = genassym.c
 
 # derived C source and related explicit dependencies
 $(LIBCDIR)/port/gen/errlst.c + \

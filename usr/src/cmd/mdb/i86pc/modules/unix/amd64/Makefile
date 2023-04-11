@@ -28,7 +28,7 @@ MODULE = unix.so
 MDBTGT = kvm
 
 MODSRCS = unix.c i86mmu.c xcall.c
-MODASMSRCS = unix_sup.s
+MODASMSRCS = unix_sup.S
 
 include ../../../../../Makefile.cmd
 include ../../../../../Makefile.cmd.64
@@ -45,6 +45,6 @@ CPPFLAGS += -I$(SRC)/uts/intel
 CERRWARN += -_gcc=-Wno-char-subscripts
 CERRWARN += -_gcc=-Wno-parentheses
 CERRWARN += -_gcc=-Wno-unused-label
-CERRWARN += -_gcc=-Wno-uninitialized
+CERRWARN += $(CNOWARN_UNINIT)
 
 CERRWARN += -_gcc=-Wno-unused-function

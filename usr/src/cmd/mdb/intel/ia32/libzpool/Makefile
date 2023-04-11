@@ -43,16 +43,13 @@ GENUNIX_DIR = ../../../common/modules/genunix
 CPPFLAGS.first = -I$(SRC)/lib/libfakekernel/common -D_FAKE_KERNEL
 CPPFLAGS += -I../../../../../lib/libzpool/common \
 	-I../../../../../uts/common/fs/zfs \
-	-I../../../../../uts/common/fs/zfs/lua
+	-I../../../../../uts/common/fs/zfs/lua \
+	-I../../../../../common/zfs
 
 CSTD=	$(CSTD_GNU99)
-C99LMODE=	-Xc99=%all
 
 CERRWARN 	+= -_gcc=-Wno-type-limits
 
 dmod/%.o: $(GENUNIX_DIR)/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
-
-dmod/%.ln: $(GENUNIX_DIR)/%.c
-	$(LINT.c) -c $<

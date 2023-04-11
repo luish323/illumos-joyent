@@ -21,13 +21,11 @@
 
 /*
  * Copyright (c) 1995, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2013, OmniTI Computer Consulting, Inc. All rights reserved.
  * Copyright 2015, Joyent, Inc.  All rights reserved.
- */
-
-/* Copyright (c) 2013, OmniTI Computer Consulting, Inc. All rights reserved. */
-/*
+ * Copyright (c) 2013, OmniTI Computer Consulting, Inc. All rights reserved.
  * Copyright 2015 Nexenta Systems, Inc. All rights reserved.
+ * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2022 Garrett D'Amore
  */
 
 #include <sys/types.h>
@@ -72,7 +70,6 @@
 #include <vm/seg_map.h>
 #include <vm/seg_kpm.h>
 
-#include <fs/sockfs/nl7c.h>
 #include <fs/sockfs/sockcommon.h>
 #include <fs/sockfs/sockfilter_impl.h>
 #include <fs/sockfs/socktpi.h>
@@ -84,9 +81,6 @@ int do_useracc = 1;		/* Controlled by setting SO_DEBUG to 4 */
 #endif /* SOCK_TEST */
 
 extern int	xnet_truncate_print;
-
-extern void	nl7c_init(void);
-extern int	sockfs_defer_nl7c_init;
 
 /*
  * Kernel component of socket creation.
@@ -835,7 +829,7 @@ recvit(int sock, struct nmsghdr *msg, struct uio *uiop, int flags,
 	void *name;
 	socklen_t namelen;
 	void *control;
-	socklen_t controllen;
+	socklen_t controllen, free_controllen;
 	ssize_t len;
 	int error;
 
@@ -861,6 +855,8 @@ recvit(int sock, struct nmsghdr *msg, struct uio *uiop, int flags,
 	}
 	lwp_stat_update(LWP_STAT_MSGRCV, 1);
 	releasef(sock);
+
+	free_controllen = msg->msg_controllen;
 
 	error = copyout_name(name, namelen, namelenp,
 	    msg->msg_name, msg->msg_namelen);
@@ -891,11 +887,7 @@ recvit(int sock, struct nmsghdr *msg, struct uio *uiop, int flags,
 			goto err;
 		}
 	}
-	/*
-	 * Note: This MUST be done last. There can be no "goto err" after this
-	 * point since it could make so_closefds run twice on some part
-	 * of the file descriptor array.
-	 */
+
 	if (controllen != 0) {
 		if (!(flags & MSG_XPG4_2)) {
 			/*
@@ -904,36 +896,65 @@ recvit(int sock, struct nmsghdr *msg, struct uio *uiop, int flags,
 			 */
 			controllen &= ~((int)sizeof (uint32_t) - 1);
 		}
+
+		if (msg->msg_controllen > controllen || control == NULL) {
+			/*
+			 * If the truncated part contains file descriptors,
+			 * then they must be closed in the kernel as they
+			 * will not be included in the data returned to
+			 * user space. Close them now so that the header size
+			 * can be safely adjusted prior to copyout. In case of
+			 * an error during copyout, the remaining file
+			 * descriptors will be closed in the error handler
+			 * below.
+			 */
+			so_closefds(msg->msg_control, msg->msg_controllen,
+			    !(flags & MSG_XPG4_2),
+			    control == NULL ? 0 : controllen);
+
+			/*
+			 * In the case of a truncated control message, the last
+			 * cmsg header that fits into the available buffer
+			 * space must be adjusted to reflect the actual amount
+			 * of associated data that will be returned. This only
+			 * needs to be done for XPG4 messages as non-XPG4
+			 * messages are not structured (they are just a
+			 * buffer and a length - msg_accrights(len)).
+			 */
+			if (control != NULL && (flags & MSG_XPG4_2)) {
+				so_truncatecmsg(msg->msg_control,
+				    msg->msg_controllen, controllen);
+				msg->msg_controllen = controllen;
+			}
+		}
+
 		error = copyout_arg(control, controllen, controllenp,
 		    msg->msg_control, msg->msg_controllen);
+
 		if (error)
 			goto err;
 
-		if (msg->msg_controllen > controllen || control == NULL) {
-			if (control == NULL)
-				controllen = 0;
-			so_closefds(msg->msg_control, msg->msg_controllen,
-			    !(flags & MSG_XPG4_2), controllen);
-		}
 	}
 	if (msg->msg_namelen != 0)
 		kmem_free(msg->msg_name, (size_t)msg->msg_namelen);
-	if (msg->msg_controllen != 0)
-		kmem_free(msg->msg_control, (size_t)msg->msg_controllen);
+	if (free_controllen != 0)
+		kmem_free(msg->msg_control, (size_t)free_controllen);
 	return (len - uiop->uio_resid);
 
 err:
 	/*
 	 * If we fail and the control part contains file descriptors
-	 * we have to close the fd's.
+	 * we have to close them. For a truncated control message, the
+	 * descriptors which were cut off have already been closed and the
+	 * length adjusted so that they will not be closed again.
 	 */
 	if (msg->msg_controllen != 0)
 		so_closefds(msg->msg_control, msg->msg_controllen,
 		    !(flags & MSG_XPG4_2), 0);
 	if (msg->msg_namelen != 0)
 		kmem_free(msg->msg_name, (size_t)msg->msg_namelen);
-	if (msg->msg_controllen != 0)
-		kmem_free(msg->msg_control, (size_t)msg->msg_controllen);
+	if (free_controllen != 0)
+		kmem_free(msg->msg_control, (size_t)free_controllen);
 	return (set_errno(error));
 }
 
@@ -1675,37 +1696,9 @@ sockconf_add_sock(int family, int type, int protocol, char *name)
 	}
 	if (strncmp(buf, "/dev", strlen("/dev")) == 0) {
 		/* For device */
-
-		/*
-		 * Special handling for NCA:
-		 *
-		 * DEV_NCA is never opened even if an application
-		 * requests for AF_NCA. The device opened is instead a
-		 * predefined AF_INET transport (NCA_INET_DEV).
-		 *
-		 * Prior to Volo (PSARC/2007/587) NCA would determine
-		 * the device using a lookup, which worked then because
-		 * all protocols were based on TPI. Since TPI is no
-		 * longer the default, we have to explicitly state
-		 * which device to use.
-		 */
-		if (strcmp(buf, NCA_DEV) == 0) {
-			/* only support entry <28, 2, 0> */
-			if (family != AF_NCA || type != SOCK_STREAM ||
-			    protocol != 0) {
-				kmem_free(buf, MAXPATHLEN);
-				return (EINVAL);
-			}
-
-			pathlen = strlen(NCA_INET_DEV) + 1;
-			kdevpath = kmem_alloc(pathlen, KM_SLEEP);
-			bcopy(NCA_INET_DEV, kdevpath, pathlen);
-			kdevpath[pathlen - 1] = '\0';
-		} else {
-			kdevpath = kmem_alloc(pathlen, KM_SLEEP);
-			bcopy(buf, kdevpath, pathlen);
-			kdevpath[pathlen - 1] = '\0';
-		}
+		kdevpath = kmem_alloc(pathlen, KM_SLEEP);
+		bcopy(buf, kdevpath, pathlen);
+		kdevpath[pathlen - 1] = '\0';
 	} else {
 		/* For socket module */
 		kmodule = kmem_alloc(pathlen, KM_SLEEP);
@@ -1904,11 +1897,6 @@ sockconfig(int cmd, void *arg1, void *arg2, void *arg3, void *arg4)
 
 	if (secpolicy_net_config(CRED(), B_FALSE) != 0)
 		return (set_errno(EPERM));
-
-	if (sockfs_defer_nl7c_init) {
-		nl7c_init();
-		sockfs_defer_nl7c_init = 0;
-	}
 
 	switch (cmd) {
 	case SOCKCONFIG_ADD_SOCK:

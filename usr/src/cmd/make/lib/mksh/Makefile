@@ -10,6 +10,7 @@
 #
 
 # Copyright 2015, Richard Lowe.
+# Copyright 2019 RackTop Systems.
 
 LIBRARY =	libmksh.a
 VERS =		.1
@@ -25,24 +26,25 @@ include $(SRC)/lib/Makefile.lib
 include ../../Makefile.com
 
 POFILE = libmksh.po
-POFILES = $(OBJECTS:%.o=%.po)
+MSGFILES = $(OBJECTS:%.o=%.cc)
 
 LIBS = $(LIBRARY)
 SRCDIR = ../
 MAPFILES=
 CPPFLAGS += -D_FILE_OFFSET_BITS=64
 
+CCERRWARN += -_gcc=-Wno-unused-variable
+CCERRWARN += -_gcc=-Wno-unused-function
+CCERRWARN += -_gcc=-Wno-unused-value
+CCERRWARN += -_gcc=-Wno-uninitialized
+
 all: $(LIBS)
 
 install: all
 
-lint:
+$(POFILE): pofile_MSGFILES
 
-$(POFILE): $(POFILES)
-	$(CAT) $(POFILES) > $@
-
-_msg: $(MSGDOMAIN) $(POFILE)
-	$(RM) $(MSGDOMAIN)/$(POFILE)
-	$(CP) $(POFILE) $(MSGDOMAIN)
+_msg: $(MSGDOMAINPOFILE)
 
 include $(SRC)/lib/Makefile.targ
+include $(SRC)/Makefile.msg.targ

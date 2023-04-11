@@ -34,14 +34,13 @@ include ../../Makefile.lib
 SRCS=		$(COMMON_OBJS:%.o=../../../common/exacct/%.c) \
 		$(LIB_OBJS:%.o=../common/%.c)
 
-LIBS =		$(DYNLIB) $(LINTLIB)
+LIBS =		$(DYNLIB)
 LDLIBS +=	-lc
 
 SRCDIR =	../common
-$(LINTLIB) :=	SRCS = $(SRCDIR)/$(LINTSRC)
 
 CFLAGS +=	$(CCVERBOSE)
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 CPPFLAGS +=	-D_FILE_OFFSET_BITS=64
 
 debug :=	CPPFLAGS += -DLIBEXACCT_DEBUG
@@ -52,7 +51,6 @@ debug :=	COPTFLAG64 = $(CCGDEBUG)
 
 all debug: $(LIBS)
 
-lint: lintcheck
 
 include ../../Makefile.targ
 

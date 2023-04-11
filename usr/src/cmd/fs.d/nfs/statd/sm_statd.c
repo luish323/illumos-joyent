@@ -29,7 +29,7 @@
  */
 
 /*	Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T	*/
-/*	  All Rights Reserved  	*/
+/*	  All Rights Reserved	*/
 
 /*
  * University Copyright- Copyright (c) 1982, 1986, 1988
@@ -91,8 +91,8 @@ static void delete_name(name_entry **namepp, char *name);
 static void remove_name(char *name, int op, int startup);
 static int statd_call_statd(char *name);
 static void pr_name(char *name, int flag);
-static void *thr_statd_init(void);
-static void *sm_try(void);
+static void *thr_statd_init(void *);
+static void *sm_try(void *);
 static void *thr_call_statd(void *);
 static void remove_single_name(char *name, char *dir1, char *dir2);
 static int move_file(char *fromdir, char *file, char *todir);
@@ -238,8 +238,7 @@ statd_init(void)
 	(void) closedir(dp);
 
 	/* Contact hosts' statd */
-	if (thr_create(NULL, 0, (void *(*)(void *))thr_statd_init, NULL,
-	    THR_DETACHED, NULL)) {
+	if (thr_create(NULL, 0, thr_statd_init, NULL, THR_DETACHED, NULL)) {
 		syslog(LOG_ERR,
 		    "statd: unable to create thread for thr_statd_init\n");
 		exit(1);
@@ -250,10 +249,10 @@ statd_init(void)
  * Work thread which contacts hosts' statd.
  */
 static void *
-thr_statd_init(void)
+thr_statd_init(void *arg __unused)
 {
 	struct dirent *dirp;
-	DIR 	*dp;
+	DIR	*dp;
 	int num_threads;
 	int num_join;
 	int i;
@@ -435,11 +434,10 @@ thr_statd_init(void)
 		(void) printf("Creating thread for sm_try\n");
 
 	/* Continue to notify statd on hosts that were unreachable. */
-	if (thr_create(NULL, 0, (void *(*)(void *))sm_try, NULL, THR_DETACHED,
-	    NULL))
+	if (thr_create(NULL, 0, sm_try, NULL, THR_DETACHED, NULL))
 		syslog(LOG_ERR,
 		    "statd: unable to create thread for sm_try().\n");
-	thr_exit((void *) 0);
+	thr_exit(NULL);
 #ifdef lint
 	return (0);
 #endif
@@ -547,8 +545,6 @@ statd_call_statd(char *name)
 	stat_chge ntf;
 	int i;
 	int rc;
-	int dummy1, dummy2, dummy3, dummy4;
-	char ascii_addr[MAXNAMELEN];
 	size_t unq_len;
 
 	ntf.mon_name = hostname;
@@ -640,7 +636,7 @@ statd_call_statd(char *name)
  * variable will signal it.
  */
 void *
-sm_try(void)
+sm_try(void *arg __unused)
 {
 	name_entry *nl, *next;
 	timestruc_t	wtime;
@@ -946,7 +942,7 @@ move_file(char *fromdir, char *file, char *todir)
 int
 create_symlink(char *todir, char *rname, char *lname)
 {
-	int error;
+	int error = 0;
 	char lpath[MAXPATHLEN];
 
 	/*
@@ -1281,8 +1277,8 @@ record_name(char *name, int op)
 }
 
 /*
- * This routine adds a symlink in the form of an ASCII dotted quad
- * IP address that is linked to the name already recorded in the
+ * This routine adds a symlink in the form of an IP address in
+ * text string format that is linked to the name already recorded in the
  * filesystem name space by record_name().  Enough information is
  * (hopefully) provided to support other address types in the future.
  * The purpose of this is to cache enough information to contact
@@ -1298,8 +1294,8 @@ record_addr(char *name, sa_family_t family, struct netobj *ah)
 	int i;
 	int path_len;
 	char *famstr;
-	struct in_addr addr;
-	char *addr6;
+	struct in_addr addr = { 0 };
+	char *addr6 = NULL;
 	char ascii_addr[MAXNAMELEN];
 	char path[MAXPATHLEN];
 
@@ -1323,8 +1319,7 @@ record_addr(char *name, sa_family_t family, struct netobj *ah)
 	}
 
 	if (family == AF_INET) {
-		if (addr.s_addr == INADDR_ANY ||
-		    ((addr.s_addr && 0xff000000) == 0)) {
+		if ((ntohl(addr.s_addr) & 0xff000000) == 0) {
 			syslog(LOG_DEBUG,
 			    "record_addr: illegal IP address %x\n",
 			    addr.s_addr);

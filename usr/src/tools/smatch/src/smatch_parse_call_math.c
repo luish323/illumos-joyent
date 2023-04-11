@@ -114,7 +114,7 @@ static void rl_discard_stacks(void)
 		pop_rl(&rl_stack);
 }
 
-static int read_rl_from_var(struct expression *call, char *p, char **end, struct range_list **rl)
+static int read_rl_from_var(struct expression *call, const char *p, const char **end, struct range_list **rl)
 {
 	struct expression *arg;
 	struct smatch_state *state;
@@ -125,7 +125,7 @@ static int read_rl_from_var(struct expression *call, char *p, char **end, struct
 	int star;
 
 	p++;
-	param = strtol(p, &p, 10);
+	param = strtol(p, (char **)&p, 10);
 
 	arg = get_argument_from_call_expr(call->args, param);
 	if (!arg)
@@ -165,7 +165,7 @@ static int read_rl_from_var(struct expression *call, char *p, char **end, struct
 	return 1;
 }
 
-static int read_var_num(struct expression *call, char *p, char **end, struct range_list **rl)
+static int read_var_num(struct expression *call, const char *p, const char **end, struct range_list **rl)
 {
 	sval_t sval;
 
@@ -176,14 +176,14 @@ static int read_var_num(struct expression *call, char *p, char **end, struct ran
 		return read_rl_from_var(call, p, end, rl);
 
 	sval.type = &llong_ctype;
-	sval.value = strtoll(p, end, 10);
+	sval.value = strtoll(p, (char **)end, 10);
 	if (*end == p)
 		return 0;
 	*rl = alloc_rl(sval, sval);
 	return 1;
 }
 
-static char *read_op(char *p)
+static const char *read_op(const char *p)
 {
 	while (*p == ' ')
 		p++;
@@ -199,14 +199,14 @@ static char *read_op(char *p)
 	}
 }
 
-int parse_call_math_rl(struct expression *call, char *math, struct range_list **rl)
+int parse_call_math_rl(struct expression *call, const char *math, struct range_list **rl)
 {
 	struct range_list *tmp;
-	char *c;
+	const char *c;
 
 	/* try to implement shunting yard algorithm. */
 
-	c = (char *)math;
+	c = math;
 	while (1) {
 		if (option_debug)
 			sm_msg("parsing %s", c);
@@ -344,6 +344,16 @@ static int format_call_to_param_mapping(char *buf, int remaining, struct express
 	return format_name_sym_helper(buf, remaining, name, sym);
 }
 
+static int is_mtag_sval(sval_t sval)
+{
+	if (!is_ptr_type(sval.type))
+		return 0;
+	if (sval_cmp(sval, valid_ptr_min_sval) >= 0 &&
+	    sval_cmp(sval, valid_ptr_max_sval) <= 0)
+		return 1;
+	return 0;
+}
+
 static int format_expr_helper(char *buf, int remaining, struct expression *expr)
 {
 	sval_t sval;
@@ -380,7 +390,7 @@ static int format_expr_helper(char *buf, int remaining, struct expression *expr)
 		return cur - buf;
 	}
 
-	if (get_implied_value(expr, &sval)) {
+	if (!param_was_set(expr) && get_implied_value(expr, &sval) && !is_mtag_sval(sval)) {
 		ret = snprintf(cur, remaining, "%s", sval_to_str(sval));
 		remaining -= ret;
 		if (remaining <= 0)
@@ -435,6 +445,7 @@ char *get_value_in_terms_of_parameter_math_var_sym(const char *name, struct symb
 	char buf[256] = "";
 	int ret;
 	int cnt = 0;
+	sval_t sval;
 
 	expr = get_assigned_expr_name_sym(name, sym);
 	if (!expr)
@@ -444,6 +455,9 @@ char *get_value_in_terms_of_parameter_math_var_sym(const char *name, struct symb
 		if (++cnt > 3)
 			break;
 	}
+
+	if (get_implied_value(expr, &sval))
+		return NULL;
 
 	ret = format_expr_helper(buf, sizeof(buf), expr);
 	if (ret == 0)
@@ -493,7 +507,7 @@ static char *swap_format(struct expression *call, char *format)
 	while (*p) {
 		if (*p == '$') {
 			p++;
-			param = strtol(p, &p, 10);
+			param = strtol(p, (char **)&p, 10);
 			arg = get_argument_from_call_expr(call->args, param);
 			if (!arg)
 				return NULL;
@@ -574,6 +588,9 @@ static char *get_allocation_recipe_from_call(struct expression *expr)
 		BUF_SIZE, sql_filter);
 	if (!buf_size_recipe || strcmp(buf_size_recipe, "invalid") == 0)
 		return NULL;
+	/* Known sizes should be handled in smatch_buf_size.c */
+	if (!strchr(buf_size_recipe, '$'))
+		return NULL;
 	return swap_format(expr, buf_size_recipe);
 }
 
@@ -587,26 +604,10 @@ static void match_call_assignment(struct expression *expr)
 	set_state_expr(my_id, expr->left, alloc_state_sname(sname));
 }
 
-static void match_returns_call(int return_id, char *return_ranges, struct expression *call)
-{
-	char *sname;
-
-	sname = get_allocation_recipe_from_call(call);
-	if (option_debug)
-		sm_msg("sname = %s", sname);
-	if (!sname)
-		return;
-
-	sql_insert_return_states(return_id, return_ranges, BUF_SIZE, -1, "",
-			sname);
-}
-
-static void print_returned_allocations(int return_id, char *return_ranges, struct expression *expr)
+const char *get_allocation_math(struct expression *expr)
 {
 	struct expression *tmp;
 	struct smatch_state *state;
-	struct symbol *sym;
-	char *name;
 	int cnt = 0;
 
 	expr = strip_expr(expr);
@@ -616,25 +617,16 @@ static void print_returned_allocations(int return_id, char *return_ranges, struc
 		expr = strip_expr(tmp);
 	}
 	if (!expr)
-		return;
+		return NULL;
 
-	if (expr->type == EXPR_CALL) {
-		match_returns_call(return_id, return_ranges, expr);
-		return;
-	}
+	if (expr->type == EXPR_CALL)
+		return get_allocation_recipe_from_call(expr);
 
-	name = expr_to_var_sym(expr, &sym);
-	if (!name || !sym)
-		goto free;
-
-	state = get_state(my_id, name, sym);
+	state = get_state_expr(my_id, expr);
 	if (!state || !state->data)
-		goto free;
+		return NULL;
 
-	sql_insert_return_states(return_id, return_ranges, BUF_SIZE, -1, "",
-			state->name);
-free:
-	free_string(name);
+	return state->name;
 }
 
 void register_parse_call_math(int id)
@@ -643,10 +635,11 @@ void register_parse_call_math(int id)
 
 	my_id = id;
 
+	set_dynamic_states(my_id);
+
 	for (i = 0; i < ARRAY_SIZE(alloc_functions); i++)
 		add_function_assign_hook(alloc_functions[i].func, &match_alloc,
 				         INT_PTR(alloc_functions[i].param));
 	add_hook(&match_call_assignment, CALL_ASSIGNMENT_HOOK);
-	add_split_return_callback(print_returned_allocations);
 }
 

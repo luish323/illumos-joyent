@@ -21,10 +21,11 @@
 
 /*
  * Copyright (c) 1991, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2017 Joyent, Inc.
  * Copyright (c) 2011 Nexenta Systems, Inc. All rights reserved.
- * Copyright (c) 2013, 2016 by Delphix. All rights reserved.
+ * Copyright (c) 2013, 2017 by Delphix. All rights reserved.
  * Copyright 2014, OmniTI Computer Consulting, Inc. All rights reserved.
+ * Copyright 2020 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Company
  */
 /* Copyright (c) 1990 Mentat Inc. */
 
@@ -74,6 +75,7 @@
 #include <inet/ipsec_impl.h>
 
 #include <inet/common.h>
+#include <inet/cc.h>
 #include <inet/ip.h>
 #include <inet/ip_impl.h>
 #include <inet/ip6.h>
@@ -1017,10 +1019,23 @@ finish:
 
 	/* If we have an upper handle (socket), release it */
 	if (IPCL_IS_NONSTR(connp)) {
-		ASSERT(connp->conn_upper_handle != NULL);
-		(*connp->conn_upcalls->su_closed)(connp->conn_upper_handle);
+		sock_upcalls_t *upcalls = connp->conn_upcalls;
+		sock_upper_handle_t handle = connp->conn_upper_handle;
+
+		ASSERT(upcalls != NULL);
+		ASSERT(upcalls->su_closed != NULL);
+		ASSERT(handle != NULL);
+		/*
+		 * Set these to NULL first because closed() will free upper
+		 * structures.  Acquire conn_lock because an external caller
+		 * like conn_get_socket_info() will upcall if these are
+		 * non-NULL.
+		 */
+		mutex_enter(&connp->conn_lock);
 		connp->conn_upper_handle = NULL;
 		connp->conn_upcalls = NULL;
+		mutex_exit(&connp->conn_lock);
+		upcalls->su_closed(handle);
 	}
 }
 
@@ -1408,6 +1423,10 @@ tcp_free(tcp_t *tcp)
 	 */
 	tcp_close_mpp(&tcp->tcp_conn.tcp_eager_conn_ind);
 
+	/* Allow the CC algorithm to clean up after itself. */
+	if (tcp->tcp_cc_algo != NULL && tcp->tcp_cc_algo->cb_destroy != NULL)
+		tcp->tcp_cc_algo->cb_destroy(&tcp->tcp_ccv);
+
 	/*
 	 * Destroy any association with SO_REUSEPORT group.
 	 */
@@ -1430,13 +1449,26 @@ tcp_free(tcp_t *tcp)
 	 * nothing to do other than clearing the field.
 	 */
 	if (connp->conn_upper_handle != NULL) {
-		if (IPCL_IS_NONSTR(connp)) {
-			(*connp->conn_upcalls->su_closed)(
-			    connp->conn_upper_handle);
-			tcp->tcp_detached = B_TRUE;
-		}
+		sock_upcalls_t *upcalls = connp->conn_upcalls;
+		sock_upper_handle_t handle = connp->conn_upper_handle;
+
+		/*
+		 * Set these to NULL first because closed() will free upper
+		 * structures.  Acquire conn_lock because an external caller
+		 * like conn_get_socket_info() will upcall if these are
+		 * non-NULL.
+		 */
+		mutex_enter(&connp->conn_lock);
 		connp->conn_upper_handle = NULL;
 		connp->conn_upcalls = NULL;
+		mutex_exit(&connp->conn_lock);
+		if (IPCL_IS_NONSTR(connp)) {
+			ASSERT(upcalls != NULL);
+			ASSERT(upcalls->su_closed != NULL);
+			ASSERT(handle != NULL);
+			upcalls->su_closed(handle);
+			tcp->tcp_detached = B_TRUE;
+		}
 	}
 }
 
@@ -1469,7 +1501,7 @@ tcp_free(tcp_t *tcp)
  * collector will free up the freelist is the connection ends up sitting
  * there for too long.
  */
-void *
+conn_t *
 tcp_get_conn(void *arg, tcp_stack_t *tcps)
 {
 	tcp_t			*tcp = NULL;
@@ -1508,7 +1540,7 @@ tcp_get_conn(void *arg, tcp_stack_t *tcps)
 		connp->conn_recv = tcp_input_data;
 		ASSERT(connp->conn_recvicmp == tcp_icmp_input);
 		ASSERT(connp->conn_verifyicmp == tcp_verifyicmp);
-		return ((void *)connp);
+		return (connp);
 	}
 	mutex_exit(&tcp_time_wait->tcp_time_wait_lock);
 	/*
@@ -1543,7 +1575,7 @@ tcp_get_conn(void *arg, tcp_stack_t *tcps)
 	connp->conn_ixa->ixa_notify = tcp_notify;
 	connp->conn_ixa->ixa_notify_cookie = tcp;
 
-	return ((void *)connp);
+	return (connp);
 }
 
 /*
@@ -2312,6 +2344,11 @@ tcp_reinit_values(tcp_t *tcp)
 	ASSERT(tcp->tcp_listen_cnt == NULL);
 	ASSERT(tcp->tcp_reass_tid == 0);
 
+	/* Allow the CC algorithm to clean up after itself. */
+	if (tcp->tcp_cc_algo->cb_destroy != NULL)
+		tcp->tcp_cc_algo->cb_destroy(&tcp->tcp_ccv);
+	tcp->tcp_cc_algo = NULL;
+
 #undef	DONTCARE
 #undef	PRESERVE
 }
@@ -2332,7 +2369,12 @@ tcp_init_values(tcp_t *tcp, tcp_t *parent)
 	    (connp->conn_ipversion == IPV4_VERSION ||
 	    connp->conn_ipversion == IPV6_VERSION)));
 
+	tcp->tcp_ccv.type = IPPROTO_TCP;
+	tcp->tcp_ccv.ccvc.tcp = tcp;
+
 	if (parent == NULL) {
+		tcp->tcp_cc_algo = tcps->tcps_default_cc_algo;
+
 		tcp->tcp_naglim = tcps->tcps_naglim_def;
 
 		tcp->tcp_rto_initial = tcps->tcps_rexmit_interval_initial;
@@ -2360,6 +2402,8 @@ tcp_init_values(tcp_t *tcp, tcp_t *parent)
 		 */
 	} else {
 		/* Inherit various TCP parameters from the parent. */
+		tcp->tcp_cc_algo = parent->tcp_cc_algo;
+
 		tcp->tcp_naglim = parent->tcp_naglim;
 
 		tcp->tcp_rto_initial = parent->tcp_rto_initial;
@@ -2377,6 +2421,7 @@ tcp_init_values(tcp_t *tcp, tcp_t *parent)
 
 		tcp->tcp_fin_wait_2_flush_interval =
 		    parent->tcp_fin_wait_2_flush_interval;
+		tcp->tcp_quickack = parent->tcp_quickack;
 
 		tcp->tcp_ka_interval = parent->tcp_ka_interval;
 		tcp->tcp_ka_abort_thres = parent->tcp_ka_abort_thres;
@@ -2385,6 +2430,9 @@ tcp_init_values(tcp_t *tcp, tcp_t *parent)
 
 		tcp->tcp_init_cwnd = parent->tcp_init_cwnd;
 	}
+
+	if (tcp->tcp_cc_algo->cb_init != NULL)
+		VERIFY(tcp->tcp_cc_algo->cb_init(&tcp->tcp_ccv) == 0);
 
 	/*
 	 * Initialize tcp_rtt_sa and tcp_rtt_sd so that the calculated RTO
@@ -2633,7 +2681,7 @@ tcp_create_common(cred_t *credp, boolean_t isv6, boolean_t issocket,
 	}
 
 	sqp = IP_SQUEUE_GET((uint_t)gethrtime());
-	connp = (conn_t *)tcp_get_conn(sqp, tcps);
+	connp = tcp_get_conn(sqp, tcps);
 	/*
 	 * Both tcp_get_conn and netstack_find_by_cred incremented refcnt,
 	 * so we drop it by one.
@@ -3312,9 +3360,11 @@ tcp_update_lso(tcp_t *tcp, ip_xmit_attr_t *ixa)
 	 */
 	if (ixa->ixa_flags & IXAF_LSO_CAPAB) {
 		ill_lso_capab_t	*lsoc = &ixa->ixa_lso_capab;
+		uint_t lso_max = (ixa->ixa_flags & IXAF_IS_IPV4) ?
+		    lsoc->ill_lso_max_tcpv4 : lsoc->ill_lso_max_tcpv6;
 
-		ASSERT(lsoc->ill_lso_max > 0);
-		tcp->tcp_lso_max = MIN(TCP_MAX_LSO_LENGTH, lsoc->ill_lso_max);
+		ASSERT3U(lso_max, >, 0);
+		tcp->tcp_lso_max = MIN(TCP_MAX_LSO_LENGTH, lso_max);
 
 		DTRACE_PROBE3(tcp_update_lso, boolean_t, tcp->tcp_lso,
 		    boolean_t, B_TRUE, uint32_t, tcp->tcp_lso_max);
@@ -3822,6 +3872,9 @@ tcp_stack_init(netstackid_t stackid, netstack_t *ns)
 	list_create(&tcps->tcps_listener_conf, sizeof (tcp_listener_t),
 	    offsetof(tcp_listener_t, tl_link));
 
+	tcps->tcps_default_cc_algo = cc_load_algo(CC_DEFAULT_ALGO_NAME);
+	VERIFY3P(tcps->tcps_default_cc_algo, !=, NULL);
+
 	return (tcps);
 }
 
@@ -4326,11 +4379,11 @@ tcp_do_listen(conn_t *connp, struct sockaddr *sa, socklen_t len,
 		}
 		return (-TOUTSTATE);
 	} else {
-		if (sa == NULL) {
-			sin6_t	addr;
-			sin_t *sin;
-			sin6_t *sin6;
+		sin6_t	addr;
+		sin_t *sin;
+		sin6_t *sin6;
 
+		if (sa == NULL) {
 			ASSERT(IPCL_IS_NONSTR(connp));
 			/* Do an implicit bind: Request for a generic port. */
 			if (connp->conn_family == AF_INET) {

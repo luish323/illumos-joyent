@@ -45,9 +45,9 @@ LINKED_LIBPCP_DIR	= \
 LINKED_LIBPCP1_DIR	= \
 	$(LINKED_PLATFORMS:%=$(USR_PLAT_DIR)/%/lib/libpcp.so.1)
 
-LIBS = $(DYNLIB) $(LINTLIB)
+LIBS = $(DYNLIB)
 CFLAGS +=	$(CCVERBOSE)
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 LDLIBS +=	-lc -lumem -ldevinfo
 PLATLIBS =	$(USR_PLAT_DIR)/$(PLATFORM)/lib
 INS.slink6=	$(RM) -r $@; $(SYMLINK) ../../$(PLATFORM)/lib/libpcp.so.1 $@
@@ -60,6 +60,5 @@ INS.slink7=	$(RM) -r $@; $(SYMLINK) ../../$(PLATFORM)/lib/libpcp.so $@
 #
 all:	$(LIBS)
 
-lint:	lintcheck
 
 include $(SRC)/lib/Makefile.targ

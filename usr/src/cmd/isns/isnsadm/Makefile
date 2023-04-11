@@ -31,6 +31,7 @@ OBJS = $(SRCS:%.c=%.o)
 include ../../Makefile.cmd
 
 LDLIBS += -lxml2 -lscf -lc
+NATIVE_LIBS += libxml2.so
 CFLAGS += $(CCVERBOSE)
 CPPFLAGS += -I. -I$(ADJUNCT_PROTO)/usr/include/libxml2 -I../isnsd
 POFILE = isnsadm_all.po
@@ -39,7 +40,7 @@ POFILES = $(OBJS:%.o=%.po)
 LINTFLAGS += -xerroff=E_BAD_FORMAT_STR2
 
 CERRWARN += -_gcc=-Wno-parentheses
-CERRWARN += -_gcc=-Wno-uninitialized
+CERRWARN += $(CNOWARN_UNINIT)
 
 # not linted
 SMATCH=off
@@ -50,8 +51,6 @@ all: $(PROG)
 
 clean:
 	$(RM) $(OBJS) $(PROG)
-
-lint:	lint_SRCS
 
 $(PROG): $(OBJS)
 	$(LINK.c) -o $@ $(OBJS) $(LDLIBS)

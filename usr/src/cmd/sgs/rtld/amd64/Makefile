@@ -27,7 +27,7 @@
 BASEPLAT =	amd64
 
 # Object lists are organized into primary (most frequently used code) and
-# secondary lists (less frequently used code, ie. a.out support).
+# secondary lists (less frequently used code).
 
 P_COMOBJS=	debugdata.o \
 		analyze.o	elf.o		external.o	globals.o \
@@ -84,11 +84,11 @@ CONVLIBDIR =	$(CONVLIBDIR64)
 
 all:		$(RTLD)
 
-install:	all $(ROOTDYNLIB64)
+install:	all $(ROOTDYNLIB64) $(ROOTCOMPATLINKS64)
 
 adbmacros:	adb .WAIT $(ADBSCRIPTS)
 
 adbinstall:	adbmacros .WAIT $(ROOTADB64)
 
 include		$(SRC)/cmd/sgs/rtld/Makefile.targ
-include		../../Makefile.sub.64
+include		$(SRC)/Makefile.master.64

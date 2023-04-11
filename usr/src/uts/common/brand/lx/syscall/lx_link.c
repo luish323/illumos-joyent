@@ -116,6 +116,7 @@ lx_isdir(int atfd, char *path)
 	if (cstatat_getvp(atfd, path, NO_FOLLOW, &vp, &cr) != 0)
 		return (B_FALSE);
 
+	crfree(cr);
 	is_dir = (vp->v_type == VDIR);
 	VN_RELE(vp);
 
@@ -152,6 +153,11 @@ lx_unlinkat(int atfd, char *path, int flag)
 		/* On Linux, an unlink of a dir returns EISDIR, not EPERM. */
 		if (lx_isdir(atfd, path))
 			return (set_errno(EISDIR));
+	}
+	if (err == EEXIST && (flag & AT_REMOVEDIR)) {
+		/* On Linux, an unlink of a non-empty dir returns ENOTEMPTY, not EEXIST. */
+		if (lx_isdir(atfd, path))
+			return (set_errno(ENOTEMPTY));
 	}
 
 	return (err);

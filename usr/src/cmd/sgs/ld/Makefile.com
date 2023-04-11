@@ -36,20 +36,19 @@ BLTOBJ =	msg.o
 OBJS =		$(BLTOBJ) $(COMOBJS)
 .PARALLEL:	$(OBJS)
 
-MAPFILES =	../common/mapfile-intf $(MAPFILE.NGB)
-MAPOPTS =	$(MAPFILES:%=-M%)
+SRCDIR =	$(SGSHOME)/ld
 
-LDFLAGS +=	$(VERSREF) $(CC_USE_PROTO) $(MAPOPTS) $(VAR_LD_LLDFLAGS)
-LDLIBS +=	$(LDLIBDIR) $(LD_LIB) $(ELFLIBDIR) -lelf \
-		    $(LDDBGLIBDIR) $(LDDBG_LIB) $(CONVLIBDIR) $(CONV_LIB)
+MAPFILES =	$(SRCDIR)/common/mapfile-intf $(MAPFILE.NGB)
+MAPOPTS =	$(MAPFILES:%=-Wl,-M%)
+
+RPATH =		'-R$$ORIGIN/../../lib/$(MACH64)'
+
+LDFLAGS +=	$(VERSREF) $(MAPOPTS) $(RPATH)
+LDLIBS +=	-lumem $(LDLIBDIR64) -lld $(ELFLIBDIR64) -lelf \
+		    $(LDDBGLIBDIR64) -llddbg $(CONVLIBDIR64) -lconv
 
 CERRWARN +=	-_gcc=-Wno-switch
 CERRWARN +=	-_gcc=-Wno-parentheses
-
-native :=	LDFLAGS = -R$(SGSLIBDIR) $(ZNOVERSION)
-native :=	LDLIBS = -L$(SGSLIBDIR) $(LD_LIB) -lelf $(CONVLIBDIR) \
-		    $(CONV_LIB)
-native :=	CPPFLAGS += -DNATIVE_BUILD
 
 BLTDEFS=	msg.h
 BLTDATA=	msg.c
@@ -57,12 +56,12 @@ BLTMESG=	$(SGSMSGDIR)/ld
 
 BLTFILES=	$(BLTDEFS) $(BLTDATA) $(BLTMESG)
 
-SGSMSGCOM=	../common/ld.msg
+SGSMSGCOM=	$(SRCDIR)/common/ld.msg
 SGSMSGTARG=	$(SGSMSGCOM)
 SGSMSGALL=	$(SGSMSGCOM)
 SGSMSGFLAGS +=	-h $(BLTDEFS) -d $(BLTDATA) -m $(BLTMESG) -n ld_msg
 
-SRCS=		$(MACHOBJS:%.o=%.c)  $(COMOBJS:%.o=../common/%.c)  $(BLTDATA)
+SRCS=		$(MACHOBJS:%.o=%.c)  $(COMOBJS:%.o=$(SRCDIR)/common/%.c)  $(BLTDATA)
 
 CLEANFILES +=	$(BLTFILES)
 

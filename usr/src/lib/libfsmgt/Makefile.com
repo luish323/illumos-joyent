@@ -42,18 +42,17 @@ ROOTHDRS= $(HDRS:%=$(ROOTDIRS)/%)
 
 CHECKHDRS= $(HDRS:%.h=%.check)
 
-LIBS =		$(DYNLIB) $(LINTLIB)
+LIBS =		$(DYNLIB)
 LDLIBS +=	-lc -lnsl -lkstat
 
 SRCDIR =	../common
-$(LINTLIB) :=	SRCS = $(SRCDIR)/$(LINTSRC)
 
 CFLAGS +=	$(CCVERBOSE)
 CPPFLAGS +=	-D_REENTRANT -I$(SRC)/lib/libfsmgt/common \
 		-I$(SRC)/cmd/fs.d/nfs/lib
 
 CERRWARN	+= -_gcc=-Wno-parentheses
-CERRWARN	+= -_gcc=-Wno-uninitialized
+CERRWARN	+= $(CNOWARN_UNINIT)
 
 # not linted
 SMATCH=off
@@ -66,7 +65,6 @@ CLOBBERFILES	+= $(SRCDIR)/sharetab.c
 
 all: $(LIBS)
 
-lint: lintcheck
 
 $(SRCDIR)/sharetab.c: $(NFSLIB_DIR)/sharetab.c
 	rm -f $(SRCDIR)/sharetab.c

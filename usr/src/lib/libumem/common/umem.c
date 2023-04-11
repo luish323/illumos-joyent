@@ -395,8 +395,8 @@
  * umem_t that looks like:
  *
  * typedef struct {
- * 	size_t	tm_size;
- * 	void	*tm_roots[NTMEMBASE];  (Currently 16)
+ *	size_t	tm_size;
+ *	void	*tm_roots[NTMEMBASE];  (Currently 16)
  * } tmem_t;
  *
  * Each of the roots is treated as the head of a linked list. Each entry in the
@@ -484,18 +484,17 @@
  * -----------------------------------------------
  *
  * The last piece of this puzzle is how we actually jam ptcmalloc() into the
- * PLT.  To handle this, we have defined two functions, _malloc and _free and
- * used a special mapfile directive to place them into the a readable,
- * writeable, and executable segment.  Next we use a standard #pragma weak for
- * malloc and free and direct them to those symbols. By default, those symbols
- * have text defined as nops for our generated functions and when they're
- * invoked, they jump to the default malloc and free functions.
+ * PLT.  To handle this, we have defined two functions, _malloc and _free, we
+ * use a standard #pragma weak for malloc and free and direct them to those
+ * symbols. By default, those symbols have text defined as nops for our
+ * generated functions and when they're invoked, they jump to the default
+ * malloc and free functions.
  *
- * When umem_genasm() is called, it goes through and generates new malloc() and
- * free() functions in the text provided for by _malloc and _free just after the
- * jump. Once both have been successfully generated, umem_genasm() nops over the
- * original jump so that we now call into the genasm versions of these
- * functions.
+ * When umem_genasm() is called, it makes _malloc and _free writeable and goes
+ * through and updates the text provided for by _malloc and _free just after
+ * the jump. Once both have been successfully generated, umem_genasm() nops
+ * over the original jump so that we now call into the genasm versions of
+ * these functions, and makes the functions read-only once again.
  *
  * 8.3 umem_genasm()
  * -----------------
@@ -560,10 +559,10 @@
  *
  *	o. _tmem_get_base(void)
  *
- * 	Returns the offset from the ulwp_t (curthread) to the tmem_t structure.
- * 	This is a constant for all threads and is effectively a way to to do
- * 	::offsetof ulwp_t ul_tmem without having to know the specifics of the
- * 	structure outside of libc.
+ *	Returns the offset from the ulwp_t (curthread) to the tmem_t structure.
+ *	This is a constant for all threads and is effectively a way to to do
+ *	::offsetof ulwp_t ul_tmem without having to know the specifics of the
+ *	structure outside of libc.
  *
  *	o. _tmem_get_nentries(void)
  *
@@ -3559,4 +3558,10 @@ fail:
 	(void) cond_broadcast(&umem_init_cv);
 	(void) mutex_unlock(&umem_init_lock);
 	return (0);
+}
+
+void
+umem_setmtbf(uint32_t mtbf)
+{
+	umem_mtbf = mtbf;
 }

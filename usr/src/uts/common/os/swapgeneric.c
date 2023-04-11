@@ -878,7 +878,7 @@ load_bootpath_drivers(char *bootpath)
 #endif
 	dip = path_to_devinfo(pathcopy);
 
-#if defined(__i386) || defined(__amd64)
+#if defined(__x86)
 	/*
 	 * i386 does not provide stub nodes for all boot devices,
 	 * but we should be able to find the node for the parent,
@@ -910,7 +910,7 @@ load_bootpath_drivers(char *bootpath)
 			rval = load_boot_driver(leaf, NULL);
 			if (rval == -1) {
 				kmem_free(pathcopy, pathcopy_len);
-				return (NULL);
+				return (0);
 			}
 		}
 	}
@@ -920,7 +920,7 @@ load_bootpath_drivers(char *bootpath)
 		cmn_err(CE_WARN, "can't bind driver for boot path <%s>",
 		    bootpath);
 		kmem_free(pathcopy, pathcopy_len);
-		return (NULL);
+		return (0);
 	}
 
 	/*
@@ -936,7 +936,7 @@ load_bootpath_drivers(char *bootpath)
 	    modloadonly("drv", "ibp") == -1) {
 		cmn_err(CE_CONT, "ibp: cannot load platform driver\n");
 		kmem_free(pathcopy, pathcopy_len);
-		return (NULL);
+		return (0);
 	}
 
 	/*

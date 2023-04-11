@@ -34,6 +34,7 @@
 #include <stddef.h>
 #include <libintl.h>
 #include <libzfs.h>
+#include <libzutil.h>
 
 #include "libzfs_impl.h"
 
@@ -202,6 +203,7 @@ zfs_iter_bookmarks(zfs_handle_t *zhp, zfs_iter_f func, void *data)
 	fnvlist_add_boolean(props, zfs_prop_to_name(ZFS_PROP_GUID));
 	fnvlist_add_boolean(props, zfs_prop_to_name(ZFS_PROP_CREATETXG));
 	fnvlist_add_boolean(props, zfs_prop_to_name(ZFS_PROP_CREATION));
+	fnvlist_add_boolean(props, zfs_prop_to_name(ZFS_PROP_IVSET_GUID));
 
 	if ((err = lzc_get_bookmarks(zhp->zfs_name, props, &bmarks)) != 0)
 		goto out;
@@ -283,7 +285,11 @@ zfs_snapshot_compare(const void *larg, const void *rarg)
 	lcreate = zfs_prop_get_int(l, ZFS_PROP_CREATETXG);
 	rcreate = zfs_prop_get_int(r, ZFS_PROP_CREATETXG);
 
-	return (AVL_CMP(lcreate, rcreate));
+	if (lcreate < rcreate)
+		return (-1);
+	if (lcreate > rcreate)
+		return (+1);
+	return (0);
 }
 
 int

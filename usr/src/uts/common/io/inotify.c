@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright 2017 Joyent, Inc.
+ * Copyright 2020 Joyent, Inc.
  * Copyright (c) 2015 The MathWorks, Inc.  All rights reserved.
  */
 
@@ -728,7 +728,7 @@ inotify_watch_remove(inotify_state_t *state, inotify_watch_t *watch)
 			crfree(child->inw_cred);
 		}
 
-		VN_RELE(child->inw_vp);
+		VN_PHANTOM_RELE(child->inw_vp);
 
 		/*
 		 * We're down (or should be down) to a single reference to
@@ -738,7 +738,7 @@ inotify_watch_remove(inotify_state_t *state, inotify_watch_t *watch)
 	}
 
 	inotify_watch_event(watch, IN_IGNORED | IN_REMOVAL, NULL);
-	VN_RELE(watch->inw_vp);
+	VN_PHANTOM_RELE(watch->inw_vp);
 
 	/*
 	 * It's now safe to zombify the watch -- we know that the only reference
@@ -830,7 +830,7 @@ inotify_watch_delete(inotify_watch_t *watch, uint32_t event)
 	err = inotify_fem_uninstall(watch->inw_vp, watch);
 	VERIFY(err == 0);
 
-	VN_RELE(watch->inw_vp);
+	VN_PHANTOM_RELE(watch->inw_vp);
 
 	/*
 	 * It's now safe to zombify the watch -- which won't actually delete
@@ -865,7 +865,7 @@ inotify_watch_insert(inotify_watch_t *watch, vnode_t *vp, char *name)
 		return;
 	}
 
-	VN_HOLD(vp);
+	VN_PHANTOM_HOLD(vp);
 	watch = inotify_watch_add(state, watch, name, vp, watch->inw_mask);
 	VERIFY(watch != NULL);
 
@@ -897,7 +897,7 @@ inotify_add_watch(inotify_state_t *state, vnode_t *vp, uint32_t mask,
 			return (ENOSPC);
 		}
 
-		VN_HOLD(vp);
+		VN_PHANTOM_HOLD(vp);
 		watch = inotify_watch_add(state, NULL, NULL, vp, set);
 		*wdp = watch->inw_wd;
 		mutex_exit(&state->ins_lock);
@@ -977,6 +977,10 @@ inotify_add_child(inotify_state_t *state, vnode_t *vp, char *name)
 		VN_RELE(cvp);
 		return (0);
 	}
+
+	/* Trade the plain hold from lookupnameat() for a phantom hold */
+	VN_PHANTOM_HOLD(cvp);
+	VN_RELE(cvp);
 
 	watch = inotify_watch_add(state, watch, name, cvp, watch->inw_mask);
 	VERIFY(watch != NULL);
@@ -1065,7 +1069,7 @@ inotify_clean(void *arg)
 		 */
 		savecred = curthread->t_cred;
 		curthread->t_cred = watch->inw_cred;
-		VN_RELE(watch->inw_vp);
+		VN_PHANTOM_RELE(watch->inw_vp);
 		crfree(watch->inw_cred);
 		curthread->t_cred = savecred;
 
@@ -1121,7 +1125,7 @@ inotify_open(dev_t *devp, int flag, int otyp, cred_t *cred_p)
 	if (ddi_soft_state_zalloc(inotify_softstate, minor) != DDI_SUCCESS) {
 		vmem_free(inotify_minor, (void *)(uintptr_t)minor, 1);
 		mutex_exit(&inotify_lock);
-		return (NULL);
+		return (EINVAL);
 	}
 
 	state = ddi_get_soft_state(inotify_softstate, minor);
@@ -1414,7 +1418,7 @@ inotify_attach(dev_info_t *devi, ddi_attach_cmd_t cmd)
 	}
 
 	if (ddi_create_minor_node(devi, "inotify", S_IFCHR,
-	    INOTIFYMNRN_INOTIFY, DDI_PSEUDO, NULL) == DDI_FAILURE) {
+	    INOTIFYMNRN_INOTIFY, DDI_PSEUDO, 0) == DDI_FAILURE) {
 		cmn_err(CE_NOTE, "/dev/inotify couldn't create minor node");
 		ddi_soft_state_fini(&inotify_softstate);
 		mutex_exit(&inotify_lock);

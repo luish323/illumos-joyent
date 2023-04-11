@@ -27,10 +27,8 @@
 LIBRARY =		psm-ipp.a
 VERS =			.1
 OBJECTS = ipp-support.o job.o printer.o service.o
-ROOTLIBDIR =	$(ROOT)/usr/lib/print
 
 include ../../../Makefile.lib
-include ../../../Makefile.rootfs
 
 SRCDIR =	../common
 
@@ -43,7 +41,6 @@ $(EXTRALINKS):	$(ROOTLINKS)
 
 LIBS =			$(DYNLIB)
 
-$(LINTLIB):=	SRCS = $(SRCDIR)/$(LINTSRC)
 
 CFLAGS +=	$(CCVERBOSE)
 CPPFLAGS +=	-I$(SRCDIR)
@@ -53,21 +50,20 @@ CPPFLAGS +=	-I../../libhttp-core/common
 
 CERRWARN +=	-_gcc=-Wno-type-limits
 CERRWARN +=	-_gcc=-Wno-unused-variable
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 
 # not linted
 SMATCH=off
 
 MAPFILES =	$(SRCDIR)/mapfile
 
-LDLIBS +=	-L$(ROOTLIBDIR) -R/usr/lib/print -lhttp-core -lmd5
+LDLIBS +=	-L$(ROOTLIBDIR) -R/usr/lib/print -lhttp-core -lmd
 LDLIBS +=	-lipp-core -lc
 
 .KEEP_STATE:
 
 all:	$(LIBS)
 
-lint:	lintcheck
 
 $(ROOTLIBDIR):
 	$(INS.dir)

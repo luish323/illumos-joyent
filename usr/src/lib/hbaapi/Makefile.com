@@ -35,13 +35,13 @@ include ../../Makefile.lib
 
 HETCFILES=	$(CONFIGFILE:%=$(ROOTETC)/%)
 
-LIBS =		$(DYNLIB) $(LINTLIB)
+LIBS =		$(DYNLIB)
 SRCDIR=		../common
 
 INCS +=		-I$(SRCDIR)
 CPPFLAGS +=	$(INCS)
 
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 CERRWARN +=	-_gcc=-Wno-unused-value
 CERRWARN +=	-_gcc=-Wno-unused-variable
 CERRWARN +=	-_gcc=-Wno-unused-function
@@ -51,17 +51,11 @@ SMATCH=off
 
 LDLIBS +=	-lc
 
-$(LINTLIB) := SRCS=	$(SRCDIR)/$(LINTSRC)
-
 $(ROOTETC)/%:	../common/%
 	$(INS.file)
 
 .KEEP_STATE:
 
 all:	$(LIBS) $(HETCFILES)
-
-lint:
-	@echo "This section is not required to be lint clean"
-	@echo "C++ code"
 
 include ../../Makefile.targ

@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2018 Nexenta Systems, Inc. All rights reserved.
+ * Copyright 2019 Nexenta by DDN, Inc. All rights reserved.
  * Copyright (c) 2016 by Delphix. All rights reserved.
  */
 
@@ -205,6 +205,8 @@
 #include <sys/types.h>
 #include <sys/sid.h>
 #include <sys/priv_names.h>
+#include <sys/priv.h>
+#include <sys/policy.h>
 #include <smbsrv/smb_kproto.h>
 #include <smbsrv/smb_door.h>
 
@@ -234,6 +236,7 @@ smb_user_new(smb_session_t *session)
 {
 	smb_user_t	*user;
 	uint_t		gen;	// generation (low 3 bits of ssnid)
+	uint32_t	ucount;
 
 	ASSERT(session);
 	ASSERT(session->s_magic == SMB_SESSION_MAGIC);
@@ -256,9 +259,26 @@ smb_user_new(smb_session_t *session)
 	user->u_magic = SMB_USER_MAGIC;
 
 	smb_llist_enter(&session->s_user_list, RW_WRITER);
+	ucount = smb_llist_get_count(&session->s_user_list);
 	smb_llist_insert_tail(&session->s_user_list, user);
 	smb_llist_exit(&session->s_user_list);
 	smb_server_inc_users(session->s_server);
+
+	/*
+	 * If we added the first user to the session, cancel the
+	 * timeout that was started in smb_session_receiver().
+	 */
+	if (ucount == 0) {
+		timeout_id_t tmo = NULL;
+
+		smb_rwx_rwenter(&session->s_lock, RW_WRITER);
+		tmo = session->s_auth_tmo;
+		session->s_auth_tmo = NULL;
+		smb_rwx_rwexit(&session->s_lock);
+
+		if (tmo != NULL)
+			(void) untimeout(tmo);
+	}
 
 	return (user);
 
@@ -303,7 +323,6 @@ smb_user_logon(
 	 * we always have an auth. socket to close.
 	 */
 	authsock = user->u_authsock;
-	ASSERT(authsock != NULL);
 	user->u_authsock = NULL;
 	tmo = user->u_auth_tmo;
 	user->u_auth_tmo = NULL;
@@ -325,7 +344,8 @@ smb_user_logon(
 		(void) untimeout(tmo);
 
 	/* This close can block, so not under the mutex. */
-	smb_authsock_close(user, authsock);
+	if (authsock != NULL)
+		smb_authsock_close(user, authsock);
 
 	return (0);
 }
@@ -642,6 +662,55 @@ smb_user_enum(smb_user_t *user, smb_svcenum_t *svcenum)
 	return (rc);
 }
 
+/*
+ * Count references by trees this user owns,
+ * and allow waiting for them to go away.
+ */
+void
+smb_user_inc_trees(smb_user_t *user)
+{
+	mutex_enter(&user->u_mutex);
+	user->u_owned_tree_cnt++;
+	mutex_exit(&user->u_mutex);
+}
+
+void
+smb_user_dec_trees(smb_user_t *user)
+{
+	mutex_enter(&user->u_mutex);
+	user->u_owned_tree_cnt--;
+	if (user->u_owned_tree_cnt == 0)
+		cv_broadcast(&user->u_owned_tree_cv);
+	mutex_exit(&user->u_mutex);
+}
+
+int smb_user_wait_tree_tmo = 30;
+
+/*
+ * Wait (up to 30 sec.) for trees to go away.
+ * Should happen in less than a second.
+ */
+void
+smb_user_wait_trees(smb_user_t *user)
+{
+	clock_t	time;
+
+	time = SEC_TO_TICK(smb_user_wait_tree_tmo) + ddi_get_lbolt();
+	mutex_enter(&user->u_mutex);
+	while (user->u_owned_tree_cnt != 0) {
+		if (cv_timedwait(&user->u_owned_tree_cv,
+		    &user->u_mutex, time) < 0)
+			break;
+	}
+	mutex_exit(&user->u_mutex);
+#ifdef	DEBUG
+	if (user->u_owned_tree_cnt != 0) {
+		cmn_err(CE_NOTE, "smb_user_wait_trees failed");
+		debug_enter("smb_user_wait_trees debug");
+	}
+#endif
+}
+
 /* *************************** Static Functions ***************************** */
 
 /*
@@ -672,9 +741,19 @@ smb_user_delete(void *arg)
 	ucount = smb_llist_get_count(&session->s_user_list);
 	smb_llist_exit(&session->s_user_list);
 
+	/*
+	 * When the last smb_user_t object goes away, schedule a timeout
+	 * after which we'll terminate this session if the client hasn't
+	 * authenticated another smb_user_t on this session by then.
+	 */
 	if (ucount == 0) {
 		smb_rwx_rwenter(&session->s_lock, RW_WRITER);
-		session->s_state = SMB_SESSION_STATE_SHUTDOWN;
+		if (session->s_state == SMB_SESSION_STATE_NEGOTIATED &&
+		    session->s_auth_tmo == NULL) {
+			session->s_auth_tmo =
+			    timeout((tmo_func_t)smb_session_disconnect,
+			    session, SEC_TO_TICK(smb_session_auth_tmo));
+		}
 		smb_rwx_cvbcast(&session->s_lock);
 		smb_rwx_rwexit(&session->s_lock);
 	}
@@ -727,6 +806,57 @@ smb_user_setcred(smb_user_t *user, cred_t *cr, uint32_t privileges)
 	ASSERT(cr);
 	crhold(cr);
 
+	/*
+	 * See smb.4 bypass_traverse_checking
+	 *
+	 * For historical reasons, the Windows privilege is named
+	 * SeChangeNotifyPrivilege, though the description is
+	 * "Bypass traverse checking".
+	 */
+	if ((privileges & SMB_USER_PRIV_CHANGE_NOTIFY) != 0) {
+		(void) crsetpriv(cr, PRIV_FILE_DAC_SEARCH, NULL);
+	}
+
+	/*
+	 * Window's "take ownership privilege" is similar to our
+	 * PRIV_FILE_CHOWN privilege. It's normally given to members of the
+	 * "Administrators" group, which normally includes the the local
+	 * Administrator (like root) and when joined to a domain,
+	 * "Domain Admins".
+	 */
+	if ((privileges & SMB_USER_PRIV_TAKE_OWNERSHIP) != 0) {
+		(void) crsetpriv(cr,
+		    PRIV_FILE_CHOWN,
+		    PRIV_FILE_CHOWN_SELF,
+		    NULL);
+	}
+
+	/*
+	 * Bypass ACL for READ accesses.
+	 */
+	if ((privileges & SMB_USER_PRIV_READ_FILE) != 0) {
+		(void) crsetpriv(cr, PRIV_FILE_DAC_READ, NULL);
+	}
+
+	/*
+	 * Bypass ACL for WRITE accesses.
+	 * Include FILE_OWNER, as it covers WRITE_ACL and DELETE.
+	 */
+	if ((privileges & SMB_USER_PRIV_WRITE_FILE) != 0) {
+		(void) crsetpriv(cr,
+		    PRIV_FILE_DAC_WRITE,
+		    PRIV_FILE_OWNER,
+		    NULL);
+	}
+
+	/*
+	 * These privileges are used only when a file is opened with
+	 * 'backup intent'. These allow users to bypass certain access
+	 * controls. Administrators typically have these privileges,
+	 * and they are used during recursive take-ownership operations.
+	 * Some commonly used tools use 'backup intent' to administrate
+	 * files that do not grant explicit permissions to Administrators.
+	 */
 	if (privileges & (SMB_USER_PRIV_BACKUP | SMB_USER_PRIV_RESTORE))
 		privcred = crdup(cr);
 
@@ -750,6 +880,45 @@ smb_user_setcred(smb_user_t *user, cred_t *cr, uint32_t privileges)
 	user->u_privileges = privileges;
 }
 #endif	/* _KERNEL */
+
+/*
+ * Determines whether a user can be granted ACCESS_SYSTEM_SECURITY
+ */
+boolean_t
+smb_user_has_security_priv(smb_user_t *user, cred_t *cr)
+{
+	/* Need SeSecurityPrivilege to get/set SACL */
+	if ((user->u_privileges & SMB_USER_PRIV_SECURITY) != 0)
+		return (B_TRUE);
+
+#ifdef _KERNEL
+	/*
+	 * ACCESS_SYSTEM_SECURITY is also granted if the file is opened with
+	 * BACKUP/RESTORE intent by a user with BACKUP/RESTORE privilege,
+	 * which means we'll be using u_privcred.
+	 *
+	 * We translate BACKUP as DAC_READ and RESTORE as DAC_WRITE,
+	 * to account for our various SMB_USER_* privileges.
+	 */
+	if (PRIV_POLICY_ONLY(cr,
+	    priv_getbyname(PRIV_FILE_DAC_READ, 0), B_FALSE) ||
+	    PRIV_POLICY_ONLY(cr,
+	    priv_getbyname(PRIV_FILE_DAC_WRITE, 0), B_FALSE))
+		return (B_TRUE);
+#else
+	/*
+	 * No "real" privileges in fksmbsrv, so use the SMB privs instead.
+	 */
+	if ((user->u_privileges &
+	    (SMB_USER_PRIV_BACKUP |
+	    SMB_USER_PRIV_RESTORE |
+	    SMB_USER_PRIV_READ_FILE |
+	    SMB_USER_PRIV_WRITE_FILE)) != 0)
+		return (B_TRUE);
+#endif
+
+	return (B_FALSE);
+}
 
 /*
  * Private function to support smb_user_enum.
@@ -880,6 +1049,9 @@ smb_is_same_user(cred_t *cr1, cred_t *cr2)
 	ksid_t *ks1 = crgetsid(cr1, KSID_USER);
 	ksid_t *ks2 = crgetsid(cr2, KSID_USER);
 
+	if (ks1 == NULL || ks2 == NULL) {
+		return (B_FALSE);
+	}
 	return (ks1->ks_rid == ks2->ks_rid &&
 	    strcmp(ks1->ks_domain->kd_name, ks2->ks_domain->kd_name) == 0);
 }

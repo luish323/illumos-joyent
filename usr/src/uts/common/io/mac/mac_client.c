@@ -23,6 +23,7 @@
  * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2019 Joyent, Inc.
  * Copyright 2017 RackTop Systems.
+ * Copyright 2022 OmniOS Community Edition (OmniOSce) Association.
  */
 
 /*
@@ -1287,7 +1288,7 @@ mac_addr_random(mac_client_handle_t mch, uint_t prefix_len,
 		    prefix_len, addr_len - prefix_len);
 	}
 
-	*diag = 0;
+	*diag = MAC_DIAG_NONE;
 	return (0);
 }
 
@@ -1611,7 +1612,6 @@ mac_rx_set(mac_client_handle_t mch, mac_rx_t rx_fn, void *arg)
 	mcip->mci_rx_fn = rx_fn;
 	mcip->mci_rx_arg = arg;
 	mac_rx_client_restart(mch);
-	i_mac_perim_exit(mip);
 
 	/*
 	 * If we're changing the Rx function on the primary MAC of a VNIC,
@@ -1621,6 +1621,8 @@ mac_rx_set(mac_client_handle_t mch, mac_rx_t rx_fn, void *arg)
 		ASSERT((umip->mi_state_flags & MIS_IS_VNIC) != 0);
 		mac_vnic_secondary_update(umip);
 	}
+
+	i_mac_perim_exit(mip);
 }
 
 /*
@@ -2550,6 +2552,8 @@ i_mac_unicast_add(mac_client_handle_t mch, uint8_t *mac_addr, uint16_t flags,
 	 * argument, only the primary MAC client.
 	 */
 	ASSERT(!((mip->mi_state_flags & MIS_IS_VNIC) && (vid != VLAN_ID_NONE)));
+
+	*diag = MAC_DIAG_NONE;
 
 	/*
 	 * Can't unicast add if the client asked only for minimal datapath
@@ -3619,12 +3623,6 @@ mac_tx(mac_client_handle_t mch, mblk_t *mp_chain, uintptr_t hint,
 		obytes = (mp_chain->b_cont == NULL ? MBLKL(mp_chain) :
 		    msgdsize(mp_chain));
 
-		/*
-		 * There's a chance this primary client might be part
-		 * of a bridge and the packet forwarded to a local
-		 * receiver -- mark the packet accordingly.
-		 */
-		DB_CKSUMFLAGS(mp_chain) |= HW_LOCAL_MAC;
 		mp_chain = mac_provider_tx(mip, srs_tx->st_arg2, mp_chain,
 		    mcip);
 
@@ -3673,7 +3671,7 @@ mac_tx(mac_client_handle_t mch, mblk_t *mp_chain, uintptr_t hint,
 
 			mp->b_next = NULL;
 
-			if (needed != 0) {
+			if ((needed & (HCK_TX_FLAGS | HW_LSO_FLAGS)) != 0) {
 				mac_emul_t emul = 0;
 
 				if (needed & HCK_IPV4_HDRCKSUM)
@@ -4109,10 +4107,9 @@ mac_client_get_effective_resources(mac_client_handle_t mch,
  */
 static void
 mac_promisc_dispatch_one(mac_promisc_impl_t *mpip, mblk_t *mp,
-    boolean_t loopback)
+    boolean_t loopback, boolean_t local)
 {
 	mblk_t *mp_next;
-	boolean_t local = (DB_CKSUMFLAGS(mp) & HW_LOCAL_MAC) != 0;
 
 	if (!mpip->mpi_no_copy || mpip->mpi_strip_vlan_tag ||
 	    (mpip->mpi_do_fixups && local)) {
@@ -4205,7 +4202,7 @@ mac_is_mcast(mac_impl_t *mip, mblk_t *mp)
  */
 void
 mac_promisc_dispatch(mac_impl_t *mip, mblk_t *mp_chain,
-    mac_client_impl_t *sender)
+    mac_client_impl_t *sender, boolean_t local)
 {
 	mac_promisc_impl_t *mpip;
 	mac_cb_t *mcb;
@@ -4246,7 +4243,8 @@ mac_promisc_dispatch(mac_impl_t *mip, mblk_t *mp_chain,
 			if (is_sender ||
 			    mpip->mpi_type == MAC_CLIENT_PROMISC_ALL ||
 			    is_mcast) {
-				mac_promisc_dispatch_one(mpip, mp, is_sender);
+				mac_promisc_dispatch_one(mpip, mp, is_sender,
+				    local);
 			}
 		}
 	}
@@ -4276,7 +4274,8 @@ mac_promisc_client_dispatch(mac_client_impl_t *mcip, mblk_t *mp_chain)
 			mpip = (mac_promisc_impl_t *)mcb->mcb_objp;
 			if (mpip->mpi_type == MAC_CLIENT_PROMISC_FILTERED &&
 			    !is_mcast) {
-				mac_promisc_dispatch_one(mpip, mp, B_FALSE);
+				mac_promisc_dispatch_one(mpip, mp, B_FALSE,
+				    B_FALSE);
 			}
 		}
 	}
@@ -4354,12 +4353,27 @@ i_mac_capab_get(mac_handle_t mh, mac_capab_t cap, void *cap_data)
 {
 	mac_impl_t *mip = (mac_impl_t *)mh;
 
-	if (mip->mi_bridge_link != NULL && cap == MAC_CAPAB_NO_ZCOPY)
+	if (mip->mi_bridge_link != NULL && cap == MAC_CAPAB_NO_ZCOPY) {
 		return (B_TRUE);
-	else if (mip->mi_callbacks->mc_callbacks & MC_GETCAPAB)
-		return (mip->mi_getcapab(mip->mi_driver, cap, cap_data));
-	else
+	} else if (mip->mi_callbacks->mc_callbacks & MC_GETCAPAB) {
+		boolean_t res;
+
+		res = mip->mi_getcapab(mip->mi_driver, cap, cap_data);
+		/*
+		 * Until we have suppport for TSOv6 emulation in the MAC
+		 * loopback path, do not allow the TSOv6 capability to be
+		 * advertised to consumers.
+		 */
+		if (res && cap == MAC_CAPAB_LSO) {
+			mac_capab_lso_t *cap_lso = cap_data;
+
+			cap_lso->lso_flags &= ~LSO_TX_BASIC_TCP_IPV6;
+			cap_lso->lso_basic_tcp_ipv6.lso_max = 0;
+		}
+		return (res);
+	} else {
 		return (B_FALSE);
+	}
 }
 
 /*

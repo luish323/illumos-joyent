@@ -69,6 +69,24 @@ static void match_nul_assign(struct expression *expr)
 	set_terminated(array, &terminated);
 }
 
+static struct smatch_state *get_terminated_state_var_sym(const char *name, struct symbol *sym)
+{
+	struct sm_state *sm, *tmp;
+
+	sm = get_sm_state(my_id, name, sym);
+	if (!sm)
+		return NULL;
+	if (sm->state == &terminated || sm->state == &unterminated)
+		return sm->state;
+
+	FOR_EACH_PTR(sm->possible, tmp) {
+		if (tmp->state == &unterminated)
+			return &unterminated;
+	} END_FOR_EACH_PTR(tmp);
+
+	return NULL;
+}
+
 static struct smatch_state *get_terminated_state(struct expression *expr)
 {
 	struct sm_state *sm, *tmp;
@@ -240,11 +258,50 @@ free:
 	free_string(name);
 }
 
+bool is_nul_terminated_var_sym(const char *name, struct symbol *sym)
+{
+	if (get_terminated_state_var_sym(name, sym) == &terminated)
+		return 1;
+	return 0;
+}
+
 bool is_nul_terminated(struct expression *expr)
 {
 	if (get_terminated_state(expr) == &terminated)
 		return 1;
 	return 0;
+}
+
+static void match_strnlen_test(struct expression *expr)
+{
+	struct expression *left, *tmp, *arg;
+	int cnt;
+
+	if (expr->type != EXPR_COMPARE)
+		return;
+	if (expr->op != SPECIAL_EQUAL && expr->op != SPECIAL_NOTEQUAL)
+		return;
+
+	left = strip_expr(expr->left);
+	cnt = 0;
+	while ((tmp = get_assigned_expr(left))) {
+		if (cnt++ > 3)
+			break;
+		left = tmp;
+	}
+
+	if (left->type != EXPR_CALL)
+		return;
+	if (!sym_name_is("strnlen", left->fn))
+		return;
+	arg = get_argument_from_call_expr(left->args, 0);
+	set_true_false_states_expr(my_id, arg,
+			(expr->op == SPECIAL_EQUAL) ? &terminated : NULL,
+			(expr->op == SPECIAL_NOTEQUAL) ? &terminated : NULL);
+	if (get_param_num(arg) >= 0)
+		set_true_false_states_expr(param_set_id, arg,
+				(expr->op == SPECIAL_EQUAL) ? &terminated : NULL,
+				(expr->op == SPECIAL_NOTEQUAL) ? &terminated : NULL);
 }
 
 void register_nul_terminator(int id)
@@ -260,6 +317,8 @@ void register_nul_terminator(int id)
 
 	select_caller_info_hook(caller_info_terminated, TERMINATED);
 	select_return_states_hook(TERMINATED, return_info_terminated);
+
+	add_hook(&match_strnlen_test, CONDITION_HOOK);
 }
 
 void register_nul_terminator_param_set(int id)

@@ -108,7 +108,7 @@ DLIBSRCS += \
 include ../../Makefile.lib
 
 SRCS = $(LIBSRCS:%.c=../common/%.c) $(LIBISASRCS:%.c=../$(MACH)/%.c)
-LIBS = $(DYNLIB) $(LINTLIB)
+LIBS = $(DYNLIB)
 
 SRCDIR = ../common
 
@@ -134,7 +134,7 @@ CFLAGS64 += $(CCVERBOSE) $(C_BIGPICFLAGS)
 CERRWARN += -_gcc=-Wno-unused-label
 CERRWARN += -_gcc=-Wno-unused-variable
 CERRWARN += -_gcc=-Wno-parentheses
-CERRWARN += -_gcc=-Wno-uninitialized
+CERRWARN += $(CNOWARN_UNINIT)
 CERRWARN += -_gcc=-Wno-switch
 
 # not linted
@@ -143,11 +143,9 @@ SMATCH=off
 YYCFLAGS =
 LDLIBS += -lgen -lproc -lrtld_db -lnsl -lsocket -lctf -lelf -lc -lzonecfg
 DRTILDLIBS = $(LDLIBS.lib) -lc
-LIBDAUDITLIBS = $(LDLIBS.lib) -lmapmalloc -lc -lproc
+LIBDAUDITLIBS = $(LDLIBS.lib) -lmapmalloc -lc -lproc $(LDSTACKPROTECT)
 
 yydebug := YYCFLAGS += -DYYDEBUG
-
-$(LINTLIB) := SRCS = $(SRCDIR)/$(LINTSRC)
 
 LFLAGS = -t -v
 YFLAGS = -d -v
@@ -159,6 +157,14 @@ ROOTDLIBS = $(DLIBSRCS:%=$(ROOTDLIBDIR)/%)
 ROOTDOBJS = $(ROOTDLIBDIR)/$(DRTIOBJ) $(ROOTDLIBDIR)/$(LIBDAUDIT)
 ROOTDOBJS64 = $(ROOTDLIBDIR64)/$(DRTIOBJ) $(ROOTDLIBDIR64)/$(LIBDAUDIT)
 
+#
+# We do not build drti.o with the stack protector as otherwise
+# everything that uses dtrace -G may have a surprise stack protector
+# requirement right now. While in theory this could be handled by libc,
+# this will make the overall default transition smoother.
+#
+$(DRTIOBJ) := STACKPROTECT = none
+
 $(ROOTDLIBDIR)/%.d := FILEMODE=444
 $(ROOTDLIBDIR)/%.o := FILEMODE=444
 $(ROOTDLIBDIR64)/%.o :=	FILEMODE=444
@@ -169,10 +175,6 @@ $(ROOTDLIBDIR64)/%.so := FILEMODE=555
 
 all: $(LIBS) $(DRTIOBJ) $(LIBDAUDIT)
 
-lint: lintdlink lintcheck
-
-lintdlink: $(DLINKSRCS:%.c=../common/%.c)
-	$(LINT.c) $(DLINKSRCS:%.c=../common/%.c) $(DRTILDLIBS)
 
 dt_lex.c: $(SRCDIR)/dt_lex.l dt_grammar.h
 	$(LEX) $(LFLAGS) $(SRCDIR)/dt_lex.l > $@
@@ -237,13 +239,13 @@ pics/%.o: ../$(MACH)/%.s
 	$(POST_PROCESS_O)
 
 $(DRTIOBJ): $(DRTIOBJS)
-	$(LD) -o $@ -r -Blocal -Breduce $(DRTIOBJS)
+	$(LD) -o $@ -r $(BLOCAL) $(BREDUCE) $(DRTIOBJS)
 	$(POST_PROCESS_O)
 
 $(LIBDAUDIT): $(LIBDAUDITOBJS)
-	$(LINK.c) -o $@ $(GSHARED) -h$(LIBDAUDIT) $(ZTEXT) $(ZDEFS) $(BDIRECT) \
-	    $(MAPFILE.PGA:%=-M%) $(MAPFILE.NED:%=-M%) $(LIBDAUDITOBJS) \
-	    $(LIBDAUDITLIBS)
+	$(LINK.c) -o $@ $(GSHARED) -Wl,-h$(LIBDAUDIT) $(ZTEXT) $(ZDEFS) \
+	    $(BDIRECT) $(MAPFILE.PGA:%=-Wl,-M%) $(MAPFILE.NED:%=-Wl,-M%) \
+	    $(LIBDAUDITOBJS) $(LIBDAUDITLIBS)
 	$(POST_PROCESS_SO)
 
 $(ROOTDLIBDIR):

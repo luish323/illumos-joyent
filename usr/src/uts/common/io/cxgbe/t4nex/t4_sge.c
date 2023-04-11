@@ -20,6 +20,10 @@
  * release for licensing terms and conditions.
  */
 
+/*
+ * Copyright 2021 Oxide Computer Company
+ */
+
 #include <sys/ddi.h>
 #include <sys/sunddi.h>
 #include <sys/sunndi.h>
@@ -1347,7 +1351,9 @@ alloc_iq_fl(struct port_info *pi, struct sge_iq *iq, struct sge_fl *fl,
 	c.iqsize = cpu_to_be16(iq->qsize);
 	c.iqaddr = cpu_to_be64(iq->ba);
 	if (cong >= 0)
-		c.iqns_to_fl0congen = BE_32(F_FW_IQ_CMD_IQFLINTCONGEN);
+		c.iqns_to_fl0congen = BE_32(F_FW_IQ_CMD_IQFLINTCONGEN |
+					V_FW_IQ_CMD_IQTYPE(cong ?
+					FW_IQ_IQTYPE_NIC : FW_IQ_IQTYPE_OFLD));
 
 	if (fl != NULL) {
 		unsigned int chip_ver = CHELSIO_CHIP_VERSION(sc->params.chip);
@@ -1419,9 +1425,9 @@ alloc_iq_fl(struct port_info *pi, struct sge_iq *iq, struct sge_fl *fl,
 	iq->polling = 0;
 
 	cntxt_id = iq->cntxt_id - sc->sge.iq_start;
-	if (cntxt_id >= sc->sge.niq) {
+	if (cntxt_id >= sc->sge.iqmap_sz) {
 		panic("%s: iq->cntxt_id (%d) more than the max (%d)", __func__,
-		    cntxt_id, sc->sge.niq - 1);
+		      cntxt_id, sc->sge.iqmap_sz - 1);
 	}
 	sc->sge.iqmap[cntxt_id] = iq;
 
@@ -1431,9 +1437,9 @@ alloc_iq_fl(struct port_info *pi, struct sge_iq *iq, struct sge_fl *fl,
 		fl->copy_threshold = rx_copy_threshold;
 
 		cntxt_id = fl->cntxt_id - sc->sge.eq_start;
-		if (cntxt_id >= sc->sge.neq) {
+		if (cntxt_id >= sc->sge.eqmap_sz) {
 			panic("%s: fl->cntxt_id (%d) more than the max (%d)",
-			    __func__, cntxt_id, sc->sge.neq - 1);
+			      __func__, cntxt_id, sc->sge.eqmap_sz - 1);
 		}
 		sc->sge.eqmap[cntxt_id] = (void *)fl;
 
@@ -1481,12 +1487,12 @@ static int
 free_iq_fl(struct port_info *pi, struct sge_iq *iq, struct sge_fl *fl)
 {
 	int rc;
-	struct adapter *sc = iq->adapter;
-	dev_info_t *dip;
-
-	dip = pi ? pi->dip : sc->dip;
 
 	if (iq != NULL) {
+		struct adapter *sc = iq->adapter;
+		dev_info_t *dip;
+
+		dip = pi ? pi->dip : sc->dip;
 		if (iq->flags & IQ_ALLOCATED) {
 			rc = -t4_iq_free(sc, sc->mbox, sc->pf, 0,
 			    FW_IQ_TYPE_FL_INT_CAP, iq->cntxt_id,
@@ -1587,7 +1593,8 @@ alloc_rxq(struct port_info *pi, struct sge_rxq *rxq, int intr_idx, int i)
 	int rc;
 
 	rxq->port = pi;
-	rc = alloc_iq_fl(pi, &rxq->iq, &rxq->fl, intr_idx, 1 << pi->tx_chan);
+	rc = alloc_iq_fl(pi, &rxq->iq, &rxq->fl, intr_idx,
+			 t4_get_tp_ch_map(pi->adapter, pi->tx_chan));
 	if (rc != 0)
 		return (rc);
 
@@ -1621,7 +1628,7 @@ alloc_ofld_rxq(struct port_info *pi, struct sge_ofld_rxq *ofld_rxq,
 	int rc;
 
 	rc = alloc_iq_fl(pi, &ofld_rxq->iq, &ofld_rxq->fl, intr_idx,
-	    1 << pi->tx_chan);
+	    t4_get_tp_ch_map(pi->adapter, pi->tx_chan));
 	if (rc != 0)
 		return (rc);
 
@@ -1678,9 +1685,9 @@ ctrl_eq_alloc(struct adapter *sc, struct sge_eq *eq)
 
 	eq->cntxt_id = G_FW_EQ_CTRL_CMD_EQID(BE_32(c.cmpliqid_eqid));
 	cntxt_id = eq->cntxt_id - sc->sge.eq_start;
-	if (cntxt_id >= sc->sge.neq)
+	if (cntxt_id >= sc->sge.eqmap_sz)
 		panic("%s: eq->cntxt_id (%d) more than the max (%d)", __func__,
-		    cntxt_id, sc->sge.neq - 1);
+		      cntxt_id, sc->sge.eqmap_sz - 1);
 	sc->sge.eqmap[cntxt_id] = eq;
 
 	return (rc);
@@ -1721,9 +1728,9 @@ eth_eq_alloc(struct adapter *sc, struct port_info *pi, struct sge_eq *eq)
 
 	eq->cntxt_id = G_FW_EQ_ETH_CMD_EQID(BE_32(c.eqid_pkd));
 	cntxt_id = eq->cntxt_id - sc->sge.eq_start;
-	if (cntxt_id >= sc->sge.neq)
+	if (cntxt_id >= sc->sge.eqmap_sz)
 		panic("%s: eq->cntxt_id (%d) more than the max (%d)", __func__,
-		    cntxt_id, sc->sge.neq - 1);
+		      cntxt_id, sc->sge.eqmap_sz - 1);
 	sc->sge.eqmap[cntxt_id] = eq;
 
 	return (rc);
@@ -1764,9 +1771,9 @@ ofld_eq_alloc(struct adapter *sc, struct port_info *pi, struct sge_eq *eq)
 
 	eq->cntxt_id = G_FW_EQ_OFLD_CMD_EQID(BE_32(c.eqid_pkd));
 	cntxt_id = eq->cntxt_id - sc->sge.eq_start;
-	if (cntxt_id >= sc->sge.neq)
+	if (cntxt_id >= sc->sge.eqmap_sz)
 		panic("%s: eq->cntxt_id (%d) more than the max (%d)", __func__,
-		    cntxt_id, sc->sge.neq - 1);
+		      cntxt_id, sc->sge.eqmap_sz - 1);
 	sc->sge.eqmap[cntxt_id] = eq;
 
 	return (rc);
@@ -2897,23 +2904,34 @@ write_txpkt_wr(struct port_info *pi, struct sge_txq *txq, mblk_t *m,
 	wr->r3 = 0;
 
 	if (txinfo->flags & HW_LSO) {
+		uint16_t etype;
 		struct cpl_tx_pkt_lso_core *lso = (void *)(wr + 1);
 		char *p = (void *)m->b_rptr;
 		ctrl = V_LSO_OPCODE((u32)CPL_TX_PKT_LSO) | F_LSO_FIRST_SLICE |
 		    F_LSO_LAST_SLICE;
 
-		/* LINTED: E_BAD_PTR_CAST_ALIGN */
-		if (((struct ether_header *)p)->ether_type ==
-		    htons(ETHERTYPE_VLAN)) {
+		etype = ntohs(((struct ether_header *)p)->ether_type);
+		if (etype == ETHERTYPE_VLAN) {
 			ctrl |= V_LSO_ETHHDR_LEN(1);
+			etype = ntohs(((struct ether_vlan_header *)p)->ether_type);
 			p += sizeof (struct ether_vlan_header);
-		} else
+		} else {
 			p += sizeof (struct ether_header);
+		}
 
-		/* LINTED: E_BAD_PTR_CAST_ALIGN for IPH_HDR_LENGTH() */
-		ctrl |= V_LSO_IPHDR_LEN(IPH_HDR_LENGTH(p) / 4);
-		/* LINTED: E_BAD_PTR_CAST_ALIGN for IPH_HDR_LENGTH() */
-		p += IPH_HDR_LENGTH(p);
+		switch (etype) {
+		case ETHERTYPE_IP:
+			ctrl |= V_LSO_IPHDR_LEN(IPH_HDR_LENGTH(p) / 4);
+			p += IPH_HDR_LENGTH(p);
+			break;
+		case ETHERTYPE_IPV6:
+			ctrl |= F_LSO_IPV6;
+			ctrl |= V_LSO_IPHDR_LEN(sizeof (ip6_t) / 4);
+			p += sizeof (ip6_t);
+		default:
+			break;
+		}
+
 		ctrl |= V_LSO_TCPHDR_LEN(TCP_HDR_LENGTH((tcph_t *)p) / 4);
 
 		lso->lso_ctrl = cpu_to_be32(ctrl);

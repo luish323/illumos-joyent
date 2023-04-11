@@ -10,7 +10,8 @@
  */
 
 /*
- * Copyright 2019 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2020 Tintri by DDN, Inc. All rights reserved.
+ * Copyright 2022 RackTop Systems, Inc.
  */
 
 /*
@@ -19,6 +20,8 @@
 
 #include <smbsrv/smb2_kproto.h>
 #include <smbsrv/smb_fsops.h>
+
+boolean_t smb_allow_unbuffered = B_TRUE;
 
 smb_sdrc_t
 smb2_write(smb_request_t *sr)
@@ -41,6 +44,7 @@ smb2_write(smb_request_t *sr)
 	int data_chain_off, skip;
 	int stability = 0;
 	int rc = 0;
+	boolean_t unbuffered = B_FALSE;
 
 	/*
 	 * Decode SMB2 Write request
@@ -111,6 +115,19 @@ smb2_write(smb_request_t *sr)
 	if (Length == 0)
 		goto errout;
 
+	/*
+	 * Unbuffered refers to the MS-FSA Write argument by the same name.
+	 * It indicates that the cache for this range should be flushed to disk,
+	 * and data written directly to disk, bypassing the cache.
+	 * We don't allow that degree of cache management.
+	 * Translate this directly as FSYNC,
+	 * which should at least flush the cache.
+	 */
+
+	if (smb_allow_unbuffered &&
+	    (Flags & SMB2_WRITEFLAG_WRITE_UNBUFFERED) != 0)
+		unbuffered = B_TRUE;
+
 	switch (of->f_tree->t_res_type & STYPE_MASK) {
 	case STYPE_DISKTREE:
 	case STYPE_PRINTQ:
@@ -123,21 +140,35 @@ smb2_write(smb_request_t *sr)
 				break;
 			}
 		}
-		if ((Flags & SMB2_WRITEFLAG_WRITE_THROUGH) ||
-		    (of->f_node->flags & NODE_FLAGS_WRITE_THROUGH)) {
+
+		if (unbuffered || (Flags & SMB2_WRITEFLAG_WRITE_THROUGH) != 0 ||
+		    (of->f_node->flags & NODE_FLAGS_WRITE_THROUGH) != 0) {
 			stability = FSYNC;
 		}
-		rc = smb_fsop_write(sr, of->f_cr, of->f_node,
+		rc = smb_fsop_write(sr, of->f_cr, of->f_node, of,
 		    &vdb->vdb_uio, &XferCount, stability);
 		if (rc)
 			break;
-		of->f_written = B_TRUE;
 		/* This revokes read cache delegations. */
 		(void) smb_oplock_break_WRITE(of->f_node, of);
+		/*
+		 * Don't want the performance cost of generating
+		 * change notify events on every write.  Instead:
+		 * Keep track of the fact that we have written
+		 * data via this handle, and do change notify
+		 * work on the first write, and during close.
+		 */
+		if (of->f_written == B_FALSE) {
+			of->f_written = B_TRUE;
+			smb_node_notify_modified(of->f_node);
+		}
 		break;
 
 	case STYPE_IPC:
-		rc = smb_opipe_write(sr, &vdb->vdb_uio);
+		if (unbuffered || (Flags & SMB2_WRITEFLAG_WRITE_THROUGH) != 0)
+			rc = EINVAL;
+		else
+			rc = smb_opipe_write(sr, &vdb->vdb_uio);
 		if (rc == 0)
 			XferCount = Length;
 		break;

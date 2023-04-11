@@ -53,14 +53,14 @@
  */
 
 void
-setvar_append(register Name name, register Name value)
+setvar_append(Name name, Name value)
 {
-	register Property	macro_apx = get_prop(name->prop, macro_append_prop);
-	register Property	macro = get_prop(name->prop, macro_prop);
+	Property	macro_apx = get_prop(name->prop, macro_append_prop);
+	Property	macro = get_prop(name->prop, macro_prop);
 	int			length;
 	String_rec		destination;
 	wchar_t			buffer[STRING_BUFFER_LENGTH];
-	register Chain		chain;
+	Chain		chain;
 	Name			val = NULL;
 
 	if(macro_apx == NULL) {
@@ -113,8 +113,8 @@ setvar_envvar(void)
 {
 	wchar_t			buffer[STRING_BUFFER_LENGTH];
 	int			length;
-	register	char	*mbs, *tmp_mbs_buffer = NULL;
-	register	char	*env, *tmp_mbs_buffer2 = NULL;
+	char	*mbs, *tmp_mbs_buffer = NULL;
+	char	*env, *tmp_mbs_buffer2 = NULL;
 	Envvar			p;
 	String_rec		value;
 
@@ -123,7 +123,7 @@ setvar_envvar(void)
 		    ) {
 			continue;
 		}
-		INIT_STRING_FROM_STACK(value, buffer);		
+		INIT_STRING_FROM_STACK(value, buffer);
 		expand_value(p->value, &value, false);
 		if ((length = wcslen(value.buffer.start)) >= MAXPATHLEN) {
 			mbs = tmp_mbs_buffer = getmem((length + 1) * MB_LEN_MAX);

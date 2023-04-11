@@ -3245,13 +3245,13 @@ mdi_pi_free(mdi_pathinfo_t *pip, int flags)
 	MDI_CLIENT_LOCK(ct);
 	MDI_CLIENT_CLEAR_PATH_FREE_IN_PROGRESS(ct);
 
+	rv = MDI_SUCCESS;
 	if (!MDI_PI_IS_INITING(pip)) {
 		f = vh->vh_ops->vo_pi_uninit;
 		if (f != NULL) {
 			rv = (*f)(vh->vh_dip, pip, 0);
 		}
-	} else
-		rv = MDI_SUCCESS;
+	}
 
 	/*
 	 * If vo_pi_uninit() completed successfully.
@@ -3597,6 +3597,16 @@ i_mdi_pi_state_change(mdi_pathinfo_t *pip, mdi_pathinfo_state_t state, int flag)
 		MDI_PI_LOCK(pip);
 		MDI_PI_SET_OFFLINING(pip);
 		break;
+
+	case MDI_PATHINFO_STATE_INIT:
+		/*
+		 * Callers are not allowed to ask us to change the state to the
+		 * initial state.
+		 */
+		rv = MDI_FAILURE;
+		MDI_PI_UNLOCK(pip);
+		goto state_change_exit;
+
 	}
 	MDI_PI_UNLOCK(pip);
 	MDI_CLIENT_UNSTABLE(ct);
@@ -3895,6 +3905,7 @@ i_mdi_pi_offline(mdi_pathinfo_t *pip, int flags)
 	ASSERT(vh->vh_ops);
 	f = vh->vh_ops->vo_pi_state_change;
 
+	rv = MDI_SUCCESS;
 	if (f != NULL) {
 		MDI_PI_UNLOCK(pip);
 		if ((rv = (*f)(vdip, pip, MDI_PATHINFO_STATE_OFFLINE, 0,
@@ -3996,9 +4007,9 @@ i_mdi_pi_online(mdi_pathinfo_t *pip, int flags)
 	MDI_PI_SET_ONLINING(pip)
 	MDI_PI_UNLOCK(pip);
 	f = vh->vh_ops->vo_pi_state_change;
+	rv = MDI_SUCCESS;
 	if (f != NULL)
-		rv = (*f)(vh->vh_dip, pip, MDI_PATHINFO_STATE_ONLINE, 0,
-		    flags);
+		rv = (*f)(vh->vh_dip, pip, MDI_PATHINFO_STATE_ONLINE, 0, flags);
 	MDI_CLIENT_LOCK(ct);
 	MDI_PI_LOCK(pip);
 	cv_broadcast(&MDI_PI(pip)->pi_state_cv);
@@ -4006,7 +4017,6 @@ i_mdi_pi_online(mdi_pathinfo_t *pip, int flags)
 	if (rv == MDI_SUCCESS) {
 		dev_info_t	*cdip = ct->ct_dip;
 
-		rv = MDI_SUCCESS;
 		i_mdi_client_update_state(ct);
 		if (MDI_CLIENT_STATE(ct) == MDI_CLIENT_STATE_OPTIMAL ||
 		    MDI_CLIENT_STATE(ct) == MDI_CLIENT_STATE_DEGRADED) {
@@ -5722,6 +5732,7 @@ mdi_post_attach(dev_info_t *dip, ddi_attach_cmd_t cmd, int error)
 			break;
 
 		case DDI_RESUME:
+		case DDI_PM_RESUME:
 			MDI_DEBUG(2, (MDI_NOTE, dip,
 			    "pHCI post_resume: called %p", (void *)ph));
 			if (error == DDI_SUCCESS) {
@@ -5769,6 +5780,7 @@ mdi_post_attach(dev_info_t *dip, ddi_attach_cmd_t cmd, int error)
 			break;
 
 		case DDI_RESUME:
+		case DDI_PM_RESUME:
 			MDI_DEBUG(2, (MDI_NOTE, dip,
 			    "client post_attach: called %p", (void *)ct));
 			if (error == DDI_SUCCESS) {
@@ -6011,11 +6023,14 @@ i_mdi_phci_post_detach(dev_info_t *dip, ddi_detach_cmd_t cmd, int error)
 		break;
 
 	case DDI_SUSPEND:
+	case DDI_PM_SUSPEND:
 		MDI_DEBUG(2, (MDI_NOTE, dip,
 		    "pHCI post_suspend: called %p",
 		    (void *)ph));
 		if (error != DDI_SUCCESS)
 			MDI_PHCI_SET_RESUME(ph);
+		break;
+	case DDI_HOTPLUG_DETACH:
 		break;
 	}
 	MDI_PHCI_UNLOCK(ph);
@@ -6054,10 +6069,13 @@ i_mdi_client_post_detach(dev_info_t *dip, ddi_detach_cmd_t cmd, int error)
 		break;
 
 	case DDI_SUSPEND:
+	case DDI_PM_SUSPEND:
 		MDI_DEBUG(2, (MDI_NOTE, dip,
 		    "called %p", (void *)ct));
 		if (error != DDI_SUCCESS)
 			MDI_CLIENT_SET_RESUME(ct);
+		break;
+	case DDI_HOTPLUG_DETACH:
 		break;
 	}
 	MDI_CLIENT_UNLOCK(ct);
@@ -6300,6 +6318,7 @@ i_mdi_enable_disable_path(mdi_pathinfo_t *pip, mdi_vhci_t *vh, int flags,
 	 * Do a callback into the mdi consumer to let it
 	 * know that path is about to get enabled/disabled.
 	 */
+	rv = MDI_SUCCESS;
 	if (f != NULL) {
 		rv = (*f)(vh->vh_dip, pip, 0,
 			MDI_PI_EXT_STATE(pip),
@@ -6818,6 +6837,10 @@ mdi_bus_power(dev_info_t *parent, void *impl_arg, pm_bus_power_op_t op,
 			    "i_mdi_pm_rele_client\n"));
 			i_mdi_pm_rele_client(ct, ct->ct_path_count);
 		}
+		break;
+	default:
+		dev_err(parent, CE_WARN, "!unhandled bus power operation: 0x%x",
+		    op);
 		break;
 	}
 

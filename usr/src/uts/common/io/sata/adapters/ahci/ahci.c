@@ -24,6 +24,7 @@
  * Copyright 2018 Nexenta Systems, Inc.  All rights reserved.
  * Copyright (c) 2018, Joyent, Inc.
  * Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2021 RackTop Systems, Inc.
  */
 
 /*
@@ -82,7 +83,6 @@
  */
 
 #include <sys/note.h>
-#include <sys/debug.h>
 #include <sys/scsi/scsi.h>
 #include <sys/pci.h>
 #include <sys/disp.h>
@@ -781,6 +781,10 @@ ahci_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 
 		AHCIDBG(AHCIDBG_INIT, ahci_ctlp,
 		    "hba capabilities extended = 0x%x", cap2_status);
+
+		if (cap2_status & AHCI_HBA_CAP2_SDS) {
+			ahci_ctlp->ahcictl_cap |= AHCI_CAP_SDS;
+		}
 	}
 
 	if (cap_status & AHCI_HBA_CAP_EMS) {
@@ -1433,6 +1437,7 @@ ahci_tran_probe_port(dev_info_t *dip, sata_device_t *sd)
 	uint8_t port;
 	int rval = SATA_SUCCESS, rval_init;
 
+	port_state = 0;
 	ahci_ctlp = ddi_get_soft_state(ahci_statep, ddi_get_instance(dip));
 	port = ahci_ctlp->ahcictl_cport_to_port[cport];
 
@@ -1997,6 +2002,7 @@ ahci_claim_free_slot(ahci_ctl_t *ahci_ctlp, ahci_port_t *ahci_portp,
 	    ahci_portp->ahciport_pending_tags,
 	    ahci_portp->ahciport_pending_ncq_tags);
 
+	free_slots = 0;
 	/*
 	 * According to the AHCI spec, system software is responsible to
 	 * ensure that queued and non-queued commands are not mixed in
@@ -5933,7 +5939,7 @@ ahci_find_dev_signature(ahci_ctl_t *ahci_ctlp, ahci_port_t *ahci_portp,
  * According to the spec, to reliably detect hot plug removals, software
  * must disable interface power management. Software should perform the
  * following initialization on a port after a device is attached:
- *   Set PxSCTL.IPM to 3h to disable interface state transitions
+ *   Set PxSCTL.IPM to 3h or 7h to disable interface state transitions
  *   Set PxCMD.ALPE to '0' to disable aggressive power management
  *   Disable device initiated interface power management by SET FEATURE
  *
@@ -5943,10 +5949,16 @@ static void
 ahci_disable_interface_pm(ahci_ctl_t *ahci_ctlp, uint8_t port)
 {
 	uint32_t port_scontrol, port_cmd_status;
+	uint32_t ipm;
 
 	port_scontrol = ddi_get32(ahci_ctlp->ahcictl_ahci_acc_handle,
 	    (uint32_t *)AHCI_PORT_PxSCTL(ahci_ctlp, port));
-	SCONTROL_SET_IPM(port_scontrol, SCONTROL_IPM_DISABLE_BOTH);
+	if (ahci_ctlp->ahcictl_cap & AHCI_CAP_SDS) {
+		ipm = SCONTROL_IPM_DISABLE_ALL;
+	} else {
+		ipm = SCONTROL_IPM_DISABLE_BOTH;
+	}
+	SCONTROL_SET_IPM(port_scontrol, ipm);
 	ddi_put32(ahci_ctlp->ahcictl_ahci_acc_handle,
 	    (uint32_t *)AHCI_PORT_PxSCTL(ahci_ctlp, port), port_scontrol);
 
@@ -9838,6 +9850,8 @@ ahci_watchdog_handler(ahci_ctl_t *ahci_ctlp)
 	AHCIDBG(AHCIDBG_ENTRY, ahci_ctlp,
 	    "ahci_watchdog_handler entered", NULL);
 
+	current_slot = 0;
+	current_tags = 0;
 	for (port = 0; port < ahci_ctlp->ahcictl_num_ports; port++) {
 		if (!AHCI_PORT_IMPLEMENTED(ahci_ctlp, port)) {
 			continue;
@@ -10664,8 +10678,6 @@ ahci_em_init(ahci_ctl_t *ahci_ctlp)
 		return (B_TRUE);
 	}
 
-	ahci_ctlp->ahcictl_em_flags |= AHCI_EM_PRESENT;
-
 	ahci_ctlp->ahcictl_em_tx_off = ((ahci_ctlp->ahcictl_em_loc &
 	    AHCI_HBA_EM_LOC_OFST_MASK) >> AHCI_HBA_EM_LOC_OFST_SHIFT) * 4;
 	ahci_ctlp->ahcictl_em_tx_off += ahci_ctlp->ahcictl_ahci_addr;
@@ -10684,7 +10696,7 @@ ahci_em_init(ahci_ctl_t *ahci_ctlp)
 	}
 
 	mutex_enter(&ahci_ctlp->ahcictl_mutex);
-	ahci_ctlp->ahcictl_em_flags |= AHCI_EM_RESETTING;
+	ahci_ctlp->ahcictl_em_flags |= AHCI_EM_PRESENT | AHCI_EM_RESETTING;
 	mutex_exit(&ahci_ctlp->ahcictl_mutex);
 	(void) ddi_taskq_dispatch(ahci_ctlp->ahcictl_em_taskq, ahci_em_reset,
 	    ahci_ctlp, DDI_SLEEP);
@@ -10697,6 +10709,10 @@ ahci_em_ioctl_get(ahci_ctl_t *ahci_ctlp, intptr_t arg)
 {
 	int i;
 	ahci_ioc_em_get_t get;
+
+	if ((ahci_ctlp->ahcictl_em_flags & AHCI_EM_PRESENT) == 0) {
+		return (ENOTSUP);
+	}
 
 	bzero(&get, sizeof (get));
 	get.aiemg_nports = ahci_ctlp->ahcictl_ports_implemented;
@@ -10752,12 +10768,16 @@ ahci_em_ioctl_set(ahci_ctl_t *ahci_ctlp, intptr_t arg)
 		return (EINVAL);
 	}
 
+	if ((ahci_ctlp->ahcictl_em_flags & AHCI_EM_PRESENT) == 0) {
+		return (ENOTSUP);
+	}
+
 	if ((set.aiems_leds & AHCI_EM_LED_ACTIVITY_DISABLE) != 0 &&
 	    ((ahci_ctlp->ahcictl_em_ctl & AHCI_HBA_EM_CTL_ATTR_ALHD) != 0)) {
 		return (ENOTSUP);
 	}
 
-	task = kmem_alloc(sizeof (*task), KM_NOSLEEP | KM_NORMALPRI);
+	task = kmem_alloc(sizeof (*task), KM_NOSLEEP_LAZY);
 	if (task == NULL) {
 		return (ENOMEM);
 	}
@@ -10839,26 +10859,35 @@ ahci_em_ioctl(dev_info_t *dip, int cmd, intptr_t arg)
 static void
 ahci_em_quiesce(ahci_ctl_t *ahci_ctlp)
 {
-	ASSERT(ahci_ctlp->ahcictl_em_flags & AHCI_EM_PRESENT);
-	VERIFY(mutex_owned(&ahci_ctlp->ahcictl_mutex));
-
+	mutex_enter(&ahci_ctlp->ahcictl_mutex);
+	if ((ahci_ctlp->ahcictl_em_flags & AHCI_EM_PRESENT) == 0) {
+		mutex_exit(&ahci_ctlp->ahcictl_mutex);
+		return;
+	}
 	ahci_ctlp->ahcictl_em_flags |= AHCI_EM_QUIESCE;
+	mutex_exit(&ahci_ctlp->ahcictl_mutex);
+
 	ddi_taskq_wait(ahci_ctlp->ahcictl_em_taskq);
 }
 
 static void
 ahci_em_suspend(ahci_ctl_t *ahci_ctlp)
 {
-	VERIFY(mutex_owned(&ahci_ctlp->ahcictl_mutex));
-
 	ahci_em_quiesce(ahci_ctlp);
+
+	mutex_enter(&ahci_ctlp->ahcictl_mutex);
 	ahci_ctlp->ahcictl_em_flags &= ~AHCI_EM_READY;
+	mutex_exit(&ahci_ctlp->ahcictl_mutex);
 }
 
 static void
 ahci_em_resume(ahci_ctl_t *ahci_ctlp)
 {
 	mutex_enter(&ahci_ctlp->ahcictl_mutex);
+	if ((ahci_ctlp->ahcictl_em_flags & AHCI_EM_PRESENT) == 0) {
+		mutex_exit(&ahci_ctlp->ahcictl_mutex);
+		return;
+	}
 	ahci_ctlp->ahcictl_em_flags |= AHCI_EM_RESETTING;
 	mutex_exit(&ahci_ctlp->ahcictl_mutex);
 
@@ -10873,10 +10902,7 @@ ahci_em_fini(ahci_ctl_t *ahci_ctlp)
 		return;
 	}
 
-	mutex_enter(&ahci_ctlp->ahcictl_mutex);
 	ahci_em_quiesce(ahci_ctlp);
-	mutex_exit(&ahci_ctlp->ahcictl_mutex);
-
 	ddi_taskq_destroy(ahci_ctlp->ahcictl_em_taskq);
 	ahci_ctlp->ahcictl_em_taskq = NULL;
 }

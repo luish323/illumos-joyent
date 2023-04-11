@@ -22,7 +22,7 @@
 #
 # Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
 # Copyright 2017 Jason King.
-# Copyright (c) 2018, Joyent, Inc.
+# Copyright 2019 Joyent, Inc.
 #
 
 #
@@ -55,7 +55,35 @@ SYMBOL_VERSION SUNWprivate {
 	aes_xor_block;
 	arcfour_crypt;
 	arcfour_key_init;
-	big_One;
+$if _ELF64
+	big_One			{
+				  ASSERT = {
+					  TYPE = OBJECT;
+					  SIZE = 24;
+					};
+				};
+	big_Two			{
+				  ASSERT = {
+					  TYPE = OBJECT;
+					  SIZE = 24;
+					};
+				};
+$elif _ELF32
+	big_One			{
+				  ASSERT = {
+					  TYPE = OBJECT;
+					  SIZE = 20;
+					};
+				};
+	big_Two			{
+				  ASSERT = {
+					  TYPE = OBJECT;
+					  SIZE = 20;
+					};
+				};
+$else
+$error unknown ELFCLASS
+$endif
 	big_Two;
 	big_add;
 	big_bitlength;
@@ -90,7 +118,6 @@ SYMBOL_VERSION SUNWprivate {
 	cmac_init_ctx;
 	cmac_mode_final;
 	ctr_alloc_ctx;
-	ctr_mode_final;
 	ctr_init_ctx;
 	des3_crunch_block;
 	des_alloc_keysched;
@@ -116,13 +143,48 @@ SYMBOL_VERSION SUNWprivate {
 	rsa_decrypt;
 	rsa_encrypt;
 	rsa_genkey_pair;
-	DEFAULT_PUB_EXPO;
-	MD5_DER_PREFIX;
-	SHA1_DER_PREFIX;
-	SHA1_DER_PREFIX_OID;
-	SHA256_DER_PREFIX;
-	SHA384_DER_PREFIX;
-	SHA512_DER_PREFIX;
+	DEFAULT_PUB_EXPO	{
+				  ASSERT = {
+					  TYPE = OBJECT;
+					  SIZE = 3;
+					};
+				};
+	MD5_DER_PREFIX		{
+				  ASSERT = {
+					  TYPE = OBJECT;
+					  SIZE = 18;
+					};
+				};
+	SHA1_DER_PREFIX		{
+				  ASSERT = {
+					  TYPE = OBJECT;
+					  SIZE = 15;
+					};
+				};
+	SHA1_DER_PREFIX_OID	{
+				  ASSERT = {
+					  TYPE = OBJECT;
+					  SIZE = 13;
+					};
+				};
+	SHA256_DER_PREFIX	{
+				  ASSERT = {
+					  TYPE = OBJECT;
+					  SIZE = 19;
+					};
+				};
+	SHA384_DER_PREFIX	{
+				  ASSERT = {
+					  TYPE = OBJECT;
+					  SIZE = 19;
+					};
+				};
+	SHA512_DER_PREFIX	{
+				  ASSERT = {
+					  TYPE = OBJECT;
+					  SIZE = 19;
+					};
+				};
     local:
 	*;
 };

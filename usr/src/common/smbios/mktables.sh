@@ -23,6 +23,7 @@
 #
 # Copyright 2015 OmniTI Computer Consulting, Inc.  All rights reserved.
 # Copyright (c) 2018, Joyent, Inc.
+# Copyright 2021 Oxide Computer Company
 # Copyright 2005 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
 #
@@ -30,7 +31,7 @@
 #
 # The SMBIOS interfaces defined in <sys/smbios.h> include a set of integer-to-
 # string conversion routines for the various constants defined in the SMBIOS
-# spec.  These functions are used by smbios(1M) and prtdiag(1M) and can be
+# spec.  These functions are used by smbios(8) and prtdiag(8) and can be
 # leveraged by other clients as well.  To simplify maintenance of the source
 # base, this shell script automatically generates the source code for all of
 # these functions from the <sys/smbios.h> header file and its comments.  Each
@@ -47,11 +48,14 @@ SMB_BIOSXB2_	smbios_bios_xb2_name		uint_t
 SMB_CAT_	smbios_cache_ctype_name		uint_t
 SMB_CAF_	smbios_cache_flag_name		uint_t
 SMB_EVFL_	smbios_evlog_flag_name		uint_t
+SMB_FWC_	smbios_fwinfo_ch_name		uint_t
 SMB_IPMI_F_	smbios_ipmi_flag_name		uint_t
 SMB_POWERSUP_F_	smbios_powersup_flag_name	uint_t
 SMB_MOMC_	smbios_memdevice_op_capab_name	uint_t
 SMB_MDF_	smbios_memdevice_flag_name	uint_t
 SMB_PRC_	smbios_processor_core_flag_name	uint_t
+SMB_RV_ISA_	smbios_riscv_isa_name		uint64_t
+SMB_RV_PRIV_	smbios_riscv_priv_name		uint_t
 SMB_TYPE_	smbios_type_name		uint_t
 SMB_SLCH1_	smbios_slot_ch1_name		uint_t
 SMB_SLCH2_	smbios_slot_ch2_name		uint_t
@@ -60,6 +64,7 @@ SMB_SLCH2_	smbios_slot_ch2_name		uint_t
 desc_funcs='
 SMB_BBFL_	smbios_bboard_flag_desc		uint_t
 SMB_BBT_	smbios_bboard_type_desc		uint_t
+SMB_BDC_	smbios_battery_chem_desc	uint_t
 SMB_BIOSFL_	smbios_bios_flag_desc		uint64_t
 SMB_BIOSXB1_	smbios_bios_xb1_desc		uint_t
 SMB_BIOSXB2_	smbios_bios_xb2_desc		uint_t
@@ -78,6 +83,10 @@ SMB_COOLDEV_T_	smbios_cooldev_type_desc	uint_t
 SMB_EVFL_	smbios_evlog_flag_desc		uint_t
 SMB_EVHF_	smbios_evlog_format_desc	uint_t
 SMB_EVM_	smbios_evlog_method_desc	uint_t
+SMB_FWC_	smbios_fwinfo_ch_desc		uint_t
+SMB_FWI_	smbios_fwinfo_id_desc		uint_t
+SMB_FWS_	smbios_fwinfo_state_desc	uint_t
+SMB_FWV_	smbios_fwinfo_vers_desc		uint_t
 SMB_HWSEC_PS_	smbios_hwsec_desc		uint_t
 SMB_IPMI_F_	smbios_ipmi_flag_desc		uint_t
 SMB_IPMI_T_	smbios_ipmi_type_desc		uint_t
@@ -97,19 +106,28 @@ SMB_MDR_	smbios_memdevice_rank_desc	uint_t
 SMB_MTECH_	smbios_memdevice_memtech_desc	uint_t
 SMB_MOMC_	smbios_memdevice_op_capab_desc	uint_t
 SMB_OBT_	smbios_onboard_type_desc	uint_t
+SMB_OBET_	smbios_onboard_ext_type_desc	uint_t
+SMB_PDI_	smbios_pointdev_iface_desc	uint_t
+SMB_PDT_	smbios_pointdev_type_desc	uint_t
 SMB_POC_	smbios_port_conn_desc		uint_t
 SMB_POT_	smbios_port_type_desc		uint_t
 SMB_PRC_	smbios_processor_core_flag_desc	uint_t
 SMB_PRF_	smbios_processor_family_desc	uint_t
+SMB_PROCINFO_T	smbios_processor_info_type_desc	uint_t
 SMB_PRS_	smbios_processor_status_desc	uint_t
 SMB_PRT_	smbios_processor_type_desc	uint_t
 SMB_PRU_	smbios_processor_upgrade_desc	uint_t
+SMB_RV_ISA_	smbios_riscv_isa_desc		uint64_t
+SMB_RV_PRIV_	smbios_riscv_priv_desc		uint_t
+SMB_RV_WIDTH_	smbios_riscv_width_desc		uint_t
 SMB_SLCH1_	smbios_slot_ch1_desc		uint_t
 SMB_SLCH2_	smbios_slot_ch2_desc		uint_t
+SMB_SLHT_	smbios_slot_height_desc		uint_t
 SMB_SLL_	smbios_slot_length_desc		uint_t
 SMB_SLT_	smbios_slot_type_desc		uint_t
 SMB_SLU_	smbios_slot_usage_desc		uint_t
 SMB_SLW_	smbios_slot_width_desc		uint_t
+SMB_STRP_	smbios_strprop_id_desc		uint_t
 SMB_TPROBE_L_	smbios_tprobe_loc_desc		uint_t
 SMB_TPROBE_S_	smbios_tprobe_status_desc	uint_t
 SMB_TYPE_	smbios_type_desc		uint_t
@@ -134,7 +152,7 @@ echo "\
 
 echo "$name_funcs" | while read p name type; do
 	[ -z "$p" ] && continue
-	pattern="^#define[	 ]\($p[A-Za-z0-9_]*\)[	 ]*[A-Z0-9]*.*$"
+	pattern="^#define[	 ]\(${p}[A-Za-z0-9_]*\)[	 ]*[A-Z0-9]*.*\$"
 	replace='	case \1: return ("\1");'
 
 	echo "\nconst char *\n$name($type x)\n{\n\tswitch (x) {"
@@ -153,7 +171,7 @@ done
 #
 echo "$desc_funcs" | while read p name type; do
 	[ -z "$p" ] && continue
-	pattern="^#define[	 ]\($p[A-Za-z0-9_]*\)[	 ]*.*/\\* \(.*\) \\*/$"
+	pattern="^#define[	 ]\(${p}[A-Za-z0-9_]*\)[	 ]*.*/\\* \(.*\) \\*/\$"
 	replace='	case \1: return (\2);'
 
 	echo "\nconst char *\n$name($type x)\n{\n\tswitch (x) {"

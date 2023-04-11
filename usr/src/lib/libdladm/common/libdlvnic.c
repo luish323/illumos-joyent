@@ -21,6 +21,7 @@
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2015, Joyent Inc.
+ * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
  */
 
 #include <stdio.h>
@@ -146,6 +147,8 @@ i_dladm_vnic_create_sys(dladm_handle_t handle, dladm_vnic_attr_t *attr)
 	case VNIC_MAC_ADDR_TYPE_RANDOM:
 		bcopy(ioc.vc_mac_addr, attr->va_mac_addr, MAXMACADDRLEN);
 		attr->va_mac_len = ioc.vc_mac_len;
+		break;
+	default:
 		break;
 	}
 	return (status);
@@ -404,8 +407,9 @@ dladm_vnic_create(dladm_handle_t handle, const char *vnic, datalink_id_t linkid,
 {
 	dladm_vnic_attr_t attr;
 	datalink_id_t vnic_id;
-	datalink_class_t class;
+	datalink_class_t class, pclass;
 	uint32_t media = DL_ETHER;
+	uint32_t link_flags;
 	char name[MAXLINKNAMELEN];
 	uchar_t tmp_addr[MAXMACADDRLEN];
 	dladm_status_t status;
@@ -421,6 +425,15 @@ dladm_vnic_create(dladm_handle_t handle, const char *vnic, datalink_id_t linkid,
 	if ((flags & DLADM_OPT_ACTIVE) == 0)
 		return (DLADM_STATUS_NOTSUP);
 
+	/*
+	 * It's an anchor VNIC - linkid must be set to DATALINK_INVALID_LINKID
+	 * and the VLAN id must be 0
+	 */
+	if ((flags & DLADM_OPT_ANCHOR) != 0 &&
+	    (linkid != DATALINK_INVALID_LINKID || vid != 0)) {
+		return (DLADM_STATUS_BADARG);
+	}
+
 	is_vlan = ((flags & DLADM_OPT_VLAN) != 0);
 	if (is_vlan && ((vid < 1 || vid > 4094)))
 		return (DLADM_STATUS_VIDINVAL);
@@ -430,17 +443,19 @@ dladm_vnic_create(dladm_handle_t handle, const char *vnic, datalink_id_t linkid,
 	if (!dladm_vnic_macaddrtype2str(mac_addr_type))
 		return (DLADM_STATUS_INVALIDMACADDRTYPE);
 
-	if ((flags & DLADM_OPT_ANCHOR) == 0) {
-		if ((status = dladm_datalink_id2info(handle, linkid, NULL,
-		    &class, &media, NULL, 0)) != DLADM_STATUS_OK)
+	if (!is_etherstub) {
+		if ((status = dladm_datalink_id2info(handle, linkid,
+		    &link_flags, &pclass, &media, NULL, 0)) != DLADM_STATUS_OK)
 			return (status);
 
-		if (class == DATALINK_CLASS_VNIC ||
-		    class == DATALINK_CLASS_VLAN)
-			return (DLADM_STATUS_BADARG);
-	} else {
-		/* it's an anchor VNIC */
-		if (linkid != DATALINK_INVALID_LINKID || vid != 0)
+		/* Disallow persistent objects on top of temporary ones */
+		if ((flags & DLADM_OPT_PERSIST) != 0 &&
+		    (link_flags & DLMGMT_PERSIST) == 0)
+			return (DLADM_STATUS_PERSIST_ON_TEMP);
+
+		/* Links cannot be created on top of these object types */
+		if (pclass == DATALINK_CLASS_VNIC ||
+		    pclass == DATALINK_CLASS_VLAN)
 			return (DLADM_STATUS_BADARG);
 	}
 
@@ -535,8 +550,17 @@ dladm_vnic_create(dladm_handle_t handle, const char *vnic, datalink_id_t linkid,
 	attr.va_force = (flags & DLADM_OPT_FORCE) != 0;
 
 	status = i_dladm_vnic_create_sys(handle, &attr);
-	if (status != DLADM_STATUS_OK)
+	if (status != DLADM_STATUS_OK) {
+		if (!is_etherstub && pclass == DATALINK_CLASS_OVERLAY &&
+		    status == DLADM_STATUS_ADDRNOTAVAIL) {
+			char errmsg[DLADM_STRSIZE];
+			(void) dladm_errlist_append(errs,
+			    "failed to start overlay device; "
+			    "could not open underlay socket: %s",
+			    dladm_status2str(status, errmsg));
+		}
 		goto done;
+	}
 	vnic_created = B_TRUE;
 
 	/* Save vnic configuration and its properties */

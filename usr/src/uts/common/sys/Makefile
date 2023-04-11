@@ -22,11 +22,14 @@
 #
 # Copyright (c) 1989, 2010, Oracle and/or its affiliates. All rights reserved.
 # Copyright 2019 Joyent, Inc.
-# Copyright 2013 Garrett D'Amore <garrett@damore.org>
+# Copyright 2022 Garrett D'Amore
 # Copyright 2013 Saso Kiselkov. All rights reserved.
 # Copyright 2015 Igor Kozhukhov <ikozhukhov@gmail.com>
 # Copyright 2017 Nexenta Systems, Inc.
 # Copyright 2016 Hans Rosenfeld <rosenfeld@grumpf.hope-2000.org>
+# Copyright 2019 Peter Tribble.
+# Copyright 2015, Joyent, Inc. All rights reserved.
+# Copyright 2022 Oxide Computer Company
 #
 
 include $(SRC)/uts/Makefile.uts
@@ -87,6 +90,7 @@ CHKHDRS=			\
 	auxv_SPARC.h		\
 	avl.h			\
 	avl_impl.h		\
+	bitext.h		\
 	bitmap.h		\
 	bitset.h		\
 	bl.h			\
@@ -94,6 +98,7 @@ CHKHDRS=			\
 	bofi.h			\
 	bofi_impl.h		\
 	bpp_io.h		\
+	bootbanner.h		\
 	bootstat.h		\
 	brand.h			\
 	buf.h			\
@@ -351,6 +356,7 @@ CHKHDRS=			\
 	libc_kernel.h		\
 	limits.h		\
 	link.h			\
+	linker_set.h		\
 	list.h			\
 	list_impl.h		\
 	llc1.h			\
@@ -409,8 +415,6 @@ CHKHDRS=			\
 	msio.h			\
 	msreg.h			\
 	mtio.h			\
-	multidata.h		\
-	multidata_impl.h	\
 	mutex.h			\
 	nbmlock.h		\
 	ndifm.h			\
@@ -494,6 +498,7 @@ CHKHDRS=			\
 	rctl_impl.h		\
 	rds.h			\
 	reboot.h		\
+	refhash.h		\
 	refstr.h		\
 	refstr_impl.h		\
 	resource.h		\
@@ -614,10 +619,6 @@ CHKHDRS=			\
 	tirdwr.h		\
 	tiuser.h		\
 	tl.h			\
-	tnf.h			\
-	tnf_com.h		\
-	tnf_probe.h		\
-	tnf_writer.h		\
 	todio.h			\
 	tpicommon.h		\
 	ts.h			\
@@ -655,6 +656,7 @@ CHKHDRS=			\
 	vfstab.h		\
 	vgareg.h		\
 	videodev2.h		\
+	vio9p.h			\
 	visual_io.h		\
 	vlan.h			\
 	vm.h			\
@@ -702,12 +704,8 @@ AUDIOHDRS=			\
 AVHDRS=				\
 	iec61883.h
 
-BSCHDRS=			\
-	bscbus.h		\
-	bscv_impl.h		\
-	lom_ebuscodes.h		\
+LOMHDRS=			\
 	lom_io.h		\
-	lom_priv.h		\
 	lombus.h
 
 MDESCHDRS=			\
@@ -989,7 +987,6 @@ SATAGENHDRS=		\
 	sata_cfgadm.h
 
 SYSEVENTHDRS=		\
-	ap_driver.h     \
 	datalink.h	\
 	dev.h		\
 	domain.h        \
@@ -1038,6 +1035,10 @@ USBWCMHDRS=		\
 
 UGENHDRS=           \
 	usb_ugen.h
+
+USBCCIDHDRS = \
+	ccid.h \
+	uccid.h
 
 HOTPLUGHDRS=	\
 	hpcsvc.h	\
@@ -1131,6 +1132,9 @@ NXGEHDRS=			\
 	nxge_virtual.h		\
 	nxge_espc.h
 
+PLATHDRS=		\
+	pci_prd.h
+
 include Makefile.syshdrs
 
 dcam/%.check:	dcam/%.h
@@ -1140,7 +1144,7 @@ CHECKHDRS=						\
 	$($(MACH)_HDRS:%.h=%.check)			\
 	$(AUDIOHDRS:%.h=audio/%.check)			\
 	$(AVHDRS:%.h=av/%.check)			\
-	$(BSCHDRS:%.h=%.check)				\
+	$(LOMHDRS:%.h=%.check)				\
 	$(CHKHDRS:%.h=%.check)				\
 	$(CPUDRVHDRS:%.h=%.check)			\
 	$(CRYPTOHDRS:%.h=crypto/%.check)		\
@@ -1185,6 +1189,7 @@ CHECKHDRS=						\
 	$(SYSEVENTHDRS:%.h=sysevent/%.check)            \
 	$(CONTRACTHDRS:%.h=contract/%.check)            \
 	$(USBAUDHDRS:%.h=usb/clients/audio/%.check)   \
+	$(USBCCIDHDRS:%.h=usb/clients/ccid/%.check)	\
 	$(USBHUBDHDRS:%.h=usb/hubd/%.check)		\
 	$(USBHIDHDRS:%.h=usb/clients/hid/%.check)	\
 	$(USBMSHDRS:%.h=usb/clients/mass_storage/%.check)	\
@@ -1197,7 +1202,8 @@ CHECKHDRS=						\
 	$(I1394HDRS:%.h=1394/%.check)			\
 	$(RSMHDRS:%.h=rsm/%.check)			\
 	$(TSOLHDRS:%.h=tsol/%.check)			\
-	$(NXGEHDRS:%.h=nxge/%.check)
+	$(NXGEHDRS:%.h=nxge/%.check)			\
+	$(PLATHDRS:%.h=plat/%.check)
 
 
 .KEEP_STATE:
@@ -1209,6 +1215,7 @@ CHECKHDRS=						\
 	$(ROOTAVHDRS)		\
 	$(ROOTCRYPTOHDRS)	\
 	$(ROOTDCAMHDRS)		\
+	$(ROOTDKTPHDRS)		\
 	$(ROOTISOHDRS)		\
 	$(ROOTIDMHDRS)		\
 	$(ROOTISCSIHDRS)	\
@@ -1230,6 +1237,7 @@ CHECKHDRS=						\
 	$(ROOTIBMFHDRS)		\
 	$(ROOTOFHDRS)		\
 	$(ROOTRDMAHDRS)		\
+	$(ROOTSATAGENHDRS)	\
 	$(ROOTSOL_OFSHDRS)	\
 	$(ROOTSOL_UMADHDRS)	\
 	$(ROOTSOL_UVERBSHDRS)	\
@@ -1237,6 +1245,7 @@ CHECKHDRS=						\
 	$(ROOTTAVORHDRS)	\
 	$(ROOTHERMONHDRS)	\
 	$(ROOTMLNXHDRS)		\
+	$(ROOTPLATHDRS)		\
 	$(ROOTSCSIHDRS)		\
 	$(ROOTSCSIADHDRS)	\
 	$(ROOTSCSICONFHDRS)	\
@@ -1244,6 +1253,7 @@ CHECKHDRS=						\
 	$(ROOTSCSIGENHDRS)	\
 	$(ROOTSCSIIMPLHDRS)	\
 	$(ROOTSCSIVHCIHDRS)	\
+	$(ROOTSCSITARGETSHDRS)	\
 	$(ROOTSDCARDHDRS)	\
 	$(ROOTSYSEVENTHDRS)     \
 	$(ROOTCONTRACTHDRS)     \
@@ -1259,6 +1269,7 @@ CHECKHDRS=						\
 	$(ROOTUSBCDCHDRS)       \
 	$(ROOTUSBVIDHDRS)       \
 	$(ROOTUSBWCMHDRS)	\
+	$(ROOTUSBCCIDHDRS)	\
 	$(ROOTUGENHDRS)		\
 	$(ROOT1394HDRS)         \
 	$(ROOTHOTPLUGHDRS)	\
@@ -1276,6 +1287,7 @@ install_h:			\
 	$(ROOTAVHDRS)		\
 	$(ROOTCRYPTOHDRS)	\
 	$(ROOTDCAMHDRS)		\
+	$(ROOTDKTPHDRS)		\
 	$(ROOTISOHDRS)		\
 	$(ROOTIDMHDRS)		\
 	$(ROOTISCSIHDRS)	\
@@ -1297,6 +1309,7 @@ install_h:			\
 	$(ROOTIBMFHDRS)		\
 	$(ROOTOFHDRS)		\
 	$(ROOTRDMAHDRS)		\
+	$(ROOTSATAGENHDRS)	\
 	$(ROOTSOL_OFSHDRS)	\
 	$(ROOTSOL_UMADHDRS)	\
 	$(ROOTSOL_UVERBSHDRS)	\
@@ -1304,6 +1317,7 @@ install_h:			\
 	$(ROOTTAVORHDRS)	\
 	$(ROOTHERMONHDRS)	\
 	$(ROOTMLNXHDRS)		\
+	$(ROOTPLATHDRS)		\
 	$(ROOTSCSIHDRS)		\
 	$(ROOTSCSIADHDRS)	\
 	$(ROOTSCSIISCSIHDRS)	\
@@ -1311,12 +1325,14 @@ install_h:			\
 	$(ROOTSCSIGENHDRS)	\
 	$(ROOTSCSIIMPLHDRS)	\
 	$(ROOTSCSIVHCIHDRS)     \
+	$(ROOTSCSITARGETSHDRS)	\
 	$(ROOTSDCARDHDRS)	\
 	$(ROOTSYSEVENTHDRS)     \
 	$(ROOTCONTRACTHDRS)     \
 	$(ROOTUWBHDRS)		\
 	$(ROOTUWBAHDRS)		\
 	$(ROOTUSBHDRS)		\
+	$(ROOTUSBCCIDHDRS)	\
 	$(ROOTUSBAUDHDRS)	\
 	$(ROOTUSBHUBDHDRS)	\
 	$(ROOTUSBHIDHDRS)	\

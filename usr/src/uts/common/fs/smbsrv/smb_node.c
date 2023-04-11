@@ -20,7 +20,8 @@
  */
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2020 Tintri by DDN, Inc. All rights reserved.
+ * Copyright 2022 RackTop Systems, Inc.
  */
 /*
  * SMB Node State Machine
@@ -88,7 +89,7 @@
  *    course the state of the node should be tested/updated under the
  *    protection of the mutex).
  */
-#include <smbsrv/smb_kproto.h>
+#include <smbsrv/smb2_kproto.h>
 #include <smbsrv/smb_fsops.h>
 #include <smbsrv/smb_kstat.h>
 #include <sys/ddi.h>
@@ -187,33 +188,31 @@ smb_node_fini(void)
 	if (smb_node_cache == NULL)
 		return;
 
-#ifdef DEBUG
 	for (i = 0; i <= SMBND_HASH_MASK; i++) {
 		smb_llist_t	*bucket;
 		smb_node_t	*node;
 
 		/*
-		 * The following sequence is just intended for sanity check.
-		 * This will have to be modified when the code goes into
-		 * production.
+		 * The SMB node hash table should be empty at this point.
+		 * If the hash table is not empty, clean it up.
 		 *
-		 * The SMB node hash table should be emtpy at this point. If the
-		 * hash table is not empty a panic will be triggered.
-		 *
-		 * The reason why SMB nodes are still remaining in the hash
-		 * table is problably due to a mismatch between calls to
-		 * smb_node_lookup() and smb_node_release(). You must track that
-		 * down.
+		 * The reason why SMB nodes might remain in this table is
+		 * generally forgotten references somewhere, perhaps on
+		 * open files, etc.  Those are defects.
 		 */
 		bucket = &smb_node_hash_table[i];
 		node = smb_llist_head(bucket);
 		while (node != NULL) {
+#ifdef DEBUG
 			cmn_err(CE_NOTE, "leaked node: 0x%p %s",
 			    (void *)node, node->od_name);
-			node = smb_llist_next(bucket, node);
+			cmn_err(CE_NOTE, "...bucket: 0x%p", bucket);
+			debug_enter("leaked_node");
+#endif
+			smb_llist_remove(bucket, node);
+			node = smb_llist_head(bucket);
 		}
 	}
-#endif
 
 	for (i = 0; i <= SMBND_HASH_MASK; i++) {
 		smb_llist_destructor(&smb_node_hash_table[i]);
@@ -478,7 +477,31 @@ smb_node_release(smb_node_t *node)
 
 		case SMB_NODE_STATE_AVAILABLE:
 			node->n_state = SMB_NODE_STATE_DESTROYING;
+
+			/*
+			 * While we still hold n_mutex,
+			 * make sure FEM hooks are gone.
+			 */
+			if (node->n_fcn_count > 0) {
+				DTRACE_PROBE1(fem__fcn__dangles,
+				    smb_node_t *, node);
+				node->n_fcn_count = 0;
+				(void) smb_fem_fcn_uninstall(node);
+			}
+
 			mutex_exit(&node->n_mutex);
+
+			/*
+			 * Out of caution, make sure FEM hooks
+			 * used by oplocks are also gone.
+			 */
+			mutex_enter(&node->n_oplock.ol_mutex);
+			ASSERT(node->n_oplock.ol_fem == B_FALSE);
+			if (node->n_oplock.ol_fem == B_TRUE) {
+				smb_fem_oplock_uninstall(node);
+				node->n_oplock.ol_fem = B_FALSE;
+			}
+			mutex_exit(&node->n_oplock.ol_mutex);
 
 			smb_llist_enter(node->n_hash_bucket, RW_WRITER);
 			smb_llist_remove(node->n_hash_bucket, node);
@@ -599,7 +622,7 @@ smb_node_root_init(smb_server_t *sv, smb_node_t **svrootp)
 	 * so need to use kcred, not zone_kcred().
 	 */
 	error = smb_pathname(NULL, zone->zone_rootpath, 0,
-	    smb_root_node, smb_root_node, NULL, svrootp, kcred);
+	    smb_root_node, smb_root_node, NULL, svrootp, kcred, NULL);
 
 	return (error);
 }
@@ -685,6 +708,11 @@ smb_node_set_delete_on_close(smb_node_t *node, cred_t *cr, uint32_t flags)
 		}
 	}
 
+	/* Dataset roots can't be deleted, so don't set DOC */
+	if ((node->flags & NODE_FLAGS_VFSROOT) != 0) {
+		return (NT_STATUS_CANNOT_DELETE);
+	}
+
 	mutex_enter(&node->n_mutex);
 	if (node->flags & NODE_FLAGS_DELETE_ON_CLOSE) {
 		/* It was already marked.  We're done. */
@@ -752,7 +780,7 @@ smb_node_open_check(smb_node_t *node, uint32_t desired_access,
 		default:
 			ASSERT(status == NT_STATUS_SHARING_VIOLATION);
 			DTRACE_PROBE3(conflict3,
-			    smb_ofile_t, of,
+			    smb_ofile_t *, of,
 			    uint32_t, desired_access,
 			    uint32_t, share_access);
 			smb_llist_exit(&node->n_ofile_list);
@@ -787,7 +815,7 @@ smb_node_rename_check(smb_node_t *node)
 			break;
 		default:
 			ASSERT(status == NT_STATUS_SHARING_VIOLATION);
-			DTRACE_PROBE1(conflict1, smb_ofile_t, of);
+			DTRACE_PROBE1(conflict1, smb_ofile_t *, of);
 			smb_llist_exit(&node->n_ofile_list);
 			return (status);
 		}
@@ -825,7 +853,7 @@ smb_node_delete_check(smb_node_t *node)
 			break;
 		default:
 			ASSERT(status == NT_STATUS_SHARING_VIOLATION);
-			DTRACE_PROBE1(conflict1, smb_ofile_t, of);
+			DTRACE_PROBE1(conflict1, smb_ofile_t *, of);
 			smb_llist_exit(&node->n_ofile_list);
 			return (status);
 		}
@@ -878,8 +906,9 @@ smb_node_fcn_unsubscribe(smb_node_t *node)
 
 	mutex_enter(&node->n_mutex);
 	node->n_fcn_count--;
-	if (node->n_fcn_count == 0)
-		smb_fem_fcn_uninstall(node);
+	if (node->n_fcn_count == 0) {
+		VERIFY0(smb_fem_fcn_uninstall(node));
+	}
 	mutex_exit(&node->n_mutex);
 }
 
@@ -942,6 +971,32 @@ smb_node_notify_change(smb_node_t *node, uint_t action, const char *name)
 	 * expensive to do that, and support for recursive
 	 * notify is optional anyway, so don't bother.
 	 */
+}
+
+/*
+ * Change notify modified differs for stream vs regular file.
+ * Changes to a stream give a notification on the "unnamed" node,
+ * which is the parent object of the stream.
+ */
+void
+smb_node_notify_modified(smb_node_t *node)
+{
+	smb_node_t *u_node;
+
+	u_node = SMB_IS_STREAM(node);
+	if (u_node != NULL) {
+		/* This is a named stream */
+		if (u_node->n_dnode != NULL) {
+			smb_node_notify_change(u_node->n_dnode,
+			    FILE_ACTION_MODIFIED_STREAM, u_node->od_name);
+		}
+	} else {
+		/* regular file or directory */
+		if (node->n_dnode != NULL) {
+			smb_node_notify_change(node->n_dnode,
+			    FILE_ACTION_MODIFIED, node->od_name);
+		}
+	}
 }
 
 /*
@@ -1451,17 +1506,6 @@ smb_node_file_is_readonly(smb_node_t *node)
  * normal time stamp updates, such as updating the mtime after a
  * write, and ctime after an attribute change.
  *
- * Dos Attributes are stored persistently, but with a twist:
- * In Windows, when you set the "read-only" bit on some file,
- * existing writable handles to that file continue to have
- * write access.  (because access check happens at open)
- * If we were to set the read-only bit directly, we would
- * cause errors in subsequent writes on any of our open
- * (and writable) file handles.  So here too, we have to
- * simulate the Windows behavior.  We keep the read-only
- * bit "pending" in the smb_node (so it will be visible in
- * any new opens of the file) and apply it on close.
- *
  * File allocation size is also simulated, and not persistent.
  * When the file allocation size is set it is first rounded up
  * to block size. If the file size is smaller than the allocation
@@ -1538,14 +1582,6 @@ smb_node_setattr(smb_request_t *sr, smb_node_t *node,
 	}
 
 	/*
-	 * If we have an open file, and we set the size,
-	 * then set the "written" flag so that at close,
-	 * we can force an mtime update.
-	 */
-	if (of != NULL && (attr->sa_mask & SMB_AT_SIZE) != 0)
-		of->f_written = B_TRUE;
-
-	/*
 	 * When operating on an open file, some settable attributes
 	 * become "sticky" in the open file object until close.
 	 * (see above re. timestamps)
@@ -1574,10 +1610,20 @@ smb_node_setattr(smb_request_t *sr, smb_node_t *node,
 			    attr->sa_crtime;
 
 		mutex_exit(&of->f_mutex);
+
 		/*
 		 * The f_pending_attr times are reapplied in
 		 * smb_ofile_close().
 		 */
+
+		/*
+		 * If this change is coming directly from a client
+		 * (sr != NULL) and it's a persistent handle, save
+		 * the "sticky times" in the handle.
+		 */
+		if (sr != NULL && of->dh_persist) {
+			smb2_dh_update_times(sr, of, attr);
+		}
 	}
 
 	if ((attr->sa_mask & SMB_AT_ALLOCSZ) != 0) {
@@ -1592,15 +1638,15 @@ smb_node_setattr(smb_request_t *sr, smb_node_t *node,
 	}
 
 	rc = smb_fsop_setattr(sr, cr, node, attr);
-	if (rc != 0)
-		return (rc);
 
-	if (node->n_dnode != NULL) {
-		smb_node_notify_change(node->n_dnode,
-		    FILE_ACTION_MODIFIED, node->od_name);
-	}
+	/*
+	 * Only generate change notify events for client requests.
+	 * Internal operations use sr=NULL
+	 */
+	if (rc == 0 && sr != NULL)
+		smb_node_notify_modified(node);
 
-	return (0);
+	return (rc);
 }
 
 /*
@@ -1608,11 +1654,6 @@ smb_node_setattr(smb_request_t *sr, smb_node_t *node,
  *
  * Get attributes from the file system and apply any smb-specific
  * overrides for size, dos attributes and timestamps
- *
- * When node->n_pending_readonly is set on a node, pretend that
- * we've already set this node readonly at the filesystem level.
- * We can't actually do that until all writable handles are closed
- * or those writable handles would suddenly loose their access.
  *
  * Returns: errno
  */

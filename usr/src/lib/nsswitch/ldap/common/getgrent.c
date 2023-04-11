@@ -23,6 +23,7 @@
  * Use is subject to license terms.
  *
  * Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2020 Joyent, Inc.
  */
 
 #include <grp.h>
@@ -207,10 +208,12 @@ getmembers_UID(char **bufpp, int *lenp, ns_ldap_attr_t *members)
 		    strpbrk(member_str, " ,:=") != NULL)
 			continue;
 
-		if (firsttime)
+		if (firsttime) {
 			len = snprintf(buffer, buflen, "%s", member_str);
-		else
+			firsttime = 0;
+		} else {
 			len = snprintf(buffer, buflen, ",%s", member_str);
+		}
 		TEST_AND_ADJUST(len, buffer, buflen, out);
 	}
 
@@ -237,7 +240,7 @@ getmembers_DN(char **bufpp, int *lenp, ns_ldap_attr_t *members)
 	char	*buffer;
 	int	buflen;
 	int	i, len;
-	int	nss_result = 0;
+	int	nss_result = 0; /* used by TEST_AND_ADJUST macro */
 	int	firsttime;
 
 	buffer = *bufpp;
@@ -261,9 +264,8 @@ getmembers_DN(char **bufpp, int *lenp, ns_ldap_attr_t *members)
 		if (member_dn[0] == '\0')
 			continue;
 
-		nss_result = __ns_ldap_dn2uid(member_dn,
-		    &member_uid, NULL, &error);
-		if (nss_result != NS_LDAP_SUCCESS) {
+		if (__ns_ldap_dn2uid(member_dn,
+		    &member_uid, NULL, &error) != NS_LDAP_SUCCESS) {
 			(void) __ns_ldap_freeError(&error);
 			error = NULL;
 			continue;
@@ -279,10 +281,12 @@ getmembers_DN(char **bufpp, int *lenp, ns_ldap_attr_t *members)
 			continue;
 		}
 
-		if (firsttime)
+		if (firsttime) {
 			len = snprintf(buffer, buflen, "%s", member_uid);
-		else
+			firsttime = 0;
+		} else {
 			len = snprintf(buffer, buflen, ",%s", member_uid);
+		}
 		free(member_uid);
 		TEST_AND_ADJUST(len, buffer, buflen, out);
 	}
@@ -522,7 +526,7 @@ static ldap_backend_op_t gr_ops[] = {
 /*ARGSUSED0*/
 nss_backend_t *
 _nss_ldap_group_constr(const char *dummy1, const char *dummy2,
-			const char *dummy3)
+    const char *dummy3)
 {
 
 	return ((nss_backend_t *)_nss_ldap_constr(gr_ops,

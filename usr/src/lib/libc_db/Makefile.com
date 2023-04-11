@@ -36,19 +36,18 @@ OBJECTS = $(CRTI) $(CMNOBJS) $(CRTN)
 include	../../Makefile.lib
 include ../../Makefile.rootfs
 
-LIBS = $(DYNLIB) $(LINTLIB)
+LIBS = $(DYNLIB)
 
 SRCDIR =	../common
 SRCS = $(CMNOBJS:%.o=$(SRCDIR)/%.c)
-$(LINTLIB) := SRCS = $(SRCDIR)/$(LINTSRC)
 
-ASFLAGS +=	-P -D__STDC__ -D_ASM -DPIC
+ASFLAGS +=	-D__STDC__ -D_ASM -DPIC
 CPPFLAGS +=	-I../../libc/inc -D_REENTRANT
 CFLAGS +=	$(CCVERBOSE)
 LDLIBS +=	-lc
 
 CERRWARN +=	-_gcc=-Wno-type-limits
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 
 # not linted
 SMATCH=off
@@ -57,7 +56,6 @@ SMATCH=off
 
 all: $(LIBS)
 
-lint: lintcheck
 
 include	../../Makefile.targ
 

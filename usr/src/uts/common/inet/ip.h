@@ -25,6 +25,7 @@
  * Copyright 2017 Nexenta Systems, Inc.
  * Copyright 2017 OmniTI Computer Consulting, Inc. All rights reserved.
  * Copyright 2019, Joyent, Inc.
+ * Copyright 2022 Oxide Computer Company
  */
 
 #ifndef	_INET_IP_H
@@ -177,7 +178,7 @@ typedef struct ipoptp_s
 #define	IPOPTP_ERROR	0x00000001
 #endif	/* _KERNEL */
 
-/* Controls forwarding of IP packets, set via ipadm(1M)/ndd(1M) */
+/* Controls forwarding of IP packets, set via ipadm(8)/ndd(8) */
 #define	IP_FORWARD_NEVER	0
 #define	IP_FORWARD_ALWAYS	1
 
@@ -1596,7 +1597,8 @@ struct ill_zerocopy_capab_s {
 
 struct ill_lso_capab_s {
 	uint_t	ill_lso_flags;		/* capabilities */
-	uint_t	ill_lso_max;		/* maximum size of payload */
+	uint_t	ill_lso_max_tcpv4;	/* maximum size of payload */
+	uint_t	ill_lso_max_tcpv6;	/* maximum size of payload */
 };
 
 /*
@@ -1730,8 +1732,6 @@ typedef struct ill_s {
 	 * Capabilities related fields.
 	 */
 	uint_t  ill_dlpi_capab_state;	/* State of capability query, IDCS_* */
-	kcondvar_t ill_dlpi_capab_cv;	/* CV for broadcasting state changes */
-	kmutex_t ill_dlpi_capab_lock;	/* Lock for accessing above Cond Var */
 	uint_t	ill_capab_pending_cnt;
 	uint64_t ill_capabilities;	/* Enabled capabilities, ILL_CAPAB_* */
 	ill_hcksum_capab_t *ill_hcksum_capab; /* H/W cksumming capabilities */
@@ -2016,7 +2016,7 @@ enum { IF_CMD = 1, LIF_CMD, ARP_CMD, XARP_CMD, MSFILT_CMD, MISC_CMD };
 #define	IPI_DONTCARE	0	/* For ioctl encoded values that don't matter */
 
 /* Flag values in ipi_flags */
-#define	IPI_PRIV	0x1	/* Root only command */
+#define	IPI_PRIV	0x1	/* Command requires PRIV_SYS_IP_CONFIG */
 #define	IPI_MODOK	0x2	/* Permitted on mod instance of IP */
 #define	IPI_WR		0x4	/* Need to grab writer access */
 #define	IPI_GET_CMD	0x8	/* branch to mi_copyout on success */

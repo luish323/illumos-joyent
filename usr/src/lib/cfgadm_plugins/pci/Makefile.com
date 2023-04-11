@@ -50,7 +50,7 @@ LDLIBS +=	-lc -ldevice -ldevinfo -lrcm
 
 CERRWARN +=	-_gcc=-Wno-parentheses
 CERRWARN +=	-_gcc=-Wno-char-subscripts
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 
 # not linted
 SMATCH=off
@@ -59,7 +59,6 @@ SMATCH=off
 
 all: $(LIBS)
 
-lint:   lintcheck
 
 # Create target directories
 $(USR_LIB_DIR):

@@ -32,15 +32,15 @@
 /*
  * File table of contents
  */
-void   print_dependencies(register Name target, register Property line);
-static void	print_deps(register Name target, register Property line);
+void   print_dependencies(Name target, Property line);
+static void	print_deps(Name target, Property line);
 static void	print_more_deps(Name target, Name name);
 static void	print_filename(Name name);
 static Boolean	should_print_dep(Property line);
 static void	print_forest(Name target);
 static void	print_deplist(Dependency head);
-void		print_value(register Name value, Daemon daemon);
-static void	print_rule(register Name target);
+void		print_value(Name value, Daemon daemon);
+static void	print_rule(Name target);
 static	void	print_rec_info(Name target);
 static Boolean	is_out_of_date(Property line);
 extern void depvar_print_results (void);
@@ -62,7 +62,7 @@ extern void depvar_print_results (void);
  *		makefiles_used	List of all makefiles read
  */
 void
-print_dependencies(register Name target, register Property line)
+print_dependencies(Name target, Property line)
 {
 	Dependency	dp;
 	static Boolean	makefiles_printed = false;
@@ -70,7 +70,7 @@ print_dependencies(register Name target, register Property line)
 	if (target_variants) {
 		depvar_print_results();
 	}
-	
+
 	if (!makefiles_printed) {
 		/*
 		 * Search the makefile list for the primary makefile,
@@ -120,7 +120,7 @@ static void
 print_more_deps(Name target, Name name)
 {
 	Property	line;
-	register Dependency	dependencies;
+	Dependency	dependencies;
 
 	line = get_prop(name->prop, line_prop);
 	if (line != NULL && line->body.line.dependencies != NULL) {
@@ -151,9 +151,9 @@ print_more_deps(Name target, Name name)
  *		recursive_name	The Name ".RECURSIVE", printed
  */
 static void
-print_deps(register Name target, register Property line)
+print_deps(Name target, Property line)
 {
-	register Dependency	dep;
+	Dependency	dep;
 
 	if ((target->dependency_printed) ||
 	    (target == force)) {
@@ -174,11 +174,11 @@ print_deps(register Name target, register Property line)
 			}
 		}
 		print_filename(target);
-	    	(void) printf(":\t");
-	    	print_deplist(line->body.line.dependencies);
+		(void) printf(":\t");
+		print_deplist(line->body.line.dependencies);
 		print_rec_info(target);
-	   	(void) printf("\n");
-	 	for (dep = line->body.line.dependencies;
+		(void) printf("\n");
+		for (dep = line->body.line.dependencies;
 		     dep != NULL;
 		     dep = dep->next) {
 			print_deps(dep->name,
@@ -286,7 +286,7 @@ print_forest(Name target)
 	Name_set::iterator np, e;
 	Property	line;
 
- 	for (np = hashtab.begin(), e = hashtab.end(); np != e; np++) {
+	for (np = hashtab.begin(), e = hashtab.end(); np != e; np++) {
 			if (np->is_target && !np->has_parent && np != target) {
 				(void) doname_check(np, true, false, false);
 				line = get_prop(np->prop, line_prop);
@@ -302,9 +302,7 @@ print_forest(Name target)
  *	Used for the -p option
  */
 void
-print_value(register Name value, Daemon daemon)
-	             		      
-              			       
+print_value(Name value, Daemon daemon)
 {
 	Chain			cp;
 
@@ -325,10 +323,10 @@ print_value(register Name value, Daemon daemon)
 }
 
 static void
-print_rule(register Name target)
+print_rule(Name target)
 {
-	register Cmd_line	rule;
-	register Property	line;
+	Cmd_line	rule;
+	Property	line;
 
 	if (((line= get_prop(target->prop, line_prop)) == NULL) ||
 	    ((line->body.line.command_template == NULL) &&
@@ -340,7 +338,7 @@ print_rule(register Name target)
 }
 
 
-/* 
+/*
  *  If target is recursive,  print the following to standard out:
  *	.RECURSIVE subdir targ Makefile
  */
@@ -355,11 +353,11 @@ print_rec_info(Name target)
 	rp = find_recursive_target(target);
 
 	if (rp) {
-		/* 
+		/*
 		 * if found,  print starting with the space after the ':'
 		 */
 		colon = (wchar_t *) wcschr(rp->oldline, (int) colon_char);
 		(void) printf("%s", colon + 1);
 	}
 }
-		
+

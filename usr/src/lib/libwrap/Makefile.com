@@ -36,11 +36,10 @@ OBJECTS =	hosts_access.o options.o shell_cmd.o rfc931.o eval.o \
 
 include ../../Makefile.lib
 
-LIBS =		$(DYNLIB) $(LINTLIB)
+LIBS =		$(DYNLIB)
 SONAME =	$(LIBRARY:.a=.so)$(MAJOR)
 ROOTLINKS +=	$(ROOTLIBDIR)/$(LIBLINKS)$(MAJOR)
 ROOTLINKS64 +=	$(ROOTLIBDIR64)/$(LIBLINKS)$(MAJOR)
-$(LINTLIB) :=	SRCS = $(SRCDIR)/$(LINTSRC)
 
 MAPFILES =	../mapfile-vers
 
@@ -59,7 +58,7 @@ CERRWARN +=	-erroff=E_OLD_STYLE_DECL_HIDES_PROTO
 CERRWARN +=	-_gcc=-Wno-return-type
 CERRWARN +=	-_gcc=-Wno-parentheses
 CERRWARN +=	-_gcc=-Wno-unused-variable
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 
 # not linted
 SMATCH=off
@@ -68,7 +67,6 @@ SMATCH=off
 
 all: $(LIBS)
 
-lint: lintcheck
 
 $(ROOTLIBDIR)/$(LIBLINKS)$(MAJOR): $(ROOTLIBDIR)/$(LIBLINKS)$(VERS)
 	$(INS.liblink)

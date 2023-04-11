@@ -22,6 +22,7 @@
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2022 RackTop Systems.
  */
 
 /*
@@ -84,8 +85,9 @@ static int hostname_validator(int, char *);
 static int path_validator(int, char *);
 static int cmd_validator(int, char *);
 static int disposition_validator(int, char *);
-static int max_protocol_validator(int, char *);
+static int protocol_validator(int, char *);
 static int require_validator(int, char *);
+static int ciphers_validator(int, char *);
 
 static int smb_enable_resource(sa_resource_t);
 static int smb_disable_resource(sa_resource_t);
@@ -179,10 +181,11 @@ struct option_defs optdefs[] = {
 	{ SHOPT_GUEST,		OPT_TYPE_BOOLEAN },
 	{ SHOPT_DFSROOT,	OPT_TYPE_BOOLEAN },
 	{ SHOPT_DESCRIPTION,	OPT_TYPE_STRING },
+	{ SHOPT_CA,		OPT_TYPE_BOOLEAN },
 	{ SHOPT_FSO,		OPT_TYPE_BOOLEAN },
 	{ SHOPT_QUOTAS,		OPT_TYPE_BOOLEAN },
 	{ SHOPT_ENCRYPT,	OPT_TYPE_STRING },
-	{ NULL, NULL }
+	{ NULL, 0 }
 };
 
 /*
@@ -390,9 +393,7 @@ smb_enable_share(sa_share_t share)
 	smb_share_t si;
 	sa_resource_t resource;
 	boolean_t iszfs;
-	boolean_t privileged;
 	int err = SA_OK;
-	priv_set_t *priv_effective;
 	boolean_t online;
 
 	/*
@@ -403,11 +404,6 @@ smb_enable_share(sa_share_t share)
 		    "SMB: service not supported with Trusted Extensions\n"));
 		return (SA_NOT_SUPPORTED);
 	}
-
-	priv_effective = priv_allocset();
-	(void) getppriv(PRIV_EFFECTIVE, priv_effective);
-	privileged = (priv_isfullset(priv_effective) == B_TRUE);
-	priv_freeset(priv_effective);
 
 	/* get the path since it is important in several places */
 	path = sa_get_share_attr(share, "path");
@@ -423,29 +419,7 @@ smb_enable_share(sa_share_t share)
 
 	iszfs = sa_path_is_zfs(path);
 
-	if (iszfs) {
-
-		if (privileged == B_FALSE && !online) {
-
-			if (!online) {
-				(void) printf(dgettext(TEXT_DOMAIN,
-				    "SMB: Cannot share remove "
-				    "file system: %s\n"), path);
-				(void) printf(dgettext(TEXT_DOMAIN,
-				    "SMB: Service needs to be enabled "
-				    "by a privileged user\n"));
-				err = SA_NO_PERMISSION;
-				errno = EPERM;
-			}
-			if (err) {
-				sa_free_attr_string(path);
-				return (err);
-			}
-
-		}
-	}
-
-	if (privileged == B_TRUE && !online) {
+	if (!online) {
 		err = smb_enable_service();
 		if (err != SA_OK) {
 			(void) printf(dgettext(TEXT_DOMAIN,
@@ -918,11 +892,19 @@ struct smb_proto_option_defs {
 	    SMB_REFRESH_REFRESH },
 	{ SMB_CI_DISPOSITION, 0, MAX_VALUE_BUFLEN,
 	    disposition_validator, SMB_REFRESH_REFRESH },
-	{ SMB_CI_MAX_PROTOCOL, 0, MAX_VALUE_BUFLEN, max_protocol_validator,
+	{ SMB_CI_MIN_PROTOCOL, 0, MAX_VALUE_BUFLEN, protocol_validator,
+	    SMB_REFRESH_REFRESH },
+	{ SMB_CI_MAX_PROTOCOL, 0, MAX_VALUE_BUFLEN, protocol_validator,
 	    SMB_REFRESH_REFRESH },
 	{ SMB_CI_ENCRYPT, 0, MAX_VALUE_BUFLEN, require_validator,
 	    SMB_REFRESH_REFRESH },
+	{ SMB_CI_ENCRYPT_CIPHERS, 0, MAX_VALUE_BUFLEN, ciphers_validator,
+	    SMB_REFRESH_REFRESH },
+	{ SMB_CI_BYPASS_TRAVERSE_CHECKING, 0, 0, true_false_validator,
+	    SMB_REFRESH_REFRESH },
 	{ SMB_CI_OPLOCK_ENABLE, 0, 0, true_false_validator,
+	    SMB_REFRESH_REFRESH },
+	{ SMB_CI_SHORT_NAMES, 0, 0, true_false_validator,
 	    SMB_REFRESH_REFRESH },
 };
 
@@ -1514,27 +1496,6 @@ smb_enable_service(void)
 }
 
 /*
- * smb_validate_proto_prop(index, name, value)
- *
- * Verify that the property specified by name can take the new
- * value. This is a sanity check to prevent bad values getting into
- * the default files.
- */
-static int
-smb_validate_proto_prop(int index, char *name, char *value)
-{
-	if ((name == NULL) || (index < 0))
-		return (SA_BAD_VALUE);
-
-	if (smb_proto_options[index].validator == NULL)
-		return (SA_OK);
-
-	if (smb_proto_options[index].validator(index, value) == SA_OK)
-		return (SA_OK);
-	return (SA_BAD_VALUE);
-}
-
-/*
  * smb_set_proto_prop(prop)
  *
  * check that prop is valid.
@@ -1551,34 +1512,49 @@ smb_set_proto_prop(sa_property_t prop)
 
 	name = sa_get_property_attr(prop, "type");
 	value = sa_get_property_attr(prop, "value");
-	if (name != NULL && value != NULL) {
-		index = findprotoopt(name);
-		if (index >= 0) {
-			/* should test for valid value */
-			ret = smb_validate_proto_prop(index, name, value);
-			if (ret == SA_OK) {
-				opt = &smb_proto_options[index];
-
-				/* Save to SMF */
-				if (smb_config_set(opt->smb_index,
-				    value) != 0) {
-					ret = SA_BAD_VALUE;
-					goto out;
-				}
-				/*
-				 * Specialized refresh mechanisms can
-				 * be flagged in the proto_options and
-				 * processed here.
-				 */
-				if (opt->refresh & SMB_REFRESH_REFRESH)
-					(void) smf_refresh_instance(
-					    SMBD_DEFAULT_INSTANCE_FMRI);
-				else if (opt->refresh & SMB_REFRESH_RESTART)
-					(void) smf_restart_instance(
-					    SMBD_DEFAULT_INSTANCE_FMRI);
-			}
-		}
+	if (name == NULL || value == NULL) {
+		ret = SA_NO_SUCH_PROP;
+		goto out;
 	}
+
+	index = findprotoopt(name);
+	if (index < 0) {
+		ret = SA_NO_SUCH_PROP;
+		goto out;
+	}
+	opt = &smb_proto_options[index];
+
+	/*
+	 * When setting max_protocol or min_protocol,
+	 * allow"3.1.1" as an alias for "3.11".
+	 */
+	if (opt->smb_index == SMB_CI_MAX_PROTOCOL ||
+	    opt->smb_index == SMB_CI_MIN_PROTOCOL)
+		if (strcmp(value, "3.1.1") == 0)
+			strcpy(value, "3.11");
+
+	/* Test for valid value */
+	if (opt->validator != NULL &&
+	    (ret = opt->validator(index, value)) != SA_OK)
+		goto out;
+
+	/* Save to SMF */
+	if (smb_config_set(opt->smb_index, value) != 0) {
+		ret = SA_BAD_VALUE;
+		goto out;
+	}
+
+	/*
+	 * Specialized refresh mechanisms can
+	 * be flagged in the proto_options and
+	 * processed here.
+	 */
+	if (opt->refresh & SMB_REFRESH_REFRESH)
+		(void) smf_refresh_instance(
+		    SMBD_DEFAULT_INSTANCE_FMRI);
+	else if (opt->refresh & SMB_REFRESH_RESTART)
+		(void) smf_restart_instance(
+		    SMBD_DEFAULT_INSTANCE_FMRI);
 
 out:
 	if (name != NULL)
@@ -2191,6 +2167,9 @@ smb_build_shareinfo(sa_share_t share, sa_resource_t resource, smb_share_t *si)
 	if (smb_saprop_getbool(opts, SHOPT_DFSROOT, B_FALSE))
 		si->shr_flags |= SMB_SHRF_DFSROOT;
 
+	if (smb_saprop_getbool(opts, SHOPT_CA, B_FALSE))
+		si->shr_flags |= SMB_SHRF_CA;
+
 	if (smb_saprop_getbool(opts, SHOPT_FSO, B_FALSE))
 		si->shr_flags |= SMB_SHRF_FSO;
 
@@ -2387,21 +2366,87 @@ disposition_validator(int index, char *value)
 	return (SA_BAD_VALUE);
 }
 
-/*ARGSUSED*/
 static int
-max_protocol_validator(int index, char *value)
+protocol_validator(int index, char *value)
 {
+	struct smb_proto_option_defs *opt;
+	smb_cfg_val_t encrypt;
+	uint32_t max;
+	uint32_t min;
+	uint32_t val;
+
 	if (value == NULL)
 		return (SA_BAD_VALUE);
 
+	/* Allow setting back to empty (use defaults) */
 	if (*value == '\0')
 		return (SA_OK);
 
-	if (smb_config_check_protocol(value) == 0)
+	val = smb_convert_version_str(value);
+	if (val == 0)
+		return (SA_BAD_VALUE);
+
+	/*
+	 * We don't want people who care enough about protecting their data
+	 * by requiring encryption to accidentally expose their data by
+	 * lowering the max protocol, so prevent them from going below 3.0
+	 * if encryption is required.
+	 * Also, ensure that max_protocol >= min_protocol.
+	 */
+	opt = &smb_proto_options[index];
+	switch (opt->smb_index) {
+
+	case SMB_CI_MAX_PROTOCOL:
+
+		encrypt = smb_config_get_require(SMB_CI_ENCRYPT);
+		if (encrypt == SMB_CONFIG_REQUIRED && val < SMB_VERS_3_0) {
+			syslog(LOG_ERR, "Cannot set smbd/max_protocol below 3.0"
+			    " while smbd/encrypt == required.");
+			return (SA_VALUE_CONFLICT);
+		}
+		min = smb_config_get_min_protocol();
+		if (val < min) {
+			syslog(LOG_ERR, "Cannot set smbd/max_protocol to less"
+			    " than smbd/min_protocol.");
+			return (SA_VALUE_CONFLICT);
+		}
+		break;
+
+	case SMB_CI_MIN_PROTOCOL:
+
+		max = smb_config_get_max_protocol();
+		if (val > max) {
+			syslog(LOG_ERR, "Cannot set smbd/min_protocol to more"
+			    " than smbd/max_protocol.");
+			return (SA_VALUE_CONFLICT);
+		}
+		break;
+
+	default:
+		syslog(LOG_ERR, "Unexpected smb protocol validator index %d",
+		    opt->smb_index);
+		return (SA_BAD_VALUE);
+	}
+
+	return (SA_OK);
+}
+
+/*ARGSUSED*/
+static int
+ciphers_validator(int index, char *value)
+{
+
+	if (value == NULL)
+		return (SA_BAD_VALUE);
+
+	/* Allow setting back to empty (use defaults) */
+	if (*value == '\0')
 		return (SA_OK);
 
-	return (SA_BAD_VALUE);
+	if (smb_convert_encrypt_ciphers(value) <= 0)
+		return (SA_BAD_VALUE);
 
+	return (SA_OK);
 }
 
 /*

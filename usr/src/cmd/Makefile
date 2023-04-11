@@ -21,7 +21,7 @@
 
 #
 # Copyright (c) 1989, 2010, Oracle and/or its affiliates. All rights reserved.
-# Copyright 2019 Joyent, Inc.
+# Copyright 2020 Joyent, Inc.
 # Copyright (c) 2012, 2015 by Delphix. All rights reserved.
 # Copyright (c) 2013 DEY Storage Systems, Inc. All rights reserved.
 # Copyright 2014 Garrett D'Amore <garrett@damore.org>
@@ -29,6 +29,7 @@
 # Copyright 2018 Nexenta Systems, Inc.
 # Copyright 2018 Gary Mills
 # Copyright 2019 Peter Tribble
+# Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
 #
 
 include ../Makefile.master
@@ -83,6 +84,7 @@ COMMON_SUBDIRS=		\
 	cal		\
 	captoinfo	\
 	cat		\
+	ccidadm		\
 	cdrw		\
 	cfgadm		\
 	checkeq		\
@@ -118,6 +120,7 @@ COMMON_SUBDIRS=		\
 	date		\
 	dc		\
 	dd		\
+	demangle	\
 	deroff		\
 	devfsadm	\
 	syseventd	\
@@ -133,7 +136,6 @@ COMMON_SUBDIRS=		\
 	dirname		\
 	dis		\
 	diskinfo	\
-	diskmgtd	\
 	dispadmin	\
 	dladm		\
 	dlstat		\
@@ -163,7 +165,6 @@ COMMON_SUBDIRS=		\
 	fdetach		\
 	fdformat	\
 	fdisk		\
-	ficl		\
 	filesync	\
 	file		\
 	find		\
@@ -218,7 +219,6 @@ COMMON_SUBDIRS=		\
 	ipf		\
 	isainfo		\
 	isalist		\
-	itutools	\
 	iscsiadm	\
 	iscsid		\
 	iscsitsvc	\
@@ -228,7 +228,6 @@ COMMON_SUBDIRS=		\
 	keyserv		\
 	killall		\
 	krb5		\
-	ksh		\
 	kvmstat		\
 	last		\
 	lastcomm	\
@@ -249,6 +248,7 @@ COMMON_SUBDIRS=		\
 	logger		\
 	login		\
 	logins		\
+	logname		\
 	look		\
 	ls		\
 	luxadm		\
@@ -303,7 +303,9 @@ COMMON_SUBDIRS=		\
 	passwd		\
 	pathchk		\
 	pbind		\
+	pcidb		\
 	pcidr		\
+	pcieadm		\
 	pcieb		\
 	pcitool		\
 	pfexec		\
@@ -319,7 +321,6 @@ COMMON_SUBDIRS=		\
 	ppgsz		\
 	pg		\
 	plockstat	\
-	pptadm		\
 	pr		\
 	prctl		\
 	printf		\
@@ -340,6 +341,7 @@ COMMON_SUBDIRS=		\
 	pwconv		\
 	pwd		\
 	raidctl		\
+	raidz_test	\
 	ramdiskadm	\
 	rcap		\
 	rcm_daemon	\
@@ -373,10 +375,9 @@ COMMON_SUBDIRS=		\
 	setfacl		\
 	setmnt		\
 	setpgrp		\
-	setuname	\
 	sgs		\
 	sh		\
-	shcomp		\
+	sleep		\
 	smbios		\
 	smbsrv		\
 	smserverd	\
@@ -415,7 +416,6 @@ COMMON_SUBDIRS=		\
 	tic		\
 	time		\
 	tip		\
-	tnf		\
 	touch		\
 	tput		\
 	tr		\
@@ -484,12 +484,17 @@ i386_SUBDIRS=		\
 	acpihpd		\
 	addbadsec	\
 	ahciem		\
+	amdzen		\
 	bhyve		\
 	bhyvectl	\
 	biosdev		\
 	cxgbetool	\
 	diskscan	\
+	ficl		\
 	nvmeadm		\
+	pptadm		\
+	rdmsr		\
+	rsrvrctl	\
 	rtc		\
 	ucodeadm	\
 	xhci		\
@@ -523,6 +528,7 @@ MSGSUBDIRS=		\
 	acctadm		\
 	allocate	\
 	asa		\
+	ast		\
 	audio		\
 	audit		\
 	auditconfig	\
@@ -616,7 +622,6 @@ MSGSUBDIRS=		\
 	itadm		\
 	kbd		\
 	krb5		\
-	ksh		\
 	last		\
 	ldap		\
 	ldapcachemgr	\
@@ -689,7 +694,6 @@ MSGSUBDIRS=		\
 	sdpadm		\
 	sgs		\
 	sh		\
-	shcomp		\
 	smbsrv		\
 	sort		\
 	split		\
@@ -708,7 +712,6 @@ MSGSUBDIRS=		\
 	tar		\
 	tbl		\
 	time		\
-	tnf		\
 	touch		\
 	tput		\
 	troff		\
@@ -755,6 +758,7 @@ sparc_MSGSUBDIRS=	\
 	vntsd
 
 i386_MSGSUBDIRS=	\
+	rdmsr		\
 	ucodeadm
 
 #
@@ -788,17 +792,10 @@ AUDITSUBDIRS=		\
 	auditstat	\
 	praudit
 
-#
-# commands not owned by the systems group
-#
-BWOSDIRS=
-
-
 all :=		TARGET = all
 install :=	TARGET = install
 clean :=	TARGET = clean
 clobber :=	TARGET = clobber
-lint :=		TARGET = lint
 _msg :=		TARGET = _msg
 _dc :=		TARGET = _dc
 
@@ -806,9 +803,9 @@ _dc :=		TARGET = _dc
 
 SUBDIRS = $(COMMON_SUBDIRS) $($(MACH)_SUBDIRS)
 
-.PARALLEL:	$(BWOSDIRS) $(SUBDIRS) $(MSGSUBDIRS) $(AUDITSUBDIRS)
+.PARALLEL:	$(SUBDIRS) $(MSGSUBDIRS) $(AUDITSUBDIRS)
 
-all install clean clobber lint: $(FIRST_SUBDIRS) .WAIT $(SUBDIRS) \
+all install clean clobber: $(FIRST_SUBDIRS) .WAIT $(SUBDIRS) \
 	$(AUDITSUBDIRS)
 
 #
@@ -834,15 +831,11 @@ _dc: $(DCSUBDIRS)
 # Dependencies
 #
 fs.d:	fstyp
-ksh:	shcomp isaexec
+ast:	isaexec
 print:	lp
 fmt:	mailx
 
-$(FIRST_SUBDIRS) $(BWOSDIRS) $(SUBDIRS) $(AUDITSUBDIRS): FRC
-	@if [ -f $@/Makefile  ]; then \
-		cd $@; pwd; $(MAKE) $(TARGET); \
-	else \
-		true; \
-	fi
+$(FIRST_SUBDIRS) $(SUBDIRS) $(AUDITSUBDIRS): FRC
+		cd $@; pwd; $(MAKE) $(TARGET)
 
 FRC:

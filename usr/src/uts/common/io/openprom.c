@@ -21,6 +21,7 @@
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright 2019 Peter Tribble.
  */
 
 /*
@@ -362,7 +363,7 @@ opromioctl_cb(void *avp, int has_changed)
 	char *valbuf;
 	int error = 0;
 	uint_t userbufsize;
-	pnode_t node_id;
+	pnode_t node_id = OBP_NONODE;
 	char propname[OBP_MAXPROPNAME];
 
 	st = argp->st;
@@ -387,7 +388,7 @@ opromioctl_cb(void *avp, int has_changed)
 	 * and weed out unsupported commands on x86 platform
 	 */
 	switch (cmd) {
-#if !defined(__i386) && !defined(__amd64)
+#if !defined(__x86)
 	case OPROMLISTKEYSLEN:
 		valsize = prom_asr_list_keys_len();
 		opp = (struct openpromio *)kmem_zalloc(
@@ -457,12 +458,12 @@ opromioctl_cb(void *avp, int has_changed)
 
 	case OPROMSETOPT:
 	case OPROMSETOPT2:
-#if !defined(__i386) && !defined(__amd64)
+#if !defined(__x86)
 		if (mode & FWRITE) {
 			node_id = options_nodeid;
 			break;
 		}
-#endif /* !__i386 && !__amd64 */
+#endif /* !__x86 */
 		return (EPERM);
 
 	case OPROMNEXT:
@@ -487,11 +488,10 @@ opromioctl_cb(void *avp, int has_changed)
 	case OPROMGETVERSION:
 	case OPROMPATH2DRV:
 	case OPROMPROM2DEVNAME:
-#if !defined(__i386) && !defined(__amd64)
+#if !defined(__x86)
 	case OPROMGETFBNAME:
 	case OPROMDEV2PROMNAME:
-	case OPROMREADY64:
-#endif	/* !__i386 && !__amd64 */
+#endif	/* !__x86 */
 		if ((mode & FREAD) == 0) {
 			return (EPERM);
 		}
@@ -744,7 +744,7 @@ opromioctl_cb(void *avp, int has_changed)
 		}
 		(void) strcpy(opp->oprom_array, bpath);
 
-#elif defined(__i386) || defined(__amd64)
+#elif defined(__x86)
 
 		extern char saved_cmdline[];
 		valsize = strlen(saved_cmdline) + 1;
@@ -864,7 +864,7 @@ opromioctl_cb(void *avp, int has_changed)
 			error = EFAULT;
 		break;
 
-#if !defined(__i386) && !defined(__amd64)
+#if !defined(__x86)
 	case OPROMGETFBNAME:
 		/*
 		 * Return stdoutpath, if it's a frame buffer.
@@ -977,39 +977,7 @@ opromioctl_cb(void *avp, int has_changed)
 
 		break;
 	}
-
-	case OPROMREADY64: {
-		struct openprom_opr64 *opr =
-		    (struct openprom_opr64 *)opp->oprom_array;
-		int i;
-		pnode_t id;
-
-		if (userbufsize < sizeof (*opr)) {
-			error = EINVAL;
-			break;
-		}
-
-		valsize = userbufsize -
-		    offsetof(struct openprom_opr64, message);
-
-		i = prom_version_check(opr->message, valsize, &id);
-		opr->return_code = i;
-		opr->nodeid = (int)id;
-
-		valsize = offsetof(struct openprom_opr64, message);
-		valsize += strlen(opr->message) + 1;
-
-		/*
-		 * copyout only the part of the user buffer we need to.
-		 */
-		if (copyout(opp, (void *)arg,
-		    (size_t)(min((uint_t)valsize, userbufsize) +
-		    sizeof (uint_t))) != 0)
-			error = EFAULT;
-		break;
-
-	}	/* case OPROMREADY64 */
-#endif	/* !__i386 && !__amd64 */
+#endif	/* !__x86 */
 	}	/* switch (cmd)	*/
 
 	kmem_free(opp, userbufsize + sizeof (uint_t) + 1);

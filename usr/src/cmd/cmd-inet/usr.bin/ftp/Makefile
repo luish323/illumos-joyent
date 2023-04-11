@@ -42,7 +42,7 @@ CPPFLAGS +=	-D_FILE_OFFSET_BITS=64 \
 
 CERRWARN +=	-_gcc=-Wno-parentheses
 CERRWARN +=	-_gcc=-Wno-clobbered
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 CERRWARN +=	-_gcc=-Wno-address
 
 # not linted
@@ -52,7 +52,7 @@ LDLIBS +=	-lsocket -lnsl -lgss
 
 # ftp defines its own delete and glob - localize all symbols to prevent a
 # name clash.
-LDFLAGS +=	$(MAPFILE.NGB:%=-M%)
+LDFLAGS +=	$(MAPFILE.NGB:%=-Wl,-M%)
 
 .KEEP_STATE:
 
@@ -66,7 +66,5 @@ install:	all $(ROOTPROG) $(ROOTETCDEFAULTFILES)
 
 clean:
 		$(RM) $(OBJS)
-
-lint:		lint_SRCS
 
 include ../../../Makefile.targ

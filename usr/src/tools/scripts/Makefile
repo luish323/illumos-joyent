@@ -23,24 +23,26 @@
 #
 # Copyright 2010, Richard Lowe
 #
-# Copyright 2018 Joyent, Inc.
+# Copyright 2020 Joyent, Inc.
+# Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2022 Jason King
 
 SHELL=/usr/bin/ksh93
 
+SCRIPTS= \
+	bldenv \
+	nightly
+
 SHFILES= \
 	Install \
-	bldenv \
 	build_cscope \
-	bringovercheck \
 	checkpaths \
 	cstyle \
 	elfcmp \
 	flg.flp \
 	genoffsets \
-	nightly \
 	onu \
 	protocmp.terse \
-	sccscheck \
 	webrev \
 	which_scm \
 	ws \
@@ -48,8 +50,6 @@ SHFILES= \
 
 PERLFILES= \
 	check_rtime \
-	find_elf \
-	gensetdefs \
 	interface_check \
 	interface_cmp \
 	jstyle \
@@ -78,12 +78,11 @@ SCRIPTLINKS= \
 MAN1ONBLDFILES= \
 	Install.1onbld \
 	bldenv.1onbld \
-	bringovercheck.1onbld \
 	cddlchk.1onbld \
 	checkpaths.1onbld \
 	check_rtime.1onbld \
+	ctfconvert.1onbld \
 	cstyle.1onbld \
-	find_elf.1onbld \
 	flg.flp.1onbld \
 	git-pbchk.1onbld \
 	hdrchk.1onbld \
@@ -93,7 +92,6 @@ MAN1ONBLDFILES= \
 	mapfilechk.1onbld \
 	nightly.1onbld \
 	onu.1onbld \
-	sccscheck.1onbld \
 	webrev.1onbld \
 	which_scm.1onbld \
 	ws.1onbld \
@@ -131,10 +129,10 @@ $(ROOTONBLDMAN1ONBLDFILES)	:= FILEMODE=	644
 .KEEP_STATE:
 
 all:	$(SHFILES) $(PERLFILES) $(PERLMODULES) $(PYFILES) \
-	$(MAN1ONBLDFILES) $(MAKEFILES)
+	$(MAN1ONBLDFILES) $(MAKEFILES) $(SCRIPTS)
 
 onu.sh:	onu.sh.in
-	$(SED) -e "s:@PYTHON_VERSION@:$(PYTHON_VERSION):g" < onu.sh.in > $@
+	$(SED) -e "s:@PYTHON_VERSION@:$(PYTHON3_VERSION):g" < onu.sh.in > $@
 
 $(ROOTONBLDBIN)/git-nits:
 	$(RM) $(ROOTONBLDBIN)/git-nits
@@ -148,19 +146,11 @@ install: all .WAIT $(ROOTONBLDSHFILES) $(ROOTONBLDPERLFILES)		\
 		$(ROOTONBLDPERLMODULES) $(ROOTONBLDPYFILES)		\
 		$(ROOTONBLDSCRIPTLINKS) $(ROOTONBLDMAN1ONBLDFILES)	\
 		$(ROOTONBLDMAKEFILES) $(ROOTONBLDETCFILES)		\
-		$(ROOTONBLDEXCEPTFILES) $(ROOTONBLDMAN1ONBLDLINKS)
+		$(ROOTONBLDEXCEPTFILES) $(ROOTONBLDMAN1ONBLDLINKS)	\
+		$(ROOTONBLDSCRIPTS)
 
 clean:
 	$(RM) $(CLEANFILES)
-
-bldenv: bldenv.sh stdenv.sh
-	$(RM) "$@"
-	sed -e '/# STDENV_START/ r stdenv.sh' bldenv.sh > "$@"
-	# Check for shell lint and fail if we hit warnings
-	shlintout="$$( /usr/bin/ksh93 -n "$@" 2>&1 )" ; \
-		[[ "$${shlintout}" != "" ]] && \
-		{ print -r -- "$${shlintout}" ;	false ; } || true
-	$(CHMOD) +x "$@"
 
 bldenv.1onbld: bldenv
 	$(RM) "$@"
@@ -169,11 +159,6 @@ bldenv.1onbld: bldenv
 	-e 's/\.TH BLDENV 1/.TH BLDENV 1ONBLD "September 4, 2018"/' \
 	-e 's/.OP \([a-z]\) - flag -/.OP \\-\1/g' \
 	-e 's/(1)/(1ONBLD)/' > "$@"
-
-nightly: nightly.sh stdenv.sh
-	$(RM) "$@"
-	sed -e '/# STDENV_START/ r stdenv.sh' nightly.sh > nightly
-	$(CHMOD) +x "$@"
 
 #
 # Not run by default: bootstrap...

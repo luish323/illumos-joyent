@@ -21,7 +21,7 @@
 
 /*
  * Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2018 Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
  */
 
 /*
@@ -135,6 +135,7 @@
 #include "startd.h"
 #include "protocol.h"
 
+uu_list_pool_t *contract_list_pool;
 static uu_list_pool_t *restarter_instance_pool;
 static restarter_instance_list_t instance_list;
 
@@ -1738,7 +1739,7 @@ rep_retry:
 		info->sf_id = rip->ri_id;
 		info->sf_method_type = METHOD_REFRESH;
 		info->sf_event_type = RERR_REFRESH;
-		info->sf_reason = NULL;
+		info->sf_reason = 0;
 
 		assert(rip->ri_method_thread == 0);
 		rip->ri_method_thread =
@@ -2090,14 +2091,6 @@ nolookup:
 			MUTEX_LOCK(&ru->restarter_update_lock);
 		}
 	}
-
-	/*
-	 * Unreachable for now -- there's currently no graceful cleanup
-	 * called on exit().
-	 */
-	(void) scf_handle_unbind(h);
-	scf_handle_destroy(h);
-	return (NULL);
 }
 
 static restarter_inst_t *
@@ -2279,7 +2272,7 @@ restarter_contracts_event_thread(void *unused)
 		startd_close(sfd);
 
 		/*
-		 * svc.configd(1M) restart handling performed by the
+		 * svc.configd(8) restart handling performed by the
 		 * fork_configd_thread.  We don't acknowledge, as that thread
 		 * will do so.
 		 */

@@ -44,6 +44,7 @@ static unsigned int loop_count;
 static int last_goto_statement_handled;
 int __expr_stmt_count;
 int __in_function_def;
+int __in_unmatched_hook;
 static struct expression_list *switch_expr_stack = NULL;
 static struct expression_list *post_op_stack = NULL;
 
@@ -76,30 +77,23 @@ int option_two_passes = 0;
 struct symbol *cur_func_sym = NULL;
 struct stree *global_states;
 
-long long valid_ptr_min = 4096;
-long long valid_ptr_max = 2117777777;
-sval_t valid_ptr_min_sval = {
+const unsigned long valid_ptr_min = 4096;
+unsigned long valid_ptr_max = ULONG_MAX & ~(MTAG_OFFSET_MASK);
+const sval_t valid_ptr_min_sval = {
 	.type = &ptr_ctype,
 	{.value = 4096},
 };
 sval_t valid_ptr_max_sval = {
 	.type = &ptr_ctype,
-	{.value = LONG_MAX - 100000},
+	{.value = ULONG_MAX & ~(MTAG_OFFSET_MASK)},
 };
 struct range_list *valid_ptr_rl;
 
-static void set_valid_ptr_max(void)
+void alloc_valid_ptr_rl(void)
 {
-	if (type_bits(&ptr_ctype) == 32)
-		valid_ptr_max = 2117777777;
-	else if (type_bits(&ptr_ctype) == 64)
-		valid_ptr_max = 2117777777777777777LL;
-
+	valid_ptr_max = sval_type_max(&ulong_ctype).value & ~(MTAG_OFFSET_MASK);
 	valid_ptr_max_sval.value = valid_ptr_max;
-}
 
-static void alloc_valid_ptr_rl(void)
-{
 	valid_ptr_rl = alloc_rl(valid_ptr_min_sval, valid_ptr_max_sval);
 	valid_ptr_rl = cast_rl(&ptr_ctype, valid_ptr_rl);
 	valid_ptr_rl = clone_rl_permanent(valid_ptr_rl);
@@ -444,20 +438,20 @@ void __split_expr(struct expression *expr)
 
 		/* foo = !bar() */
 		if (__handle_condition_assigns(expr))
-			break;
+			goto after_assign;
 		/* foo = (x < 5 ? foo : 5); */
 		if (__handle_select_assigns(expr))
-			break;
+			goto after_assign;
 		/* foo = ({frob(); frob(); frob(); 1;}) */
 		if (__handle_expr_statement_assigns(expr))
-			break;
+			break;  // FIXME: got after
 		/* foo = (3, 4); */
 		if (handle_comma_assigns(expr))
-			break;
-		if (handle_postop_assigns(expr))
-			break;
+			goto after_assign;
 		if (handle__builtin_choose_expr_assigns(expr))
-			break;
+			goto after_assign;
+		if (handle_postop_assigns(expr))
+			break;  /* no need to goto after_assign */
 
 		__split_expr(expr->right);
 		if (outside_of_function())
@@ -467,6 +461,8 @@ void __split_expr(struct expression *expr)
 
 		__fake_struct_member_assignments(expr);
 
+		/* Re-examine ->right for inlines.  See the commit message */
+		right = strip_expr(expr->right);
 		if (expr->op == '=' && right->type == EXPR_CALL)
 			__pass_to_client(expr, CALL_ASSIGNMENT_HOOK);
 
@@ -474,8 +470,8 @@ void __split_expr(struct expression *expr)
 		    get_macro_name(expr->pos) != get_macro_name(right->pos))
 			__pass_to_client(expr, MACRO_ASSIGNMENT_HOOK);
 
+after_assign:
 		__pass_to_client(expr, ASSIGNMENT_HOOK_AFTER);
-
 		__split_expr(expr->left);
 		break;
 	}
@@ -504,7 +500,6 @@ void __split_expr(struct expression *expr)
 		break;
 	case EXPR_OFFSETOF:
 	case EXPR_ALIGNOF:
-		evaluate_expression(expr);
 		break;
 	case EXPR_CONDITIONAL:
 	case EXPR_SELECT:
@@ -535,8 +530,8 @@ void __split_expr(struct expression *expr)
 			break;
 		if (handle__builtin_choose_expr(expr))
 			break;
-		split_expr_list(expr->args, expr);
 		__split_expr(expr->fn);
+		split_expr_list(expr->args, expr);
 		if (is_inline_func(expr->fn))
 			add_inline_function(expr->fn->symbol);
 		if (inlinable(expr->fn))
@@ -577,6 +572,7 @@ void __split_expr(struct expression *expr)
 	default:
 		break;
 	};
+	__pass_to_client(expr, EXPR_HOOK_AFTER);
 	pop_expression(&big_expression_stack);
 }
 
@@ -708,7 +704,7 @@ static void handle_post_loop(struct statement *stmt)
 	__merge_gotos(loop_name, NULL);
 	__split_stmt(stmt->iterator_statement);
 	__merge_continues();
-	if (!is_zero(stmt->iterator_post_condition))
+	if (!expr_is_zero(stmt->iterator_post_condition))
 		__save_gotos(loop_name, NULL);
 
 	if (is_forever_loop(stmt)) {
@@ -878,9 +874,14 @@ int time_parsing_function(void)
 	return ms_since(&fn_start_time) / 1000;
 }
 
-static int taking_too_long(void)
+/*
+ * This defaults to 60 * 5 == 5 minutes, so we'll just multiply
+ * whatever we're given by 5.
+ */
+bool taking_too_long(void)
 {
-	if ((ms_since(&outer_fn_start_time) / 1000) > 60 * 5) /* five minutes */
+	if (option_timeout &&
+	    (ms_since(&outer_fn_start_time) / 1000) > option_timeout * 5)
 		return 1;
 	return 0;
 }
@@ -1617,21 +1618,20 @@ static void split_function(struct symbol *sym)
 
 static void save_flow_state(void)
 {
-	__add_ptr_list(&backup, INT_PTR(loop_num << 2), 0);
-	__add_ptr_list(&backup, INT_PTR(loop_count << 2), 0);
-	__add_ptr_list(&backup, INT_PTR(final_pass << 2), 0);
+	__add_ptr_list(&backup, INT_PTR(loop_num << 2));
+	__add_ptr_list(&backup, INT_PTR(loop_count << 2));
+	__add_ptr_list(&backup, INT_PTR(final_pass << 2));
 
-	__add_ptr_list(&backup, big_statement_stack, 0);
-	__add_ptr_list(&backup, big_expression_stack, 0);
-	__add_ptr_list(&backup, big_condition_stack, 0);
-	__add_ptr_list(&backup, switch_expr_stack, 0);
+	__add_ptr_list(&backup, big_statement_stack);
+	__add_ptr_list(&backup, big_expression_stack);
+	__add_ptr_list(&backup, big_condition_stack);
+	__add_ptr_list(&backup, switch_expr_stack);
 
-	__add_ptr_list(&backup, cur_func_sym, 0);
+	__add_ptr_list(&backup, cur_func_sym);
 
-	__add_ptr_list(&backup, __prev_stmt, 0);
-	__add_ptr_list(&backup, __cur_stmt, 0);
-	__add_ptr_list(&backup, __next_stmt, 0);
-
+	__add_ptr_list(&backup, __prev_stmt);
+	__add_ptr_list(&backup, __cur_stmt);
+	__add_ptr_list(&backup, __next_stmt);
 }
 
 static void *pop_backup(void)
@@ -1908,9 +1908,8 @@ static void open_output_files(char *base_file)
 		sm_fatal("Error:  Cannot open %s", buf);
 }
 
-void smatch(int argc, char **argv)
+void smatch(struct string_list *filelist)
 {
-	struct string_list *filelist = NULL;
 	struct symbol_list *sym_list;
 	struct timeval stop, start;
 	char *path;
@@ -1918,9 +1917,6 @@ void smatch(int argc, char **argv)
 
 	gettimeofday(&start, NULL);
 
-	sparse_initialize(argc, argv, &filelist);
-	set_valid_ptr_max();
-	alloc_valid_ptr_rl();
 	FOR_EACH_PTR_NOTAG(filelist, base_file) {
 		path = getcwd(NULL, 0);
 		free(full_base_file);
@@ -1940,6 +1936,7 @@ void smatch(int argc, char **argv)
 	gettimeofday(&stop, NULL);
 
 	set_position(last_pos);
+	final_pass = 1;
 	if (option_time)
 		sm_msg("time: %lu", stop.tv_sec - start.tv_sec);
 	if (option_mem)

@@ -38,6 +38,8 @@
  * http://www.illumos.org/license/CDDL.
  *
  * Copyright 2015 Pluribus Networks Inc.
+ * Copyright 2019 Joyent, Inc.
+ * Copyright 2021 Oxide Computer Company
  */
 
 #ifndef _VMMAPI_H_
@@ -45,6 +47,9 @@
 
 #include <sys/param.h>
 #include <sys/cpuset.h>
+#include <x86/segments.h>
+
+#include <stdbool.h>
 
 /*
  * API version for out-of-tree consumers like grub-bhyve for making compile
@@ -86,7 +91,12 @@ enum {
 #endif
 	VM_BOOTROM,
 	VM_FRAMEBUFFER,
+	VM_PCIROM,
 };
+
+#ifdef	__cplusplus
+extern "C" {
+#endif
 
 /*
  * Get the length and name of the memory segment identified by 'segid'.
@@ -127,12 +137,16 @@ int	vm_get_devmem_offset(struct vmctx *ctx, int segid, off_t *mapoff);
 int	vm_mmap_memseg(struct vmctx *ctx, vm_paddr_t gpa, int segid,
 	    vm_ooffset_t segoff, size_t len, int prot);
 
+int	vm_munmap_memseg(struct vmctx *ctx, vm_paddr_t gpa, size_t len);
+
+#ifndef __FreeBSD__
+int	vm_create(const char *name, uint64_t flags);
+#else
 int	vm_create(const char *name);
+#endif /* __FreeBSD__ */
 int	vm_get_device_fd(struct vmctx *ctx);
 struct vmctx *vm_open(const char *name);
-#ifndef __FreeBSD__
 void	vm_close(struct vmctx *ctx);
-#endif
 void	vm_destroy(struct vmctx *ctx);
 int	vm_parse_memsize(const char *optarg, size_t *memsize);
 int	vm_setup_memory(struct vmctx *ctx, size_t len, enum vm_mmap_style s);
@@ -161,12 +175,38 @@ int	vm_set_register_set(struct vmctx *ctx, int vcpu, unsigned int count,
     const int *regnums, uint64_t *regvals);
 int	vm_get_register_set(struct vmctx *ctx, int vcpu, unsigned int count,
     const int *regnums, uint64_t *regvals);
-int	vm_run(struct vmctx *ctx, int vcpu, struct vm_exit *ret_vmexit);
+int	vm_run(struct vmctx *ctx, int vcpu, const struct vm_entry *vm_entry,
+    struct vm_exit *vm_exit);
 int	vm_suspend(struct vmctx *ctx, enum vm_suspend_how how);
+#ifndef __FreeBSD__
+int	vm_reinit(struct vmctx *ctx, uint64_t);
+#else
 int	vm_reinit(struct vmctx *ctx);
+#endif
 int	vm_apicid2vcpu(struct vmctx *ctx, int apicid);
 int	vm_inject_exception(struct vmctx *ctx, int vcpu, int vector,
     int errcode_valid, uint32_t errcode, int restart_instruction);
+#ifndef __FreeBSD__
+void	vm_inject_fault(struct vmctx *ctx, int vcpu, int vector,
+    int errcode_valid, int errcode);
+
+static __inline void
+vm_inject_gp(struct vmctx *ctx, int vcpuid)
+{
+	vm_inject_fault(ctx, vcpuid, IDT_GP, 1, 0);
+}
+
+static __inline void
+vm_inject_ac(struct vmctx *ctx, int vcpuid, int errcode)
+{
+	vm_inject_fault(ctx, vcpuid, IDT_AC, 1, errcode);
+}
+static __inline void
+vm_inject_ss(struct vmctx *ctx, int vcpuid, int errcode)
+{
+	vm_inject_fault(ctx, vcpuid, IDT_SS, 1, errcode);
+}
+#endif
 int	vm_lapic_irq(struct vmctx *ctx, int vcpu, int vector);
 int	vm_lapic_local_irq(struct vmctx *ctx, int vcpu, int vector);
 int	vm_lapic_msi(struct vmctx *ctx, uint64_t addr, uint64_t msg);
@@ -174,6 +214,8 @@ int	vm_ioapic_assert_irq(struct vmctx *ctx, int irq);
 int	vm_ioapic_deassert_irq(struct vmctx *ctx, int irq);
 int	vm_ioapic_pulse_irq(struct vmctx *ctx, int irq);
 int	vm_ioapic_pincount(struct vmctx *ctx, int *pincount);
+int	vm_readwrite_kernemu_device(struct vmctx *ctx, int vcpu,
+	    vm_paddr_t gpa, bool write, int size, uint64_t *value);
 int	vm_isa_assert_irq(struct vmctx *ctx, int atpic_irq, int ioapic_irq);
 int	vm_isa_deassert_irq(struct vmctx *ctx, int atpic_irq, int ioapic_irq);
 int	vm_isa_pulse_irq(struct vmctx *ctx, int atpic_irq, int ioapic_irq);
@@ -191,11 +233,14 @@ int	vm_assign_pptdev(struct vmctx *ctx, int bus, int slot, int func);
 int	vm_unassign_pptdev(struct vmctx *ctx, int bus, int slot, int func);
 int	vm_map_pptdev_mmio(struct vmctx *ctx, int bus, int slot, int func,
 			   vm_paddr_t gpa, size_t len, vm_paddr_t hpa);
+int	vm_unmap_pptdev_mmio(struct vmctx *ctx, int bus, int slot, int func,
+			     vm_paddr_t gpa, size_t len);
 int	vm_setup_pptdev_msi(struct vmctx *ctx, int vcpu, int bus, int slot,
 	    int func, uint64_t addr, uint64_t msg, int numvec);
 int	vm_setup_pptdev_msix(struct vmctx *ctx, int vcpu, int bus, int slot,
 	    int func, int idx, uint64_t addr, uint64_t msg,
 	    uint32_t vector_control);
+int	vm_disable_pptdev_msix(struct vmctx *ctx, int bus, int slot, int func);
 int	vm_get_pptdev_limits(struct vmctx *ctx, int bus, int slot, int func,
     int *msi_limit, int *msix_limit);
 #else /* __FreeBSD__ */
@@ -203,10 +248,13 @@ int	vm_assign_pptdev(struct vmctx *ctx, int pptfd);
 int	vm_unassign_pptdev(struct vmctx *ctx, int pptfd);
 int	vm_map_pptdev_mmio(struct vmctx *ctx, int pptfd, vm_paddr_t gpa,
     size_t len, vm_paddr_t hpa);
+int	vm_unmap_pptdev_mmio(struct vmctx *ctx, int pptfd, vm_paddr_t gpa,
+    size_t len);
 int	vm_setup_pptdev_msi(struct vmctx *ctx, int vcpu, int pptfd,
     uint64_t addr, uint64_t msg, int numvec);
 int	vm_setup_pptdev_msix(struct vmctx *ctx, int vcpu, int pptfd,
     int idx, uint64_t addr, uint64_t msg, uint32_t vector_control);
+int	vm_disable_pptdev_msix(struct vmctx *ctx, int pptfd);
 int	vm_get_pptdev_limits(struct vmctx *ctx, int pptfd, int *msi_limit,
     int *msix_limit);
 #endif /* __FreeBSD__ */
@@ -271,6 +319,16 @@ int	vm_set_topology(struct vmctx *ctx, uint16_t sockets, uint16_t cores,
 int	vm_get_topology(struct vmctx *ctx, uint16_t *sockets, uint16_t *cores,
 	    uint16_t *threads, uint16_t *maxcpus);
 
+#ifndef	__FreeBSD__
+/* illumos-specific APIs */
+int	vm_pmtmr_set_location(struct vmctx *ctx, uint16_t ioport);
+int	vm_wrlock_cycle(struct vmctx *ctx);
+int vm_get_run_state(struct vmctx *ctx, int vcpu, enum vcpu_run_state *state,
+    uint8_t *sipi_vector);
+int vm_set_run_state(struct vmctx *ctx, int vcpu, enum vcpu_run_state state,
+    uint8_t sipi_vector);
+#endif	/* __FreeBSD__ */
+
 #ifdef	__FreeBSD__
 /*
  * FreeBSD specific APIs
@@ -283,4 +341,9 @@ int	vm_setup_freebsd_registers_i386(struct vmctx *vmctx, int vcpu,
 					uint32_t esp);
 void	vm_setup_freebsd_gdt(uint64_t *gdtr);
 #endif
+
+#ifdef	__cplusplus
+}
+#endif
+
 #endif	/* _VMMAPI_H_ */

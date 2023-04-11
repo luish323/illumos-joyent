@@ -48,7 +48,7 @@ SGSMSGTARG=	../common/rtld.msg
 SGSMSGALL=	../common/rtld.msg
 SGSMSGFLAGS +=	-h $(BLTDEFS) -d $(BLTDATA)
 
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 
 MSGSRCS=	$(COMOBJS:%.o=../common/%.c) $(BLTDATA)
 
@@ -66,7 +66,7 @@ CPPFLAGS +=	-I. -I../common -I../../common -I../../../include \
 		-I$(SRC)/uts/$(ARCH)/sys
 
 DYNFLAGS +=	$(VERSREF)
-LDLIBS +=	$(CONVLIBDIR) $(CONV_LIB) -lc
+LDLIBS +=	$(CONVLIBDIR) -lconv -lc
 
 ROOTMDBLIB=	$(ROOT)/usr/lib/mdb/proc
 ROOTMDBLIB64=	$(ROOTMDBLIB)/$(MACH64)

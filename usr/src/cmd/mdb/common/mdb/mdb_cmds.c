@@ -26,7 +26,7 @@
 
 /*
  * Copyright (c) 2012 by Delphix. All rights reserved.
- * Copyright (c) 2019 Joyent, Inc. All rights reserved.
+ * Copyright 2021 Joyent, Inc.
  * Copyright (c) 2013 Josef 'Jeff' Sipek <jeffpc@josefsipek.net>
  * Copyright (c) 2015, 2017 by Delphix. All rights reserved.
  * Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
@@ -71,6 +71,7 @@
 #include <mdb/mdb_macalias.h>
 #include <mdb/mdb_tab.h>
 #include <mdb/mdb_typedef.h>
+#include <mdb/mdb_linkerset.h>
 #ifdef _KMDB
 #include <kmdb/kmdb_kdi.h>
 #endif
@@ -320,6 +321,9 @@ write_arglist(mdb_tgt_as_t as, mdb_tgt_addr_t addr,
 	case 'Z':
 		write_value = write_uint64;
 		break;
+	default:
+		write_value = NULL;
+		break;
 	}
 
 	for (argv++, i = 1; i < argc; i++, argv++) {
@@ -434,6 +438,10 @@ match_arglist(mdb_tgt_as_t as, uint_t flags, mdb_tgt_addr_t addr,
 	case 'M':
 		match_value = match_uint64;
 		break;
+	default:
+		mdb_warn("unknown match value %c\n",
+		    argv->a_un.a_char);
+		return (DCMD_ERR);
 	}
 
 	for (argv++, i = 1; i < argc; i++, argv++) {
@@ -1730,7 +1738,7 @@ showrev_objectversions(int showall)
 }
 
 /*
- * Display information similar to what showrev(1M) displays when invoked
+ * Display information similar to what showrev(8) displays when invoked
  * with no arguments.
  */
 static int
@@ -1747,7 +1755,7 @@ showrev_sysinfo(void)
 	}
 
 	/*
-	 * Match the order of the showrev(1M) output and put "Application
+	 * Match the order of the showrev(8) output and put "Application
 	 * architecture" before "Kernel version"
 	 */
 	if ((s = mdb_tgt_isa(mdb.m_target)) != NULL)
@@ -1956,14 +1964,14 @@ cmd_findsym(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		} else
 			value = argv[i].a_un.a_val;
 
-		if (value != NULL)
+		if (value != (uintptr_t)NULL)
 			symlist[len++] = value;
 	}
 
 	if (flags & DCMD_ADDRSPEC)
 		symlist[len++] = addr;
 
-	symlist[len] = NULL;
+	symlist[len] = (uintptr_t)NULL;
 
 	if (optg)
 		type = MDB_TGT_BIND_GLOBAL | MDB_TGT_TYPE_FUNC;
@@ -2163,6 +2171,46 @@ cmd_dis(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 
 	mdb_set_dot(addr);
 	return (DCMD_OK);
+}
+
+static void
+dis_help(void)
+{
+	static const char dis_desc[] =
+"Disassembles instructions starting at the final argument or the current\n"
+"value of dot. If the address is the start of a function, the entire\n"
+"function is disassembled, or else a window of instructions before and after\n"
+"the disassembled address are displayed.\n"
+"\n";
+
+	static const char dis_opts[] =
+"  -a         Print instruction addresses as numeric values instead of \n"
+"             symbolic values.\n"
+"  -b         Print instruction addresses as both numeric and symbolic "
+"values.\n"
+"  -f         Read instructions from the target's object file instead of the \n"
+"             target's virtual address space.\n"
+"  -n instr   Display 'instr' instructions before and after the given "
+"address.\n"
+"  -w         Force window behavior, even at the start of a function.\n"
+"\n";
+
+	static const char dis_examples[] =
+"  ::dis\n"
+"  clock::dis\n"
+"  ::dis gethrtime\n"
+"  set_freemem+0x16::dis -n 4\n"
+"\n";
+
+	mdb_printf("%s", dis_desc);
+	(void) mdb_dec_indent(2);
+	mdb_printf("%<b>OPTIONS%</b>\n");
+	(void) mdb_inc_indent(2);
+	mdb_printf("%s", dis_opts);
+	(void) mdb_dec_indent(2);
+	mdb_printf("%<b>EXAMPLES%</b>\n");
+	(void) mdb_inc_indent(2);
+	(void) mdb_printf("%s", dis_examples);
 }
 
 /*ARGSUSED*/
@@ -3105,7 +3153,8 @@ const mdb_dcmd_t mdb_dcmd_builtins[] = {
 	{ "dcmds", "[[-n] pattern]",
 	    "list available debugger commands", cmd_dcmds, cmd_dcmds_help },
 	{ "delete", "?[id|all]", "delete traced software events", cmd_delete },
-	{ "dis", "?[-abfw] [-n cnt] [addr]", "disassemble near addr", cmd_dis },
+	{ "dis", "?[-abfw] [-n cnt] [addr]", "disassemble near addr", cmd_dis,
+	    dis_help },
 	{ "disasms", NULL, "list available disassemblers", cmd_disasms },
 	{ "dismode", "[mode]", "get/set disassembly mode", cmd_dismode },
 	{ "dmods", "[-l] [mod]", "list loaded debugger modules", cmd_dmods },
@@ -3130,6 +3179,8 @@ const mdb_dcmd_t mdb_dcmd_builtins[] = {
 	    head_help },
 	{ "help", "[cmd]", "list commands/command help", cmd_help, NULL,
 	    cmd_help_tab },
+	{ "linkerset", "[name]", "display linkersets", cmd_linkerset,
+	    linkerset_help, cmd_linkerset_tab },
 	{ "list", "?type member [variable]",
 	    "walk list using member as link pointer", cmd_list, NULL,
 	    mdb_tab_complete_mt },
@@ -3164,6 +3215,7 @@ const mdb_dcmd_t mdb_dcmd_builtins[] = {
 	{ "typeset", "[+/-t] var ...", "set variable attributes", cmd_typeset },
 	{ "typedef", "[-c model | -d | -l | -r file | -w file ] [type] [name]",
 		"create synthetic types", cmd_typedef, cmd_typedef_help },
+	{ "typelist", NULL, "list known types", cmd_typelist },
 	{ "unset", "[name ...]", "unset variables", cmd_unset },
 	{ "vars", "[-npt]", "print listing of variables", cmd_vars },
 	{ "version", NULL, "print debugger version string", cmd_version },

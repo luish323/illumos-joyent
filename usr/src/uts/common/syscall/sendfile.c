@@ -21,6 +21,7 @@
 
 /*
  * Copyright (c) 2001, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright 2022 Garrett D'Amore
  */
 
 #include <sys/types.h>
@@ -68,8 +69,6 @@
 
 extern int sosendfile64(file_t *, file_t *, const struct ksendfilevec64 *,
 		ssize32_t *);
-extern int nl7c_sendfilev(struct sonode *, u_offset_t *, struct sendfilevec *,
-		int, ssize_t *);
 extern int snf_segmap(file_t *, vnode_t *, u_offset_t, u_offset_t, ssize_t *,
 		boolean_t);
 extern sotpi_info_t *sotpi_sototpi(struct sonode *);
@@ -702,14 +701,18 @@ sendvec_chunk(file_t *fp, u_offset_t *fileoff, struct sendfilevec *sfv,
 #endif
 	mblk_t	*dmp = NULL;
 	char	*buf = NULL;
-	size_t  extra;
+	size_t  extra = 0;
 	int maxblk, wroff, tail_len;
 	struct sonode *so;
 	stdata_t *stp;
 	struct nmsghdr msg;
 
+	maxblk = 0;
+	wroff = 0;
 	fflag = fp->f_flag;
 	vp = fp->f_vnode;
+	so = NULL;
+	stp = NULL;
 
 	if (vp->v_type == VSOCK) {
 		so = VTOSO(vp);
@@ -1137,7 +1140,7 @@ sendfilev(int opcode, int fildes, const struct sendfilevec *vec, int sfvcnt,
 	int first_vector_error = 0;
 	file_t *fp;
 	struct vnode *vp;
-	struct sonode *so;
+	struct sonode *so = NULL;
 	u_offset_t fileoff;
 	int copy_cnt;
 	const struct sendfilevec *copy_vec;
@@ -1315,16 +1318,9 @@ sendfilev(int opcode, int fildes, const struct sendfilevec *vec, int sfvcnt,
 		 * Future zero copy code will plugin into sendvec_chunk
 		 * only because doing zero copy for files smaller then
 		 * pagesize is useless.
-		 *
-		 * Note, if socket has NL7C enabled then call NL7C's
-		 * senfilev() function to consume the sfv[].
 		 */
 		if (is_sock) {
-			if (!SOCK_IS_NONSTR(so) &&
-			    _SOTOTPI(so)->sti_nl7c_flags != 0) {
-				error = nl7c_sendfilev(so, &fileoff,
-				    sfv, copy_cnt, &count);
-			} else if ((total_size <= (4 * maxblk)) &&
+			if ((total_size <= (4 * maxblk)) &&
 			    error == 0) {
 				error = sendvec_small_chunk(fp,
 				    &fileoff, sfv, copy_cnt,

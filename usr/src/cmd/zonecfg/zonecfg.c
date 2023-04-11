@@ -23,7 +23,7 @@
  * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2014 Nexenta Systems, Inc.  All rights reserved.
  * Copyright 2014 Gary Mills
- * Copyright 2016, Joyent Inc.
+ * Copyright 2019 Joyent, Inc.
  */
 
 /*
@@ -1117,7 +1117,7 @@ usage(boolean_t verbose, uint_t flags)
 			    cmd_to_str(CMD_REMOVE), pt_to_str(PT_OPTIONS),
 			    gettext("<file-system options>"));
 			(void) fprintf(fp, gettext("Consult the file-system "
-			    "specific manual page, such as mount_ufs(1M), "
+			    "specific manual page, such as mount_ufs(8), "
 			    "for\ndetails about file-system options.  Note "
 			    "that any file-system options with an\nembedded "
 			    "'=' character must be enclosed in double quotes, "
@@ -1145,7 +1145,7 @@ usage(boolean_t verbose, uint_t flags)
 			    pt_to_str(PT_GNIC), gettext("<global zone NIC>"));
 			(void) fprintf(fp, "\t%s %s=%s\n", cmd_to_str(CMD_SET),
 			    pt_to_str(PT_VLANID), gettext("<vlan ID>"));
-			(void) fprintf(fp, gettext("See ifconfig(1M) for "
+			(void) fprintf(fp, gettext("See ifconfig(8) for "
 			    "details of the <interface> string.\n"));
 			(void) fprintf(fp, gettext("%s %s is valid "
 			    "if the %s property is set to %s, otherwise it "
@@ -1891,14 +1891,16 @@ quoteit(char *instr)
 static void
 export_prop(FILE *of, int prop_num, char *prop_id)
 {
-	char *quote_str;
-
 	if (strlen(prop_id) == 0)
 		return;
-	quote_str = quoteit(prop_id);
-	(void) fprintf(of, "%s %s=%s\n", cmd_to_str(CMD_SET),
-	    pt_to_str(prop_num), quote_str);
-	free(quote_str);
+	/*
+	 * We're going to explicitly quote all strings on export.
+	 * This should be fine since it seems that no amount of escaping
+	 * will coerce zonecfg to properly parse a double quote as
+	 * part of the string value.
+	 */
+	(void) fprintf(of, "%s %s=\"%s\"\n", cmd_to_str(CMD_SET),
+	    pt_to_str(prop_num), prop_id);
 }
 
 void
@@ -2972,7 +2974,7 @@ normalize_mac_addr(char *dst, const char *src, int len)
 	p = strtok(buf, ":");
 	while (p != NULL) {
 		n = strtol(p, &e, 16);
-		if (*e != NULL || n > 0xff)
+		if (*e != '\0' || n > 0xff)
 			return;
 		(void) snprintf(tmp, sizeof (tmp), "%s%02x", sep, n);
 		(void) strlcat(dst, tmp, len);
@@ -4552,7 +4554,7 @@ valid_fs_type(const char *type)
 	    strcmp(type, ".") == 0 || strcmp(type, "..") == 0)
 		return (B_FALSE);
 	/*
-	 * More detailed verification happens later by zoneadm(1m).
+	 * More detailed verification happens later by zoneadm(8).
 	 */
 	return (B_TRUE);
 }
@@ -6432,7 +6434,7 @@ brand_verify(zone_dochandle_t handle)
 	 * Dump the current config information for this zone to a file.
 	 */
 	strcpy(xml_file, "/tmp/zonecfg_verify.XXXXXX");
-	if (mkstemp(xml_file) == NULL)
+	if (mkstemp(xml_file) == -1)
 		return (Z_TEMP_FILE);
 	if ((err = zonecfg_verify_save(handle, xml_file)) != Z_OK) {
 		(void) unlink(xml_file);
@@ -6454,7 +6456,7 @@ brand_verify(zone_dochandle_t handle)
 }
 
 /*
- * Track the network interfaces listed in zonecfg(1m) in a linked list
+ * Track the network interfaces listed in zonecfg(8) in a linked list
  * so that we can later check that defrouter is specified for an exclusive IP
  * zone if and only if at least one allowed-address has been specified.
  */

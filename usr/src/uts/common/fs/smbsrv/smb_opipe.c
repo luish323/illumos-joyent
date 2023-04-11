@@ -21,6 +21,7 @@
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2018 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2022 RackTop Systems, Inc.
  */
 
 /*
@@ -37,7 +38,7 @@
 #include <smbsrv/smb_xdr.h>
 #include <smb/winioctl.h>
 
-static uint32_t smb_opipe_transceive(smb_request_t *, smb_fsctl_t *);
+static uint32_t smb_opipe_wait(smb_request_t *, smb_fsctl_t *);
 
 /*
  * Allocate a new opipe and return it, or NULL, in which case
@@ -149,6 +150,27 @@ smb_opipe_connect(smb_request_t *sr, smb_opipe_t *opipe)
 
 	return (rc);
 }
+
+static int
+smb_opipe_exists(char *name)
+{
+	struct sockaddr_un saddr;
+	vnode_t		*vp;	/* Underlying filesystem vnode */
+	int err;
+
+	bzero(&saddr, sizeof (saddr));
+	saddr.sun_family = AF_UNIX;
+	(void) snprintf(saddr.sun_path, sizeof (saddr.sun_path),
+	    "%s/%s", SMB_PIPE_DIR, name);
+
+	err = lookupname(saddr.sun_path, UIO_SYSSPACE, FOLLOW, NULLVPP, &vp);
+	if (err == 0) {
+		VN_RELE(vp);		/* release hold from lookup */
+	}
+
+	return (err);
+}
+
 
 /*
  * Helper for open: encode and send the user info.
@@ -557,7 +579,8 @@ smb_opipe_getname(smb_ofile_t *of, char *buf, size_t buflen)
 }
 
 /*
- * Handler for smb2_ioctl
+ * Handle device type FILE_DEVICE_NAMED_PIPE
+ * for smb2_ioctl
  */
 /* ARGSUSED */
 uint32_t
@@ -565,15 +588,20 @@ smb_opipe_fsctl(smb_request_t *sr, smb_fsctl_t *fsctl)
 {
 	uint32_t status;
 
+	if (!STYPE_ISIPC(sr->tid_tree->t_res_type))
+		return (NT_STATUS_INVALID_DEVICE_REQUEST);
+
 	switch (fsctl->CtlCode) {
 	case FSCTL_PIPE_TRANSCEIVE:
 		status = smb_opipe_transceive(sr, fsctl);
 		break;
 
 	case FSCTL_PIPE_PEEK:
+		status = NT_STATUS_INVALID_DEVICE_REQUEST;
+		break;
+
 	case FSCTL_PIPE_WAIT:
-		/* XXX todo */
-		status = NT_STATUS_NOT_SUPPORTED;
+		status = smb_opipe_wait(sr, fsctl);
 		break;
 
 	default:
@@ -585,7 +613,7 @@ smb_opipe_fsctl(smb_request_t *sr, smb_fsctl_t *fsctl)
 	return (status);
 }
 
-static uint32_t
+uint32_t
 smb_opipe_transceive(smb_request_t *sr, smb_fsctl_t *fsctl)
 {
 	smb_vdb_t	vdb;
@@ -652,4 +680,49 @@ smb_opipe_transceive(smb_request_t *sr, smb_fsctl_t *fsctl)
 	}
 
 	return (status);
+}
+
+static uint32_t
+smb_opipe_wait(smb_request_t *sr, smb_fsctl_t *fsctl)
+{
+	char		*name;
+	uint64_t	timeout;
+	uint32_t	namelen;
+	int		rc;
+	uint8_t		tflag;
+
+	rc = smb_mbc_decodef(fsctl->in_mbc, "qlb.",
+	    &timeout,	/* q */
+	    &namelen,	/* l */
+	    &tflag);	/* b */
+	if (rc != 0)
+		return (NT_STATUS_INVALID_PARAMETER);
+	rc = smb_mbc_decodef(fsctl->in_mbc, "%#U",
+	    sr,		/* % */
+	    namelen,	/* # */
+	    &name);	/* U */
+	if (rc != 0)
+		return (NT_STATUS_INVALID_PARAMETER);
+
+	rc = smb_opipe_exists(name);
+	if (rc != 0)
+		return (NT_STATUS_OBJECT_NAME_NOT_FOUND);
+
+	/*
+	 * At this point we know the pipe exists.
+	 *
+	 * If the tflag is set, we're supposed to wait for up to
+	 * timeout (100s of milliseconds) for a pipe "instance"
+	 * to become "available" (so pipe open would work).
+	 * However, this implementation has no need to wait,
+	 * so just take a short delay instead.
+	 */
+	if (tflag != 0) {
+		clock_t ticks = MSEC_TO_TICK(timeout * 100);
+		if (ticks > MSEC_TO_TICK(100))
+			ticks = MSEC_TO_TICK(100);
+		delay(ticks);
+	}
+
+	return (0);
 }

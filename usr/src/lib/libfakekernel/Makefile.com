@@ -49,13 +49,10 @@ include ../../Makefile.rootfs
 
 SRCDIR=		../common
 
-LIBS =		$(DYNLIB) $(LINTLIB)
+LIBS =		$(DYNLIB)
 SRCS=   $(COBJS:%.o=$(SRCDIR)/%.c)
 
-$(LINTLIB) :=	SRCS = $(SRCDIR)/$(LINTSRC)
-
 CSTD =       $(CSTD_GNU99)
-C99LMODE =      -Xc99=%all
 
 CFLAGS +=	$(CCVERBOSE)
 
@@ -64,7 +61,7 @@ CFLAGS +=	$(CCVERBOSE)
 CPPFLAGS.first += -I../common
 CPPFLAGS= $(CPPFLAGS.first)
 
-INCS += -I$(SRC)/uts/common
+INCS += -I$(SRC)/uts/common -I$(ROOT)/usr/include
 
 CPPFLAGS += $(INCS) -D_REENTRANT -D_FAKE_KERNEL
 CPPFLAGS += -D_FILE_OFFSET_BITS=64
@@ -73,9 +70,9 @@ CPPFLAGS += -D_FILE_OFFSET_BITS=64
 # this library is for debugging, let's always define DEBUG here.
 CPPFLAGS += -DDEBUG
 
-LINTCHECKFLAGS += -erroff=E_INCONS_ARG_DECL2
-LINTCHECKFLAGS += -erroff=E_INCONS_VAL_TYPE_DECL2
-LINTCHECKFLAGS += -erroff=E_INCONS_VAL_TYPE_USED2
+# libfakekernel isn't delivered, and is a special case, disable global data
+# complaints
+ZGUIDANCE= -Wl,-zguidance=noasserts
 
 LDLIBS += -lumem -lcryptoutil -lsocket -lc
 
@@ -83,6 +80,5 @@ LDLIBS += -lumem -lcryptoutil -lsocket -lc
 
 all: $(LIBS)
 
-lint: lintcheck
 
 include ../../Makefile.targ

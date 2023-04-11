@@ -21,7 +21,8 @@
 
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2020 Tintri by DDN, Inc. All rights reserved.
+ * Copyright 2022 RackTop Systems, Inc.
  */
 
 /*
@@ -39,9 +40,6 @@
 #include <smbsrv/smbinfo.h>
 
 int smb_session_ofile_max = 32768;
-
-static volatile uint32_t smb_fids = 0;
-#define	SMB_UNIQ_FID()	atomic_inc_32_nv(&smb_fids)
 
 extern uint32_t smb_is_executable(char *);
 static void smb_delete_new_object(smb_request_t *);
@@ -256,6 +254,7 @@ smb_common_open(smb_request_t *sr)
 	smb_node_t	*fnode = NULL;
 	smb_node_t	*dnode = NULL;
 	smb_node_t	*cur_node = NULL;
+	smb_node_t	*tmp_node = NULL;
 	smb_arg_open_t	*op = &sr->sr_open;
 	smb_pathname_t	*pn = &op->fqi.fq_path;
 	smb_ofile_t	*of = NULL;
@@ -272,6 +271,7 @@ smb_common_open(smb_request_t *sr)
 	uint16_t	tree_fid = 0;
 	boolean_t	created = B_FALSE;
 	boolean_t	last_comp_found = B_FALSE;
+	boolean_t	stream_found = B_FALSE;
 	boolean_t	opening_incr = B_FALSE;
 	boolean_t	dnode_held = B_FALSE;
 	boolean_t	dnode_wlock = B_FALSE;
@@ -280,6 +280,8 @@ smb_common_open(smb_request_t *sr)
 	boolean_t	fnode_shrlk = B_FALSE;
 	boolean_t	did_open = B_FALSE;
 	boolean_t	did_break_handle = B_FALSE;
+	boolean_t	did_cleanup_orphans = B_FALSE;
+	char		*sname = NULL;
 
 	/* Get out now if we've been cancelled. */
 	mutex_enter(&sr->sr_mutex);
@@ -350,10 +352,9 @@ smb_common_open(smb_request_t *sr)
 		/*
 		 * Most of IPC open is handled in smb_opipe_open()
 		 */
-		uniq_fid = SMB_UNIQ_FID();
 		op->create_options = 0;
 		of = smb_ofile_alloc(sr, op, NULL, SMB_FTYPE_MESG_PIPE,
-		    tree_fid, uniq_fid);
+		    tree_fid);
 		tree_fid = 0; // given to the ofile
 		status = smb_opipe_open(sr, of);
 		smb_threshold_exit(&sv->sv_opipe_ct);
@@ -421,12 +422,17 @@ smb_common_open(smb_request_t *sr)
 	if ((op->desired_access & ~FILE_READ_ATTRIBUTES) == DELETE)
 		lookup_flags &= ~SMB_FOLLOW_LINKS;
 
-	rc = smb_fsop_lookup_name(sr, zone_kcred(), lookup_flags,
+	/*
+	 * Lookup *just* the file portion of the name.
+	 * Returns stream name in sname, which this allocates
+	 */
+	rc = smb_fsop_lookup_file(sr, zone_kcred(), lookup_flags,
 	    sr->tid_tree->t_snode, op->fqi.fq_dnode, op->fqi.fq_last_comp,
-	    &op->fqi.fq_fnode);
+	    &sname, &op->fqi.fq_fnode);
 
 	if (rc == 0) {
 		last_comp_found = B_TRUE;
+		fnode = op->fqi.fq_fnode;
 		fnode_held = B_TRUE;
 
 		/*
@@ -450,17 +456,7 @@ smb_common_open(smb_request_t *sr)
 		goto errout;
 	}
 
-	/*
-	 * The uniq_fid is a CIFS-server-wide unique identifier for an ofile
-	 * which is used to uniquely identify open instances for the
-	 * VFS share reservation and POSIX locks.
-	 */
-	uniq_fid = SMB_UNIQ_FID();
-
 	if (last_comp_found) {
-
-		smb_node_unlock(dnode);
-		dnode_wlock = B_FALSE;
 
 		fnode = op->fqi.fq_fnode;
 		dnode = op->fqi.fq_dnode;
@@ -478,8 +474,9 @@ smb_common_open(smb_request_t *sr)
 		 *   it must NOT be (required by Lotus Notes)
 		 * - the target is NOT a directory and client requires that
 		 *   it MUST be.
+		 * Streams are never directories.
 		 */
-		if (smb_node_is_dir(fnode)) {
+		if (smb_node_is_dir(fnode) && sname == NULL) {
 			if (op->create_options & FILE_NON_DIRECTORY_FILE) {
 				status = NT_STATUS_FILE_IS_A_DIRECTORY;
 				goto errout;
@@ -492,20 +489,81 @@ smb_common_open(smb_request_t *sr)
 			}
 		}
 
-		/*
-		 * No more open should be accepted when "Delete on close"
-		 * flag is set.
-		 */
-		if (fnode->flags & NODE_FLAGS_DELETE_ON_CLOSE) {
-			status = NT_STATUS_DELETE_PENDING;
-			goto errout;
+		/* If we're given a stream name, look it up now */
+		if (sname != NULL) {
+			tmp_node = fnode;
+			rc = smb_fsop_lookup_stream(sr, zone_kcred(),
+			    lookup_flags, sr->tid_tree->t_snode, fnode, sname,
+			    &fnode);
+		} else {
+			rc = 0;
 		}
 
-		/*
-		 * Specified file already exists so the operation should fail.
-		 */
-		if (op->create_disposition == FILE_CREATE) {
-			status = NT_STATUS_OBJECT_NAME_COLLISION;
+		if (rc == 0) { /* Stream Exists (including unnamed stream) */
+			stream_found = B_TRUE;
+			smb_node_unlock(dnode);
+			dnode_wlock = B_FALSE;
+
+			if (tmp_node != NULL)
+				smb_node_release(tmp_node);
+
+			/*
+			 * No more open should be accepted when
+			 * "Delete on close" flag is set.
+			 */
+			if (fnode->flags & NODE_FLAGS_DELETE_ON_CLOSE) {
+				status = NT_STATUS_DELETE_PENDING;
+				goto errout;
+			}
+
+			/*
+			 * Specified file already exists
+			 * so the operation should fail.
+			 */
+			if (op->create_disposition == FILE_CREATE) {
+				status = NT_STATUS_OBJECT_NAME_COLLISION;
+				goto errout;
+			}
+
+			if ((op->create_disposition == FILE_SUPERSEDE) ||
+			    (op->create_disposition == FILE_OVERWRITE_IF) ||
+			    (op->create_disposition == FILE_OVERWRITE)) {
+
+				if (sname == NULL) {
+					if (!smb_sattr_check(
+					    op->fqi.fq_fattr.sa_dosattr,
+					    op->dattr)) {
+						status =
+						    NT_STATUS_ACCESS_DENIED;
+						goto errout;
+					}
+					op->desired_access |=
+					    FILE_WRITE_ATTRIBUTES;
+				}
+
+				if (smb_node_is_dir(fnode)) {
+					status = NT_STATUS_ACCESS_DENIED;
+					goto errout;
+				}
+			}
+
+			/* MS-FSA 2.1.5.1.2 */
+			if (op->create_disposition == FILE_SUPERSEDE)
+				op->desired_access |= DELETE;
+			if ((op->create_disposition == FILE_OVERWRITE_IF) ||
+			    (op->create_disposition == FILE_OVERWRITE))
+				op->desired_access |= FILE_WRITE_DATA;
+		} else if (rc == ENOENT) { /* File Exists, but Stream doesn't */
+			if (op->create_disposition == FILE_OPEN ||
+			    op->create_disposition == FILE_OVERWRITE) {
+				status = NT_STATUS_OBJECT_NAME_NOT_FOUND;
+				goto errout;
+			}
+
+			op->desired_access |= FILE_WRITE_DATA;
+		} else { /* Error looking up stream */
+			status = smb_errno2status(rc);
+			fnode = tmp_node;
 			goto errout;
 		}
 
@@ -530,31 +588,16 @@ smb_common_open(smb_request_t *sr)
 			}
 		}
 
-		if ((op->create_disposition == FILE_SUPERSEDE) ||
-		    (op->create_disposition == FILE_OVERWRITE_IF) ||
-		    (op->create_disposition == FILE_OVERWRITE)) {
-
-			if (!smb_sattr_check(op->fqi.fq_fattr.sa_dosattr,
-			    op->dattr)) {
-				status = NT_STATUS_ACCESS_DENIED;
-				goto errout;
-			}
-
-			if (smb_node_is_dir(fnode)) {
-				status = NT_STATUS_ACCESS_DENIED;
-				goto errout;
-			}
+		/* Dataset roots can't be deleted, so don't set DOC */
+		if ((op->create_options & FILE_DELETE_ON_CLOSE) != 0 &&
+		    (fnode->flags & NODE_FLAGS_VFSROOT) != 0) {
+			status = NT_STATUS_CANNOT_DELETE;
+			goto errout;
 		}
-
-		/* MS-FSA 2.1.5.1.2 */
-		if (op->create_disposition == FILE_SUPERSEDE)
-			op->desired_access |= DELETE;
-		if ((op->create_disposition == FILE_OVERWRITE_IF) ||
-		    (op->create_disposition == FILE_OVERWRITE))
-			op->desired_access |= FILE_WRITE_DATA;
 
 		status = smb_fsop_access(sr, sr->user_cr, fnode,
 		    op->desired_access);
+
 		if (status != NT_STATUS_SUCCESS)
 			goto errout;
 
@@ -578,19 +621,66 @@ smb_common_open(smb_request_t *sr)
 		if ((op->desired_access & FILE_DATA_ALL) != 0)
 			op->desired_access |= FILE_READ_ATTRIBUTES;
 
+		/* If the stream didn't exist, create it now */
+		if (!stream_found) {
+			smb_node_t *tmp_node = fnode;
+
+			bzero(&new_attr, sizeof (new_attr));
+			new_attr.sa_vattr.va_type = VREG;
+			new_attr.sa_vattr.va_mode = S_IRUSR;
+			new_attr.sa_mask |= SMB_AT_TYPE | SMB_AT_MODE;
+
+			rc = smb_fsop_create_stream(sr, sr->user_cr, dnode,
+			    fnode, sname, lookup_flags, &new_attr, &fnode);
+			smb_node_release(tmp_node);
+
+			if (rc != 0) {
+				status = smb_errno2status(rc);
+				fnode_held = B_FALSE;
+				goto errout;
+			}
+			op->action_taken = SMB_OACT_CREATED;
+			created = B_TRUE;
+
+			smb_node_unlock(dnode);
+			dnode_wlock = B_FALSE;
+		}
+
 		/*
 		 * Oplock break is done prior to sharing checks as the break
 		 * may cause other clients to close the file which would
 		 * affect the sharing checks, and may delete the file due to
 		 * DELETE_ON_CLOSE. This may block, so set the file opening
 		 * count before oplock stuff.
+		 *
+		 * Need the "proposed" ofile (and its TargetOplockKey) for
+		 * correct oplock break semantics.
 		 */
 		of = smb_ofile_alloc(sr, op, fnode, SMB_FTYPE_DISK,
-		    tree_fid, uniq_fid);
+		    tree_fid);
 		tree_fid = 0; // given to the ofile
+		uniq_fid = of->f_uniqid;
 
 		smb_node_inc_opening_count(fnode);
 		opening_incr = B_TRUE;
+
+		if (!stream_found) {
+			/*
+			 * Stake our Share Access claim.
+			 */
+			smb_node_wrlock(fnode);
+			fnode_wlock = B_TRUE;
+
+			status = smb_fsop_shrlock(sr->user_cr, fnode, uniq_fid,
+			    op->desired_access, op->share_access);
+			if (status != 0)
+				goto errout;
+
+			fnode_shrlk = B_TRUE;
+			smb_node_unlock(fnode);
+			fnode_wlock = B_FALSE;
+			goto stream_created;
+		}
 
 		/*
 		 * XXX Supposed to do share access checks next.
@@ -627,8 +717,7 @@ smb_common_open(smb_request_t *sr)
 		if (status == NT_STATUS_OPLOCK_BREAK_IN_PROGRESS) {
 			if (sr->session->dialect >= SMB_VERS_2_BASE)
 				(void) smb2sr_go_async(sr);
-			(void) smb_oplock_wait_break(fnode, 0);
-			status = 0;
+			status = smb_oplock_wait_break(sr, fnode, 0);
 		}
 		if (status != NT_STATUS_SUCCESS)
 			goto errout;
@@ -663,8 +752,7 @@ smb_common_open(smb_request_t *sr)
 			if (status == NT_STATUS_OPLOCK_BREAK_IN_PROGRESS) {
 				if (sr->session->dialect >= SMB_VERS_2_BASE)
 					(void) smb2sr_go_async(sr);
-				(void) smb_oplock_wait_break(fnode, 0);
-				status = 0;
+				status = smb_oplock_wait_break(sr, fnode, 0);
 			} else {
 				/*
 				 * Even when the oplock layer does NOT
@@ -678,6 +766,22 @@ smb_common_open(smb_request_t *sr)
 			}
 			if (status != NT_STATUS_SUCCESS)
 				goto errout;
+
+			goto shrlock_again;
+		}
+
+		/*
+		 * If we still have orphaned durable handles on this file,
+		 * let's assume the client has lost interest in those and
+		 * close them so they don't cause sharing violations.
+		 * See longer comment at smb2_dh_close_my_orphans().
+		 */
+		if (status == NT_STATUS_SHARING_VIOLATION &&
+		    sr->session->dialect >= SMB_VERS_2_BASE &&
+		    did_cleanup_orphans == B_FALSE) {
+
+			did_cleanup_orphans = B_TRUE;
+			smb2_dh_close_my_orphans(sr, of);
 
 			goto shrlock_again;
 		}
@@ -716,8 +820,7 @@ smb_common_open(smb_request_t *sr)
 		if (status == NT_STATUS_OPLOCK_BREAK_IN_PROGRESS) {
 			if (sr->session->dialect >= SMB_VERS_2_BASE)
 				(void) smb2sr_go_async(sr);
-			(void) smb_oplock_wait_break(fnode, 0);
-			status = 0;
+			status = smb_oplock_wait_break(sr, fnode, 0);
 		}
 		if (status != NT_STATUS_SUCCESS)
 			goto errout;
@@ -732,7 +835,9 @@ smb_common_open(smb_request_t *sr)
 			 * This code path is exercised by smbtorture
 			 * smb2.durable-open.delete_on_close1
 			 */
-			DTRACE_PROBE1(node_deleted, smb_node_t, fnode);
+			DTRACE_PROBE1(node_deleted, smb_node_t *, fnode);
+			tree_fid = of->f_fid;
+			of->f_fid = 0;
 			smb_ofile_free(of);
 			of = NULL;
 			last_comp_found = B_FALSE;
@@ -763,11 +868,20 @@ smb_common_open(smb_request_t *sr)
 		case FILE_SUPERSEDE:
 		case FILE_OVERWRITE_IF:
 		case FILE_OVERWRITE:
-			op->dattr |= FILE_ATTRIBUTE_ARCHIVE;
-			/* Don't apply readonly until smb_set_open_attributes */
-			if (op->dattr & FILE_ATTRIBUTE_READONLY) {
-				op->dattr &= ~FILE_ATTRIBUTE_READONLY;
-				op->created_readonly = B_TRUE;
+			bzero(&new_attr, sizeof (new_attr));
+			if (sname == NULL) {
+				op->dattr |= FILE_ATTRIBUTE_ARCHIVE;
+				/*
+				 * Don't apply readonly until
+				 * smb_set_open_attributes
+				 */
+				if (op->dattr & FILE_ATTRIBUTE_READONLY) {
+					op->dattr &= ~FILE_ATTRIBUTE_READONLY;
+					op->created_readonly = B_TRUE;
+				}
+				new_attr.sa_dosattr = op->dattr;
+			} else {
+				new_attr.sa_dosattr = FILE_ATTRIBUTE_ARCHIVE;
 			}
 
 			/*
@@ -776,8 +890,6 @@ smb_common_open(smb_request_t *sr)
 			 * after we have an ofile.  See:
 			 * smb_set_open_attributes
 			 */
-			bzero(&new_attr, sizeof (new_attr));
-			new_attr.sa_dosattr = op->dattr;
 			new_attr.sa_vattr.va_size = 0;
 			new_attr.sa_mask = SMB_AT_DOSATTR | SMB_AT_SIZE;
 			rc = smb_fsop_setattr(sr, sr->user_cr, fnode,
@@ -824,6 +936,24 @@ create:
 		if ((op->create_disposition == FILE_OPEN) ||
 		    (op->create_disposition == FILE_OVERWRITE)) {
 			status = NT_STATUS_OBJECT_NAME_NOT_FOUND;
+			goto errout;
+		}
+
+		if (is_dir != 0 &&
+		    (op->dattr & FILE_ATTRIBUTE_TEMPORARY) != 0) {
+			status = NT_STATUS_INVALID_PARAMETER;
+			goto errout;
+		}
+
+		if ((op->dattr & FILE_ATTRIBUTE_READONLY) != 0 &&
+		    (op->create_options & FILE_DELETE_ON_CLOSE) != 0) {
+			status = NT_STATUS_CANNOT_DELETE;
+			goto errout;
+		}
+
+		if ((op->desired_access & ACCESS_SYSTEM_SECURITY) != 0 &&
+		    !smb_user_has_security_priv(sr->uid_user, sr->user_cr)) {
+			status = NT_STATUS_ACCESS_DENIED;
 			goto errout;
 		}
 
@@ -904,26 +1034,16 @@ create:
 			goto errout;
 		}
 
+		/* Create done. */
 		smb_node_unlock(dnode);
 		dnode_wlock = B_FALSE;
 
 		created = B_TRUE;
 		op->action_taken = SMB_OACT_CREATED;
 
+		/* Note: hold from create */
 		fnode = op->fqi.fq_fnode;
 		fnode_held = B_TRUE;
-
-		smb_node_inc_opening_count(fnode);
-		opening_incr = B_TRUE;
-
-		smb_node_wrlock(fnode);
-		fnode_wlock = B_TRUE;
-
-		status = smb_fsop_shrlock(sr->user_cr, fnode, uniq_fid,
-		    op->desired_access, op->share_access);
-		if (status != 0)
-			goto errout;
-		fnode_shrlk = B_TRUE;
 
 		if (max_requested) {
 			smb_fsop_eaccess(sr, sr->user_cr, fnode, &max_allowed);
@@ -936,6 +1056,27 @@ create:
 		 * unexpected access failures later.
 		 */
 		op->desired_access |= (READ_CONTROL | FILE_READ_ATTRIBUTES);
+
+		/* Allocate the ofile and fill in most of it. */
+		of = smb_ofile_alloc(sr, op, fnode, SMB_FTYPE_DISK,
+		    tree_fid);
+		tree_fid = 0; // given to the ofile
+		uniq_fid = of->f_uniqid;
+
+		smb_node_inc_opening_count(fnode);
+		opening_incr = B_TRUE;
+
+		/*
+		 * Share access checks...
+		 */
+		smb_node_wrlock(fnode);
+		fnode_wlock = B_TRUE;
+
+		status = smb_fsop_shrlock(sr->user_cr, fnode, uniq_fid,
+		    op->desired_access, op->share_access);
+		if (status != 0)
+			goto errout;
+		fnode_shrlk = B_TRUE;
 
 		/*
 		 * MS-FSA 2.1.5.1.1
@@ -951,12 +1092,10 @@ create:
 		 *
 		 * The break never blocks, so ignore the return.
 		 */
-		of = smb_ofile_alloc(sr, op, fnode, SMB_FTYPE_DISK,
-		    tree_fid, uniq_fid);
-		tree_fid = 0; // given to the ofile
 		(void) smb_oplock_break_PARENT(dnode, of);
 	}
 
+stream_created:
 	/*
 	 * We might have blocked in smb_oplock_break_OPEN long enough
 	 * so a tree disconnect might have happened.  In that case,
@@ -1036,6 +1175,8 @@ create:
 	 * how that happens is protocol-specific.
 	 */
 
+	if (sname != NULL)
+		kmem_free(sname, MAXNAMELEN);
 	if (fnode_wlock)
 		smb_node_unlock(fnode);
 	if (opening_incr)
@@ -1052,8 +1193,9 @@ create:
 errout:
 	if (did_open) {
 		smb_ofile_close(of, 0);
-		/* Don't also ofile_free */
+		/* rele via sr->fid_ofile */
 	} else if (of != NULL) {
+		/* No other refs possible */
 		smb_ofile_free(of);
 	}
 
@@ -1065,6 +1207,8 @@ errout:
 		smb_delete_new_object(sr);
 	}
 
+	if (sname != NULL)
+		kmem_free(sname, MAXNAMELEN);
 	if (fnode_wlock)
 		smb_node_unlock(fnode);
 	if (opening_incr)
@@ -1120,22 +1264,6 @@ smb_set_open_attributes(smb_request_t *sr, smb_ofile_t *of)
 		attr.sa_vattr.va_mtime = op->mtime;
 		attr.sa_mask |= SMB_AT_MTIME;
 	}
-
-	/*
-	 * Used to have code here to set mtime, ctime, atime
-	 * when the open op->create_disposition is any of:
-	 * FILE_SUPERSEDE, FILE_OVERWRITE_IF, FILE_OVERWRITE.
-	 * We know that in those cases we will have set the
-	 * file size, in which case the file system will
-	 * update those times, so we don't have to.
-	 *
-	 * However, keep track of the fact that we modified
-	 * the file via this handle, so we can do the evil,
-	 * gratuitious mtime update on close that Windows
-	 * clients expect.
-	 */
-	if (op->action_taken == SMB_OACT_TRUNCATED)
-		of->f_written = B_TRUE;
 
 	if (attr.sa_mask != 0)
 		rc = smb_node_setattr(sr, node, of->f_cr, of, &attr);

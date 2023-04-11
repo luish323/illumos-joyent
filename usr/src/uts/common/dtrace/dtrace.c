@@ -151,7 +151,7 @@ hrtime_t	dtrace_unregister_defunct_reap = (hrtime_t)60 * NANOSEC;
 /*
  * DTrace External Variables
  *
- * As dtrace(7D) is a kernel module, any DTrace variables are obviously
+ * As dtrace(4D) is a kernel module, any DTrace variables are obviously
  * available to DTrace consumers via the backtick (`) syntax.  One of these,
  * dtrace_zero, is made deliberately so:  it is provided as a source of
  * well-known, zero-filled memory.  While this variable is not documented,
@@ -241,26 +241,39 @@ static dtrace_pattr_t	dtrace_provider_attr = {
 };
 
 static void
-dtrace_nullop(void)
-{}
+dtrace_nullop_provide(void *arg __unused,
+    const dtrace_probedesc_t *spec __unused)
+{
+}
+
+static void
+dtrace_nullop_module(void *arg __unused, struct modctl *mp __unused)
+{
+}
+
+static void
+dtrace_nullop(void *arg __unused, dtrace_id_t id __unused, void *parg __unused)
+{
+}
 
 static int
-dtrace_enable_nullop(void)
+dtrace_enable_nullop(void *arg __unused, dtrace_id_t id __unused,
+    void *parg __unused)
 {
 	return (0);
 }
 
 static dtrace_pops_t	dtrace_provider_ops = {
-	(void (*)(void *, const dtrace_probedesc_t *))dtrace_nullop,
-	(void (*)(void *, struct modctl *))dtrace_nullop,
-	(int (*)(void *, dtrace_id_t, void *))dtrace_enable_nullop,
-	(void (*)(void *, dtrace_id_t, void *))dtrace_nullop,
-	(void (*)(void *, dtrace_id_t, void *))dtrace_nullop,
-	(void (*)(void *, dtrace_id_t, void *))dtrace_nullop,
-	NULL,
-	NULL,
-	NULL,
-	(void (*)(void *, dtrace_id_t, void *))dtrace_nullop
+	.dtps_provide = dtrace_nullop_provide,
+	.dtps_provide_module = dtrace_nullop_module,
+	.dtps_enable = dtrace_enable_nullop,
+	.dtps_disable = dtrace_nullop,
+	.dtps_suspend = dtrace_nullop,
+	.dtps_resume = dtrace_nullop,
+	.dtps_getargdesc = NULL,
+	.dtps_getargval = NULL,
+	.dtps_mode = NULL,
+	.dtps_destroy = dtrace_nullop
 };
 
 static dtrace_id_t	dtrace_probeid_begin;	/* special BEGIN probe */
@@ -8282,22 +8295,18 @@ dtrace_register(const char *name, const dtrace_pattr_t *pap, uint32_t priv,
 
 	if (pops->dtps_provide == NULL) {
 		ASSERT(pops->dtps_provide_module != NULL);
-		provider->dtpv_pops.dtps_provide =
-		    (void (*)(void *, const dtrace_probedesc_t *))dtrace_nullop;
+		provider->dtpv_pops.dtps_provide = dtrace_nullop_provide;
 	}
 
 	if (pops->dtps_provide_module == NULL) {
 		ASSERT(pops->dtps_provide != NULL);
-		provider->dtpv_pops.dtps_provide_module =
-		    (void (*)(void *, struct modctl *))dtrace_nullop;
+		provider->dtpv_pops.dtps_provide_module = dtrace_nullop_module;
 	}
 
 	if (pops->dtps_suspend == NULL) {
 		ASSERT(pops->dtps_resume == NULL);
-		provider->dtpv_pops.dtps_suspend =
-		    (void (*)(void *, dtrace_id_t, void *))dtrace_nullop;
-		provider->dtpv_pops.dtps_resume =
-		    (void (*)(void *, dtrace_id_t, void *))dtrace_nullop;
+		provider->dtpv_pops.dtps_suspend = dtrace_nullop;
+		provider->dtpv_pops.dtps_resume = dtrace_nullop;
 	}
 
 	provider->dtpv_arg = arg;
@@ -8364,8 +8373,7 @@ dtrace_unregister(dtrace_provider_id_t id)
 	int i, self = 0, noreap = 0;
 	dtrace_probe_t *probe, *first = NULL;
 
-	if (old->dtpv_pops.dtps_enable ==
-	    (int (*)(void *, dtrace_id_t, void *))dtrace_enable_nullop) {
+	if (old->dtpv_pops.dtps_enable == dtrace_enable_nullop) {
 		/*
 		 * If DTrace itself is the provider, we're called with locks
 		 * already held.
@@ -8527,8 +8535,7 @@ dtrace_invalidate(dtrace_provider_id_t id)
 {
 	dtrace_provider_t *pvp = (dtrace_provider_t *)id;
 
-	ASSERT(pvp->dtpv_pops.dtps_enable !=
-	    (int (*)(void *, dtrace_id_t, void *))dtrace_enable_nullop);
+	ASSERT(pvp->dtpv_pops.dtps_enable != dtrace_enable_nullop);
 
 	mutex_enter(&dtrace_provider_lock);
 	mutex_enter(&dtrace_lock);
@@ -8568,8 +8575,7 @@ dtrace_condense(dtrace_provider_id_t id)
 	/*
 	 * Make sure this isn't the dtrace provider itself.
 	 */
-	ASSERT(prov->dtpv_pops.dtps_enable !=
-	    (int (*)(void *, dtrace_id_t, void *))dtrace_enable_nullop);
+	ASSERT(prov->dtpv_pops.dtps_enable != dtrace_enable_nullop);
 
 	mutex_enter(&dtrace_provider_lock);
 	mutex_enter(&dtrace_lock);
@@ -11612,8 +11618,8 @@ dtrace_buffer_alloc(dtrace_buffer_t *bufs, size_t size, int flags,
 
 		ASSERT(buf->dtb_xamot == NULL);
 
-		if ((buf->dtb_tomax = kmem_zalloc(size,
-		    KM_NOSLEEP | KM_NORMALPRI)) == NULL)
+		if ((buf->dtb_tomax = kmem_zalloc(size, KM_NOSLEEP_LAZY)) ==
+		    NULL)
 			goto err;
 
 		buf->dtb_size = size;
@@ -11624,8 +11630,8 @@ dtrace_buffer_alloc(dtrace_buffer_t *bufs, size_t size, int flags,
 		if (flags & DTRACEBUF_NOSWITCH)
 			continue;
 
-		if ((buf->dtb_xamot = kmem_zalloc(size,
-		    KM_NOSLEEP | KM_NORMALPRI)) == NULL)
+		if ((buf->dtb_xamot = kmem_zalloc(size, KM_NOSLEEP_LAZY)) ==
+		    NULL)
 			goto err;
 	} while ((cp = cp->cpu_next) != cpu_list);
 
@@ -13573,7 +13579,7 @@ dtrace_dstate_init(dtrace_dstate_t *dstate, size_t size)
 	if (size < (min = dstate->dtds_chunksize + sizeof (dtrace_dynhash_t)))
 		size = min;
 
-	if ((base = kmem_zalloc(size, KM_NOSLEEP | KM_NORMALPRI)) == NULL)
+	if ((base = kmem_zalloc(size, KM_NOSLEEP_LAZY)) == NULL)
 		return (ENOMEM);
 
 	dstate->dtds_size = size;
@@ -14100,7 +14106,7 @@ dtrace_state_go(dtrace_state_t *state, processorid_t *cpu)
 	}
 
 	spec = kmem_zalloc(nspec * sizeof (dtrace_speculation_t),
-	    KM_NOSLEEP | KM_NORMALPRI);
+	    KM_NOSLEEP_LAZY);
 
 	if (spec == NULL) {
 		rval = ENOMEM;
@@ -14111,8 +14117,7 @@ dtrace_state_go(dtrace_state_t *state, processorid_t *cpu)
 	state->dts_nspeculations = (int)nspec;
 
 	for (i = 0; i < nspec; i++) {
-		if ((buf = kmem_zalloc(bufsize,
-		    KM_NOSLEEP | KM_NORMALPRI)) == NULL) {
+		if ((buf = kmem_zalloc(bufsize, KM_NOSLEEP_LAZY)) == NULL) {
 			rval = ENOMEM;
 			goto err;
 		}
@@ -15890,7 +15895,7 @@ dtrace_resume(void)
 }
 
 static int
-dtrace_cpu_setup(cpu_setup_t what, processorid_t cpu)
+dtrace_cpu_setup(cpu_setup_t what, processorid_t cpu, void *ptr __unused)
 {
 	ASSERT(MUTEX_HELD(&cpu_lock));
 	mutex_enter(&dtrace_lock);
@@ -15951,7 +15956,7 @@ dtrace_cpu_setup(cpu_setup_t what, processorid_t cpu)
 static void
 dtrace_cpu_setup_initial(processorid_t cpu)
 {
-	(void) dtrace_cpu_setup(CPU_CONFIG, cpu);
+	(void) dtrace_cpu_setup(CPU_CONFIG, cpu, NULL);
 }
 
 static void
@@ -16058,7 +16063,7 @@ dtrace_attach(dev_info_t *devi, ddi_attach_cmd_t cmd)
 	dtrace_debugger_init = dtrace_suspend;
 	dtrace_debugger_fini = dtrace_resume;
 
-	register_cpu_setup_func((cpu_setup_func_t *)dtrace_cpu_setup, NULL);
+	register_cpu_setup_func(dtrace_cpu_setup, NULL);
 
 	ASSERT(MUTEX_HELD(&cpu_lock));
 
@@ -17172,7 +17177,7 @@ dtrace_detach(dev_info_t *dip, ddi_detach_cmd_t cmd)
 	}
 
 	bzero(&dtrace_anon, sizeof (dtrace_anon_t));
-	unregister_cpu_setup_func((cpu_setup_func_t *)dtrace_cpu_setup, NULL);
+	unregister_cpu_setup_func(dtrace_cpu_setup, NULL);
 	dtrace_cpu_init = NULL;
 	dtrace_helpers_cleanup = NULL;
 	dtrace_helpers_fork = NULL;

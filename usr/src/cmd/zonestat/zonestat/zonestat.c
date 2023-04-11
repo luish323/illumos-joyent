@@ -288,11 +288,11 @@ zonestat_usage(boolean_t explicit)
 "	      \"%s\"\n"
 "	      \"%s\"\n"
 "	      Name of a pool processor set\n"
-"	      Id of a processor set created with psrset(1m)\n"
+"	      Id of a processor set created with psrset(8)\n"
 "	      Name of a zone using dedicated-cpu\n"),
 	    "-z", "-n",
 	    ZONESTAT_NAME_MEM_DEFAULT, ZONESTAT_NAME_VM_DEFAULT);
-	(void) printf(gettext(
+	(void) fprintf(fd, gettext(
 "    %s    Print timestamp. Valid timestamps are:\n"
 "	      \"%s\"\tDate as specifed by date(1) command\n"
 "	      \"%s\"\tUnix time as returned by time(2)\n"
@@ -309,7 +309,7 @@ zonestat_usage(boolean_t explicit)
 	    ZONESTAT_NAME_HIGH,
 	    "-q", "-p");
 
-	(void) printf(gettext(
+	(void) fprintf(fd, gettext(
 "    %s    Select desired lines in parseable output.\n"
 "	      \"%s\"\tLines describing each resource\n"
 "	      \"%s\"\tTotal usage of each resource\n"
@@ -319,7 +319,7 @@ zonestat_usage(boolean_t explicit)
 	    "-P", ZONESTAT_NAME_RESOURCE, ZONESTAT_NAME_TOTAL,
 	    ZONESTAT_NAME_SYSTEM, ZONESTAT_NAME_ZONES, ZONESTAT_NAME_HEADER);
 
-	(void) printf(gettext(
+	(void) fprintf(fd, gettext(
 "    %s    Sort output by the specified columns:\n"
 "	      \"%s\"\tby name alphanumerically\n"
 "	      \"%s\"\tby percent of resource used\n"
@@ -2358,7 +2358,7 @@ main(int argc, char *argv[])
 		}
 	}
 
-	if (opt_line_any & (!opt_parseable)) {
+	if (opt_line_any && (!opt_parseable)) {
 		(void) zonestat_error(gettext("-P requires -p"));
 		return (zonestat_usage(B_FALSE));
 	}

@@ -234,15 +234,15 @@ struct elink_vars;
 struct elink_params;
 struct elink_phy;
 
-typedef u8 (*config_init_t)(struct elink_phy *phy, struct elink_params *params,
-			    struct elink_vars *vars);
-typedef u8 (*read_status_t)(struct elink_phy *phy, struct elink_params *params,
-			    struct elink_vars *vars);
+typedef elink_status_t (*config_init_t)(struct elink_phy *phy,
+    struct elink_params *params, struct elink_vars *vars);
+typedef elink_status_t (*read_status_t)(struct elink_phy *phy,
+    struct elink_params *params, struct elink_vars *vars);
 typedef void (*link_reset_t)(struct elink_phy *phy,
 			     struct elink_params *params);
 typedef void (*config_loopback_t)(struct elink_phy *phy,
 				  struct elink_params *params);
-typedef u8 (*format_fw_ver_t)(u32 raw, u8 *str, u16 *len);
+typedef elink_status_t (*format_fw_ver_t)(u32 raw, u8 *str, u16 *len);
 typedef void (*hw_reset_t)(struct elink_phy *phy, struct elink_params *params);
 typedef void (*set_link_led_t)(struct elink_phy *phy,
 			       struct elink_params *params, u8 mode);
@@ -315,6 +315,19 @@ struct elink_phy {
 #define	ELINK_ETH_PHY_KR		0xf0
 #define	ELINK_ETH_PHY_CX4		0xf1
 #define	ELINK_ETH_PHY_NOT_PRESENT	0xff
+
+	u32 sfp_media;
+#define	ELINK_ETH_SFP_UNKNOWN		0x00
+#define	ELINK_ETH_SFP_DAC		0x01
+#define	ELINK_ETH_SFP_ACC		0x02
+#define	ELINK_ETH_SFP_1GBASE_T		0x03
+#define	ELINK_ETH_SFP_1GBASE_SX		0x04
+#define	ELINK_ETH_SFP_1GBASE_LX		0x05
+#define	ELINK_ETH_SFP_1GBASE_CX		0x06
+#define	ELINK_ETH_SFP_10GBASE_SR	0x07
+#define	ELINK_ETH_SFP_10GBASE_LR	0x09
+#define	ELINK_ETH_SFP_10GBASE_LRM	0x09
+#define	ELINK_ETH_SFP_10GBASE_ER	0x0a
 
 	/* The address in which version is located*/
 	u32 ver_addr;

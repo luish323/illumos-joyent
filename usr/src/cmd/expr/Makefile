@@ -37,7 +37,7 @@ SRCS= expr.c compile.c
 include ../Makefile.cmd
 
 CFLAGS += $(CCVERBOSE)
-CERRWARN += -_gcc=-Wno-uninitialized
+CERRWARN += $(CNOWARN_UNINIT)
 CERRWARN += -_gcc=-Wno-extra
 # "missing type for func"
 SMATCH=off
@@ -49,7 +49,7 @@ XGETFLAGS += -a -x expr.xcl
 LDLIBS += -lgen
 
 MAPFILES =	$(MAPFILE.INT) $(MAPFILE.NGB)
-LDFLAGS +=	$(MAPFILES:%=-M%)
+LDFLAGS +=	$(MAPFILES:%=-Wl,-M%)
 
 .KEEP_STATE:
 
@@ -89,7 +89,5 @@ exprobjs.xpg6:
 
 clean:
 	$(RM) $(OBJS)
-
-lint:	lint_PROG
 
 include ../Makefile.targ

@@ -22,6 +22,8 @@
 # Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
 #
+# Copyright 2020 Joyent, Inc.
+#
 
 .KEEP_STATE:
 .SUFFIXES:
@@ -29,24 +31,18 @@
 include ../../Makefile.cmd
 
 COMMON_DIR=	../common	# for Makefile.com
-SRCS = 		rcapstat.c \
+SRCS =		rcapstat.c \
 		utils.c
-
-LINTSRCS =	$(COMMON_DIR)/utils.c \
-		rcapstat.c \
-		$(STAT_COMMON_SRCS)
 
 STATCOMMONDIR = $(SRC)/cmd/stat/common
 
 STAT_COMMON_OBJS = timestamp.o
 STAT_COMMON_SRCS = $(STAT_COMMON_OBJS:%.o=$(STATCOMMONDIR)/%.c)
 
-$(NOT_RELEASE_BUILD)CPPFLAGS 	+= -DDEBUG
-CPPFLAGS 			+= -I$(COMMON_DIR) -I$(STATCOMMONDIR)
-LDLIBS 				+= -lumem -lzonecfg -lscf
-LDFLAGS				+= $(MAPFILE.NGB:%=-M%)
-
-LINTFLAGS			+= $(LDLIBS) -mnu
+$(NOT_RELEASE_BUILD)CPPFLAGS	+= -DDEBUG
+CPPFLAGS			+= -I$(COMMON_DIR) -I$(STATCOMMONDIR)
+LDLIBS				+= -lumem -lscf
+LDFLAGS				+= $(MAPFILE.NGB:%=-Wl,-M%)
 
 PROG =				rcapstat
 OBJS =				$(SRCS:%.c=%.o) rcapd_conf.o
@@ -54,10 +50,10 @@ OBJS =				$(SRCS:%.c=%.o) rcapd_conf.o
 POFILES =			$(OBJS:%.o=%.po)
 POFILE =			p$(PROG).po
 
-CLOBBERFILES += 		rcapd_conf.c $(POFILES) $(POFILE)
+CLOBBERFILES +=			rcapd_conf.c $(POFILES) $(POFILE)
 
 .NO_PARALLEL:
-.PARALLEL: $(OBJS) $(LINTFILES)
+.PARALLEL: $(OBJS)
 
 all: $(PROG) $(MAPFILE.NGB)
 
@@ -77,9 +73,6 @@ $(POFILE): $(POFILES)
 
 clean:
 	$(RM) $(OBJS) $(STAT_COMMON_OBJS)
-
-lint:
-	$(LINT.c) $(LINTSRCS)
 
 $(ROOTBIN):
 	$(MKDIR) -p $(ROOTBIN)

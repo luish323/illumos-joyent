@@ -81,7 +81,7 @@ static void Encode(uint8_t *, const uint32_t *, size_t);
 		(ctx)->state[3], (ctx)->state[4], (ctx), (in))
 
 static void SHA1Transform(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t,
-    SHA1_CTX *, const uint8_t *);
+    SHA1_CTX *, const uint8_t [64]);
 
 #elif	defined(__amd64)
 
@@ -95,7 +95,7 @@ void sha1_block_data_order(SHA1_CTX *ctx, const void *inpp, size_t num_blocks);
 
 #define	SHA1_TRANSFORM(ctx, in) SHA1Transform((ctx), (in))
 
-static void SHA1Transform(SHA1_CTX *, const uint8_t *);
+static void SHA1Transform(SHA1_CTX *, const uint8_t [64]);
 
 #endif
 
@@ -108,28 +108,6 @@ static uint8_t PADDING[64] = { 0x80, /* all zeros */ };
 #define	F(b, c, d)	(((b) & (c)) | ((~b) & (d)))
 #define	G(b, c, d)	((b) ^ (c) ^ (d))
 #define	H(b, c, d)	(((b) & (c)) | (((b)|(c)) & (d)))
-
-/*
- * ROTATE_LEFT rotates x left n bits.
- */
-
-#if	defined(__GNUC__) && defined(_LP64)
-static __inline__ uint64_t
-ROTATE_LEFT(uint64_t value, uint32_t n)
-{
-	uint32_t t32;
-
-	t32 = (uint32_t)value;
-	return ((t32 << n) | (t32 >> (32 - n)));
-}
-
-#else
-
-#define	ROTATE_LEFT(x, n)	\
-	(((x) << (n)) | ((x) >> ((sizeof (x) * NBBY)-(n))))
-
-#endif
-
 
 /*
  * SHA1Init()
@@ -455,6 +433,25 @@ SHA1Final(void *digest, SHA1_CTX *ctx)
 
 
 #if !defined(__amd64)
+
+/*
+ * ROTATE_LEFT rotates x left n bits.
+ */
+
+#if	defined(__GNUC__) && defined(_LP64)
+static __inline__ uint64_t
+ROTATE_LEFT(uint64_t value, uint32_t n)
+{
+	uint32_t t32;
+
+	t32 = (uint32_t)value;
+	return ((t32 << n) | (t32 >> (32 - n)));
+}
+
+#else
+#define	ROTATE_LEFT(x, n)	\
+	(((x) << (n)) | ((x) >> ((sizeof (x) * NBBY)-(n))))
+#endif
 
 typedef uint32_t sha1word;
 

@@ -38,7 +38,7 @@ CPPFLAGS +=     -D_REENTRANT -I$(SRC)/uts/common/gssapi/include  \
 CFLAGS +=	$(XFFLAG)
 CFLAGS64 +=	$(XFFLAG)
 
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 CERRWARN +=	-_gcc=-Wno-parentheses
 
 # not linted
@@ -46,15 +46,12 @@ SMATCH=off
 
 DYNFLAGS +=	$(ZIGNORE)
 
-LINTSRC=	$(LINTLIB:%.ln=%)
-
 LIBS  = $(DYNLIB)
 
 LDLIBS += -lgss -lnsl -lc
 
 .KEEP_STATE:
 
-lint: lintcheck
 
 # include library targets
 include ../../Makefile.targ

@@ -59,9 +59,9 @@ INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 #
 # Depends on acpica ACPI CA interpreter
 #
-LDFLAGS		+= -dy -N misc/acpica
+LDFLAGS		+= -N misc/acpica
 
-CERRWARN	+= -_gcc=-Wno-uninitialized
+CERRWARN	+= $(CNOWARN_UNINIT)
 CERRWARN	+= -_gcc=-Wno-unused-function
 CERRWARN	+= -_gcc=-Wno-type-limits
 

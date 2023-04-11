@@ -19,7 +19,8 @@
  * CDDL HEADER END
  *
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2017 Nexenta Systems, Inc. All rights reserved.
+ * Copyright 2018 Nexenta Systems, Inc. All rights reserved.
+ * Copyright 2019 RackTop Systems.
  */
 
 /*
@@ -770,6 +771,10 @@ smb_shr_modify(smb_share_t *new_si)
 	si->shr_flags &= ~SMB_SHRF_DFSROOT;
 	si->shr_flags |= flag;
 
+	flag = (new_si->shr_flags & SMB_SHRF_CA);
+	si->shr_flags &= ~SMB_SHRF_CA;
+	si->shr_flags |= flag;
+
 	flag = (new_si->shr_flags & SMB_SHRF_FSO);
 	si->shr_flags &= ~SMB_SHRF_FSO;
 	si->shr_flags |= flag;
@@ -1356,6 +1361,8 @@ smb_shr_cache_create(void)
 			break;
 		}
 
+		(void) ht_set_cmpfn(smb_shr_cache.sc_cache,
+		    (HT_CMP)smb_strcasecmp);
 		(void) ht_register_callback(smb_shr_cache.sc_cache,
 		    smb_shr_cache_freent);
 		smb_shr_cache.sc_nops = 0;
@@ -1458,7 +1465,6 @@ smb_shr_cache_findent(char *sharename)
 {
 	HT_ITEM *item;
 
-	(void) smb_strlwr(sharename);
 	item = ht_find_item(smb_shr_cache.sc_cache, sharename);
 	if (item && item->hi_data)
 		return ((smb_share_t *)item->hi_data);
@@ -1505,8 +1511,6 @@ smb_shr_cache_addent(smb_share_t *si)
 	if ((cache_ent = malloc(sizeof (smb_share_t))) == NULL)
 		return (ERROR_NOT_ENOUGH_MEMORY);
 
-	(void) smb_strlwr(si->shr_name);
-
 	si->shr_type |= smb_shr_is_special(cache_ent->shr_name);
 
 	if (smb_shr_is_admin(cache_ent->shr_name))
@@ -1534,7 +1538,6 @@ smb_shr_cache_addent(smb_share_t *si)
 static void
 smb_shr_cache_delent(char *sharename)
 {
-	(void) smb_strlwr(sharename);
 	(void) ht_remove_item(smb_shr_cache.sc_cache, sharename);
 }
 
@@ -1557,7 +1560,12 @@ smb_shr_cache_freent(HT_ITEM *item)
  */
 
 /*
- * Load shares from sharemgr
+ * Loads the SMB shares, from sharemgr, then:
+ *     - calls smb_shr_add which:
+ *         - adds the share into the share cache
+ *         - adds the share into in-kernel kshare table
+ *         - publishes the share in ADS
+ *     - updates the share list in sharefs/sharetab
  */
 /*ARGSUSED*/
 void *
@@ -1606,6 +1614,41 @@ smb_shr_load_execinfo()
 	(void) smb_config_get_execinfo(smb_shr_exec_map, smb_shr_exec_unmap,
 	    MAXPATHLEN);
 	(void) mutex_unlock(&smb_shr_exec_mtx);
+}
+
+/*
+ * Handles disabling shares in sharefs when stoping smbd
+ */
+void
+smb_shr_unload()
+{
+	smb_shriter_t iterator;
+	smb_share_t *si;
+	sa_handle_t handle;
+	int rc;
+
+	if ((handle = smb_shr_sa_enter()) == NULL) {
+		syslog(LOG_ERR, "smb_shr_unload: failed");
+		return;
+	}
+
+	smb_shr_iterinit(&iterator);
+
+	while ((si = smb_shr_iterate(&iterator)) != NULL) {
+
+		/* Skip transient shares, IPC$, ... */
+		if ((si->shr_flags & SMB_SHRF_TRANS) ||
+		    STYPE_ISIPC(si->shr_type))
+			continue;
+
+		rc = sa_delete_sharetab(handle, si->shr_path, "smb");
+		if (rc) {
+			syslog(LOG_ERR,
+			    "sharefs remove %s failed, rc=%d, err=%d",
+			    si->shr_path, rc, errno);
+		}
+	}
+	smb_shr_sa_exit();
 }
 
 /*
@@ -1662,6 +1705,7 @@ smb_shr_sa_load(sa_share_t share, sa_resource_t resource)
 	char *sharename;
 	uint32_t status;
 	boolean_t loaded;
+	int rc;
 
 	if ((sharename = sa_get_resource_attr(resource, "name")) == NULL)
 		return (NERR_InternalError);
@@ -1683,6 +1727,12 @@ smb_shr_sa_load(sa_share_t share, sa_resource_t resource)
 		syslog(LOG_DEBUG, "share: failed to cache %s (%d)",
 		    si.shr_name, status);
 		return (status);
+	}
+
+	rc = sa_update_sharetab(share, "smb");
+	if (rc) {
+		syslog(LOG_ERR, "sharefs add %s failed, rc=%d, err=%d",
+		    sharename, rc, errno);
 	}
 
 	return (NERR_Success);
@@ -1772,6 +1822,12 @@ smb_shr_sa_get(sa_share_t share, sa_resource_t resource, smb_share_t *si)
 	val = smb_shr_sa_getprop(opts, SHOPT_DFSROOT);
 	if (val != NULL) {
 		smb_shr_sa_setflag(val, si, SMB_SHRF_DFSROOT);
+		free(val);
+	}
+
+	val = smb_shr_sa_getprop(opts, SHOPT_CA);
+	if (val != NULL) {
+		smb_shr_sa_setflag(val, si, SMB_SHRF_CA);
 		free(val);
 	}
 
@@ -2183,11 +2239,13 @@ smb_shr_zfs_add(smb_share_t *si)
 	int ret;
 	char buf[MAXPATHLEN];	/* dataset or mountpoint */
 
-	if (smb_getdataset(si->shr_path, buf, MAXPATHLEN) != 0)
-		return;
-
 	if ((libhd = libzfs_init()) == NULL)
 		return;
+
+	if (smb_getdataset(libhd, si->shr_path, buf, MAXPATHLEN) != 0) {
+		libzfs_fini(libhd);
+		return;
+	}
 
 	if ((zfshd = zfs_open(libhd, buf, ZFS_TYPE_FILESYSTEM)) == NULL) {
 		libzfs_fini(libhd);
@@ -2228,11 +2286,13 @@ smb_shr_zfs_remove(smb_share_t *si)
 	int ret;
 	char buf[MAXPATHLEN];	/* dataset or mountpoint */
 
-	if (smb_getdataset(si->shr_path, buf, MAXPATHLEN) != 0)
-		return;
-
 	if ((libhd = libzfs_init()) == NULL)
 		return;
+
+	if (smb_getdataset(libhd, si->shr_path, buf, MAXPATHLEN) != 0) {
+		libzfs_fini(libhd);
+		return;
+	}
 
 	errno = 0;
 	ret = zfs_smb_acl_remove(libhd, buf, si->shr_path, si->shr_name);
@@ -2261,11 +2321,13 @@ smb_shr_zfs_rename(smb_share_t *from, smb_share_t *to)
 	int ret;
 	char dataset[MAXPATHLEN];
 
-	if (smb_getdataset(from->shr_path, dataset, MAXPATHLEN) != 0)
-		return;
-
 	if ((libhd = libzfs_init()) == NULL)
 		return;
+
+	if (smb_getdataset(libhd, from->shr_path, dataset, MAXPATHLEN) != 0) {
+		libzfs_fini(libhd);
+		return;
+	}
 
 	if ((zfshd = zfs_open(libhd, dataset, ZFS_TYPE_FILESYSTEM)) == NULL) {
 		libzfs_fini(libhd);
@@ -2564,6 +2626,8 @@ smb_shr_encode(smb_share_t *si, nvlist_t **nvlist)
 		rc |= nvlist_add_string(smb, SHOPT_GUEST, "true");
 	if ((si->shr_flags & SMB_SHRF_DFSROOT) != 0)
 		rc |= nvlist_add_string(smb, SHOPT_DFSROOT, "true");
+	if ((si->shr_flags & SMB_SHRF_CA) != 0)
+		rc |= nvlist_add_string(smb, SHOPT_CA, "true");
 	if ((si->shr_flags & SMB_SHRF_FSO) != 0)
 		rc |= nvlist_add_string(smb, SHOPT_FSO, "true");
 	if ((si->shr_flags & SMB_SHRF_QUOTAS) != 0)

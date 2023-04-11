@@ -24,7 +24,7 @@
  */
 
 /*
- * Copyright (c) 2017, Joyent, Inc.
+ * Copyright 2022 Joyent, Inc.
  */
 
 #include <sys/errno.h>
@@ -57,8 +57,16 @@
 #include <sys/sysmacros.h>
 
 /* Linux specific functions and definitions */
-static void lx_save(klwp_t *);
-static void lx_restore(klwp_t *);
+static void lx_save(void *);
+static void lx_restore(void *);
+
+/* Context op template. */
+static const struct ctxop_template lx_ctxop_template = {
+	.ct_rev		= CTXOP_TPL_REV,
+	.ct_save	= lx_save,
+	.ct_restore	= lx_restore,
+	.ct_exit	= lx_save,
+};
 
 /*
  * Set the return code for the forked child, always zero
@@ -89,7 +97,7 @@ lx_exec()
 	 * Any l_handler handlers set as a result of B_REGISTER are now
 	 * invalid; clear them.
 	 */
-	pd->l_handler = NULL;
+	pd->l_handler = (uintptr_t)NULL;
 
 	/*
 	 * If this was a multi-threaded Linux process and this lwp wasn't the
@@ -107,10 +115,10 @@ lx_exec()
 	(void) lx_ptrace_stop_for_option(LX_PTRACE_O_TRACEEXEC, B_FALSE, 0, 0);
 
 	/* clear the fs/gsbase values until the app. can reinitialize them */
-	lwpd->br_lx_fsbase = NULL;
-	lwpd->br_ntv_fsbase = NULL;
-	lwpd->br_lx_gsbase = NULL;
-	lwpd->br_ntv_gsbase = NULL;
+	lwpd->br_lx_fsbase = (uintptr_t)NULL;
+	lwpd->br_ntv_fsbase = (uintptr_t)NULL;
+	lwpd->br_lx_gsbase = (uintptr_t)NULL;
+	lwpd->br_ntv_gsbase = (uintptr_t)NULL;
 
 	/*
 	 * Clear the native stack flags.  This will be reinitialised by
@@ -120,8 +128,7 @@ lx_exec()
 	lwpd->br_ntv_stack = 0;
 	lwpd->br_ntv_stack_current = 0;
 
-	installctx(lwptot(lwp), lwp, lx_save, lx_restore, NULL, NULL, lx_save,
-	    NULL);
+	ctxop_install(lwptot(lwp), &lx_ctxop_template, lwp);
 
 	/*
 	 * clear out the tls array
@@ -134,11 +141,6 @@ lx_exec()
 	kpreempt_disable();
 	lx_restore(lwp);
 	kpreempt_enable();
-
-	/* Grab the updated argv bounds */
-	mutex_enter(&p->p_lock);
-	lx_read_argv_bounds(p);
-	mutex_exit(&p->p_lock);
 
 	/*
 	 * The exec syscall doesn't return (so we don't call lx_syscall_return)
@@ -227,7 +229,7 @@ lx_exitlwp(klwp_t *lwp)
 	if (lwpd->br_clear_ctidp != NULL) {
 		(void) suword32(lwpd->br_clear_ctidp, 0);
 		(void) lx_futex((uintptr_t)lwpd->br_clear_ctidp, FUTEX_WAKE, 1,
-		    NULL, NULL, 0);
+		    (uintptr_t)NULL, (uintptr_t)NULL, 0);
 		lwpd->br_clear_ctidp = NULL;
 	}
 
@@ -351,8 +353,12 @@ lx_freelwp(klwp_t *lwp)
 	 */
 	lwp->lwp_brand_syscall = NULL;
 
-	(void) removectx(lwptot(lwp), lwp, lx_save, lx_restore, NULL, NULL,
-	    lx_save, NULL);
+	/*
+	 * If this process is being de-branded during an exec(),
+	 * the LX ctxops may have already been removed, so the result
+	 * from ctxop_remove is irrelevant.
+	 */
+	(void) ctxop_remove(lwptot(lwp), &lx_ctxop_template, lwp);
 	if (lwpd->br_pid != 0) {
 		lx_pid_rele(lwptoproc(lwp)->p_pid, lwptot(lwp)->t_tid);
 	}
@@ -503,8 +509,7 @@ lx_initlwp(klwp_t *lwp, void *lwpbd)
 	 */
 	lwpd->br_lpid = NULL;
 
-	installctx(lwptot(lwp), lwp, lx_save, lx_restore, NULL, NULL,
-	    lx_save, NULL);
+	ctxop_install(lwptot(lwp), &lx_ctxop_template, lwp);
 
 	/*
 	 * Install branded system call hooks for this LWP:
@@ -618,7 +623,7 @@ lx_forklwp(klwp_t *srclwp, klwp_t *dstlwp)
  */
 /* ARGSUSED */
 static void
-lx_save(klwp_t *t)
+lx_save(void *arg)
 {
 	int i;
 
@@ -638,8 +643,9 @@ lx_save(klwp_t *t)
  * is the case then pcb_rupdate should be set.
  */
 static void
-lx_restore(klwp_t *t)
+lx_restore(void *arg)
 {
+	klwp_t *t = (klwp_t *)arg;
 	struct lx_lwp_data *lwpd = lwptolxlwp(t);
 	user_desc_t *tls;
 	int i;
@@ -712,7 +718,7 @@ lx_fsbase(klwp_t *lwp, uintptr_t fsbase)
 	lx_lwp_data_t *lwpd = lwp->lwp_brand;
 
 	if (lwpd->br_stack_mode != LX_STACK_MODE_BRAND ||
-	    lwpd->br_ntv_fsbase == NULL) {
+	    lwpd->br_ntv_fsbase == (uintptr_t)NULL) {
 		return (fsbase);
 	}
 
@@ -1058,72 +1064,6 @@ stol_ksiginfo32_copyout(k_siginfo_t *sip, void *ulxsip)
 }
 #endif
 
-/*
- * Linux uses the original bounds of the argv array when determining the
- * contents of /proc/<pid/cmdline.  We mimic those bounds using argv[0] and
- * envp[0] as the beginning and end, respectively.
- */
-void
-lx_read_argv_bounds(proc_t *p)
-{
-	user_t *up = PTOU(p);
-	lx_proc_data_t *pd = ptolxproc(p);
-	uintptr_t addr_arg = up->u_argv;
-	uintptr_t addr_env = up->u_envp;
-	uintptr_t arg_start = 0, env_start = 0, env_end = 0;
-	int i = 0;
-
-	VERIFY(pd != NULL);
-	VERIFY(MUTEX_HELD(&p->p_lock));
-
-	/*
-	 * Use AT_SUN_PLATFORM in the aux vector to find the end of the envp
-	 * strings.
-	 */
-	for (i = 0; i < __KERN_NAUXV_IMPL; i++) {
-		if (up->u_auxv[i].a_type == AT_SUN_PLATFORM) {
-			env_end = (uintptr_t)up->u_auxv[i].a_un.a_val;
-		}
-	}
-
-	/*
-	 * If we come through here for a kernel process (zsched), which happens
-	 * with our cgroupfs when we fork the release agent, then u_argv and
-	 * u_envp will be NULL. While this won't cause a failure, it does
-	 * cause a lot of overhead when the fuword causes a fault, which leads
-	 * to a large amount of stack growth and anonymous memory allocation,
-	 * all of which is pointless since the first page can't be mapped.
-	 */
-	if (addr_arg != NULL || addr_env != NULL) {
-		mutex_exit(&p->p_lock);
-#if defined(_LP64)
-		if (p->p_model != DATAMODEL_NATIVE) {
-			uint32_t buf32;
-			if (fuword32((void *)addr_arg, &buf32) == 0) {
-				arg_start = (uintptr_t)buf32;
-			}
-			if (fuword32((void *)addr_env, &buf32) == 0) {
-				env_start = (uintptr_t)buf32;
-			}
-		} else
-#endif /* defined(_LP64) */
-		{
-			ulong_t buf;
-			if (fulword((void *)addr_arg, &buf) == 0) {
-				arg_start = (uintptr_t)buf;
-			}
-			if (fulword((void *)addr_env, &buf) == 0) {
-				env_start = (uintptr_t)buf;
-			}
-		}
-		mutex_enter(&p->p_lock);
-	}
-
-	pd->l_args_start = arg_start;
-	pd->l_envs_start = env_start;
-	pd->l_envs_end = env_end;
-}
-
 /* Given an LX LWP, determine where user register state is stored. */
 lx_regs_location_t
 lx_regs_location(lx_lwp_data_t *lwpd, void **ucp, boolean_t for_write)
@@ -1180,7 +1120,7 @@ lx_regs_location(lx_lwp_data_t *lwpd, void **ucp, boolean_t for_write)
 		break;
 	}
 
-	if (lwpd->br_ptrace_stopucp != NULL) {
+	if (lwpd->br_ptrace_stopucp != (uintptr_t)NULL) {
 		/*
 		 * The LWP was stopped in the usermode emulation library
 		 * but a ucontext_t for the preserved brand stack and

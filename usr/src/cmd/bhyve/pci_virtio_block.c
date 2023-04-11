@@ -3,7 +3,7 @@
  *
  * Copyright (c) 2011 NetApp, Inc.
  * All rights reserved.
- * Copyright (c) 2019 Joyent, Inc.
+ * Copyright 2020-2021 Joyent, Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,7 +39,6 @@
  * http://www.illumos.org/license/CDDL.
  *
  * Copyright 2014 Pluribus Networks Inc.
- * Copyright 2018 Joyent, Inc.
  */
 
 #include <sys/cdefs.h>
@@ -65,35 +64,60 @@ __FBSDID("$FreeBSD$");
 #include <md5.h>
 
 #include "bhyverun.h"
+#include "config.h"
+#include "debug.h"
 #include "pci_emul.h"
 #include "virtio.h"
 #include "block_if.h"
 
-#define VTBLK_RINGSZ	128
+#define	VTBLK_BSIZE	512
+#define	VTBLK_RINGSZ	128
 
 _Static_assert(VTBLK_RINGSZ <= BLOCKIF_RING_MAX, "Each ring entry must be able to queue a request");
 
-#define VTBLK_S_OK	0
-#define VTBLK_S_IOERR	1
+#define	VTBLK_S_OK	0
+#define	VTBLK_S_IOERR	1
 #define	VTBLK_S_UNSUPP	2
 
 #define	VTBLK_BLK_ID_BYTES	20 + 1
 
 /* Capability bits */
-#define	VTBLK_F_SEG_MAX		(1 << 2)	/* Maximum request segments */
-#define	VTBLK_F_BLK_SIZE	(1 << 6)	/* cfg block size valid */
-#define	VTBLK_F_FLUSH		(1 << 9)	/* Cache flush support */
-#define	VTBLK_F_TOPOLOGY	(1 << 10)	/* Optimal I/O alignment */
+#define	VTBLK_F_BARRIER		(1 << 0)	/* Does host support barriers? */
+#define	VTBLK_F_SIZE_MAX	(1 << 1)	/* Indicates maximum segment size */
+#define	VTBLK_F_SEG_MAX		(1 << 2)	/* Indicates maximum # of segments */
+#define	VTBLK_F_GEOMETRY	(1 << 4)	/* Legacy geometry available  */
+#define	VTBLK_F_RO		(1 << 5)	/* Disk is read-only */
+#define	VTBLK_F_BLK_SIZE	(1 << 6)	/* Block size of disk is available*/
+#define	VTBLK_F_SCSI		(1 << 7)	/* Supports scsi command passthru */
+#define	VTBLK_F_FLUSH		(1 << 9)	/* Writeback mode enabled after reset */
+#define	VTBLK_F_WCE		(1 << 9)	/* Legacy alias for FLUSH */
+#define	VTBLK_F_TOPOLOGY	(1 << 10)	/* Topology information is available */
+#define	VTBLK_F_CONFIG_WCE	(1 << 11)	/* Writeback mode available in config */
+#define	VTBLK_F_MQ		(1 << 12)	/* Multi-Queue */
+#define	VTBLK_F_DISCARD		(1 << 13)	/* Trim blocks */
+#define	VTBLK_F_WRITE_ZEROES	(1 << 14)	/* Write zeros */
 
 /*
  * Host capabilities
  */
-#define VTBLK_S_HOSTCAPS      \
+#define	VTBLK_S_HOSTCAPS      \
   ( VTBLK_F_SEG_MAX  |						    \
     VTBLK_F_BLK_SIZE |						    \
     VTBLK_F_FLUSH    |						    \
     VTBLK_F_TOPOLOGY |						    \
     VIRTIO_RING_F_INDIRECT_DESC )	/* indirect descriptors */
+
+/*
+ * The current blockif_delete() interface only allows a single delete
+ * request at a time.
+ */
+#define	VTBLK_MAX_DISCARD_SEG	1
+
+/*
+ * An arbitrary limit to prevent excessive latency due to large
+ * delete requests.
+ */
+#define	VTBLK_MAX_DISCARD_SECT	((16 << 20) / VTBLK_BSIZE)	/* 16 MiB */
 
 /*
  * Config space "registers"
@@ -115,6 +139,15 @@ struct vtblk_config {
 		uint32_t opt_io_size;
 	} vbc_topology;
 	uint8_t		vbc_writeback;
+	uint8_t		unused0[1];
+	uint16_t	num_queues;
+	uint32_t	max_discard_sectors;
+	uint32_t	max_discard_seg;
+	uint32_t	discard_sector_alignment;
+	uint32_t	max_write_zeroes_sectors;
+	uint32_t	max_write_zeroes_seg;
+	uint8_t		write_zeroes_may_unmap;
+	uint8_t		unused1[3];
 } __packed;
 
 /*
@@ -123,9 +156,14 @@ struct vtblk_config {
 struct virtio_blk_hdr {
 #define	VBH_OP_READ		0
 #define	VBH_OP_WRITE		1
+#define	VBH_OP_SCSI_CMD		2
+#define	VBH_OP_SCSI_CMD_OUT	3
 #define	VBH_OP_FLUSH		4
 #define	VBH_OP_FLUSH_OUT	5
 #define	VBH_OP_IDENT		8
+#define	VBH_OP_DISCARD		11
+#define	VBH_OP_WRITE_ZEROES	13
+
 #define	VBH_FLAG_BARRIER	0x80000000	/* OR'ed into vbh_type */
 	uint32_t	vbh_type;
 	uint32_t	vbh_ioprio;
@@ -136,14 +174,23 @@ struct virtio_blk_hdr {
  * Debug printf
  */
 static int pci_vtblk_debug;
-#define DPRINTF(params) if (pci_vtblk_debug) printf params
-#define WPRINTF(params) printf params
+#define	DPRINTF(params) if (pci_vtblk_debug) PRINTLN params
+#define	WPRINTF(params) PRINTLN params
 
 struct pci_vtblk_ioreq {
 	struct blockif_req		io_req;
 	struct pci_vtblk_softc		*io_sc;
 	uint8_t				*io_status;
 	uint16_t			io_idx;
+};
+
+struct virtio_blk_discard_write_zeroes {
+	uint64_t	sector;
+	uint32_t	num_sectors;
+	struct {
+		uint32_t unmap:1;
+		uint32_t reserved:31;
+	} flags;
 };
 
 /*
@@ -154,6 +201,7 @@ struct pci_vtblk_softc {
 	pthread_mutex_t vsc_mtx;
 	struct vqueue_info vbsc_vq;
 	struct vtblk_config vbsc_cfg;
+	struct virtio_consts vbsc_consts;
 	struct blockif_ctxt *bc;
 #ifndef __FreeBSD__
 	int vbsc_wce;
@@ -171,19 +219,19 @@ static void pci_vtblk_apply_feats(void *, uint64_t);
 #endif
 
 static struct virtio_consts vtblk_vi_consts = {
-	"vtblk",		/* our name */
-	1,			/* we support 1 virtqueue */
-	sizeof(struct vtblk_config),	/* config reg size */
-	pci_vtblk_reset,	/* reset */
-	pci_vtblk_notify,	/* device-wide qnotify */
-	pci_vtblk_cfgread,	/* read PCI config */
-	pci_vtblk_cfgwrite,	/* write PCI config */
+	.vc_name =	"vtblk",
+	.vc_nvq =	1,
+	.vc_cfgsize =	sizeof(struct vtblk_config),
+	.vc_reset =	pci_vtblk_reset,
+	.vc_qnotify =	pci_vtblk_notify,
+	.vc_cfgread =	pci_vtblk_cfgread,
+	.vc_cfgwrite =	pci_vtblk_cfgwrite,
 #ifndef __FreeBSD__
-	pci_vtblk_apply_feats,	/* apply negotiated features */
+	.vc_apply_features = pci_vtblk_apply_feats,
 #else
-	NULL,			/* apply negotiated features */
+	.vc_apply_features = NULL,
 #endif
-	VTBLK_S_HOSTCAPS,	/* our capabilities */
+	.vc_hv_caps =	VTBLK_S_HOSTCAPS,
 };
 
 static void
@@ -191,7 +239,7 @@ pci_vtblk_reset(void *vsc)
 {
 	struct pci_vtblk_softc *sc = vsc;
 
-	DPRINTF(("vtblk: device reset requested !\n"));
+	DPRINTF(("vtblk: device reset requested !"));
 	vi_reset_dev(&sc->vbsc_vs);
 #ifndef __FreeBSD__
 	/* Disable write cache until FLUSH feature is negotiated */
@@ -241,10 +289,11 @@ pci_vtblk_proc(struct pci_vtblk_softc *sc, struct vqueue_info *vq)
 	int err;
 	ssize_t iolen;
 	int writeop, type;
+	struct vi_req req;
 	struct iovec iov[BLOCKIF_IOV_MAX + 2];
-	uint16_t idx, flags[BLOCKIF_IOV_MAX + 2];
+	struct virtio_blk_discard_write_zeroes *discard;
 
-	n = vq_getchain(vq, &idx, iov, BLOCKIF_IOV_MAX + 2, flags);
+	n = vq_getchain(vq, iov, BLOCKIF_IOV_MAX + 2, &req);
 
 	/*
 	 * The first descriptor will be the read-only fixed header,
@@ -256,16 +305,16 @@ pci_vtblk_proc(struct pci_vtblk_softc *sc, struct vqueue_info *vq)
 	 */
 	assert(n >= 2 && n <= BLOCKIF_IOV_MAX + 2);
 
-	io = &sc->vbsc_ios[idx];
-	assert((flags[0] & VRING_DESC_F_WRITE) == 0);
+	io = &sc->vbsc_ios[req.idx];
+	assert(req.readable != 0);
 	assert(iov[0].iov_len == sizeof(struct virtio_blk_hdr));
 	vbh = (struct virtio_blk_hdr *)iov[0].iov_base;
 	memcpy(&io->io_req.br_iov, &iov[1], sizeof(struct iovec) * (n - 2));
 	io->io_req.br_iovcnt = n - 2;
-	io->io_req.br_offset = vbh->vbh_sector * DEV_BSIZE;
+	io->io_req.br_offset = vbh->vbh_sector * VTBLK_BSIZE;
 	io->io_status = (uint8_t *)iov[--n].iov_base;
+	assert(req.writable != 0);
 	assert(iov[n].iov_len == 1);
-	assert(flags[n] & VRING_DESC_F_WRITE);
 
 	/*
 	 * XXX
@@ -273,23 +322,24 @@ pci_vtblk_proc(struct pci_vtblk_softc *sc, struct vqueue_info *vq)
 	 * we don't advertise the capability.
 	 */
 	type = vbh->vbh_type & ~VBH_FLAG_BARRIER;
-	writeop = (type == VBH_OP_WRITE);
+	writeop = (type == VBH_OP_WRITE || type == VBH_OP_DISCARD);
+	/*
+	 * - Write op implies read-only descriptor
+	 * - Read/ident op implies write-only descriptor
+	 *
+	 * By taking away either the read-only fixed header or the write-only
+	 * status iovec, the following condition should hold true.
+	 */
+	assert(n == (writeop ? req.readable : req.writable));
 
 	iolen = 0;
 	for (i = 1; i < n; i++) {
-		/*
-		 * - write op implies read-only descriptor,
-		 * - read/ident op implies write-only descriptor,
-		 * therefore test the inverse of the descriptor bit
-		 * to the op.
-		 */
-		assert(((flags[i] & VRING_DESC_F_WRITE) == 0) == writeop);
 		iolen += iov[i].iov_len;
 	}
 	io->io_req.br_resid = iolen;
 
-	DPRINTF(("virtio-block: %s op, %zd bytes, %d segs, offset %ld\n\r",
-		 writeop ? "write" : "read/ident", iolen, i - 1,
+	DPRINTF(("virtio-block: %s op, %zd bytes, %d segs, offset %ld",
+		 writeop ? "write/discard" : "read/ident", iolen, i - 1,
 		 io->io_req.br_offset));
 
 	switch (type) {
@@ -298,6 +348,46 @@ pci_vtblk_proc(struct pci_vtblk_softc *sc, struct vqueue_info *vq)
 		break;
 	case VBH_OP_WRITE:
 		err = blockif_write(sc->bc, &io->io_req);
+		break;
+	case VBH_OP_DISCARD:
+		/*
+		 * We currently only support a single request, if the guest
+		 * has submitted a request that doesn't conform to the
+		 * requirements, we return a error.
+		 */
+		if (iov[1].iov_len != sizeof (*discard)) {
+			pci_vtblk_done_locked(io, EINVAL);
+			return;
+		}
+
+		/* The segments to discard are provided rather than data */
+		discard = (struct virtio_blk_discard_write_zeroes *)
+		    iov[1].iov_base;
+
+		/*
+		 * virtio v1.1 5.2.6.2:
+		 * The device MUST set the status byte to VIRTIO_BLK_S_UNSUPP
+		 * for discard and write zeroes commands if any unknown flag is
+		 * set. Furthermore, the device MUST set the status byte to
+		 * VIRTIO_BLK_S_UNSUPP for discard commands if the unmap flag
+		 * is set.
+		 *
+		 * Currently there are no known flags for a DISCARD request.
+		 */
+		if (discard->flags.unmap != 0 || discard->flags.reserved != 0) {
+			pci_vtblk_done_locked(io, ENOTSUP);
+			return;
+		}
+
+		/* Make sure the request doesn't exceed our size limit */
+		if (discard->num_sectors > VTBLK_MAX_DISCARD_SECT) {
+			pci_vtblk_done_locked(io, EINVAL);
+			return;
+		}
+
+		io->io_req.br_offset = discard->sector * VTBLK_BSIZE;
+		io->io_req.br_resid = discard->num_sectors * VTBLK_BSIZE;
+		err = blockif_delete(sc->bc, &io->io_req);
 		break;
 	case VBH_OP_FLUSH:
 	case VBH_OP_FLUSH_OUT:
@@ -327,27 +417,37 @@ pci_vtblk_notify(void *vsc, struct vqueue_info *vq)
 		pci_vtblk_proc(sc, vq);
 }
 
-static int
-pci_vtblk_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts)
+static void
+pci_vtblk_resized(struct blockif_ctxt *bctxt __unused, void *arg,
+    size_t new_size)
 {
-	char bident[sizeof("XX:X:X")];
+	struct pci_vtblk_softc *sc;
+
+	sc = arg;
+
+	sc->vbsc_cfg.vbc_capacity = new_size / VTBLK_BSIZE; /* 512-byte units */
+	vi_interrupt(&sc->vbsc_vs, VIRTIO_PCI_ISR_CONFIG,
+	    sc->vbsc_vs.vs_msix_cfg_idx);
+}
+
+static int
+pci_vtblk_init(struct vmctx *ctx __unused, struct pci_devinst *pi,
+    nvlist_t *nvl)
+{
+	char bident[sizeof("XXX:XXX")];
 	struct blockif_ctxt *bctxt;
+	const char *path, *serial;
 	MD5_CTX mdctx;
 	u_char digest[16];
 	struct pci_vtblk_softc *sc;
 	off_t size;
 	int i, sectsz, sts, sto;
 
-	if (opts == NULL) {
-		printf("virtio-block: backing device required\n");
-		return (1);
-	}
-
 	/*
 	 * The supplied backing file has to exist
 	 */
-	snprintf(bident, sizeof(bident), "%d:%d", pi->pi_slot, pi->pi_func);
-	bctxt = blockif_open(opts, bident);
+	snprintf(bident, sizeof(bident), "%u:%u", pi->pi_slot, pi->pi_func);
+	bctxt = blockif_open(nvl, bident);
 	if (bctxt == NULL) {
 		perror("Could not open backing file");
 		return (1);
@@ -367,6 +467,10 @@ pci_vtblk_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts)
 		io->io_idx = i;
 	}
 
+	bcopy(&vtblk_vi_consts, &sc->vbsc_consts, sizeof (vtblk_vi_consts));
+	if (blockif_candelete(sc->bc))
+		sc->vbsc_consts.vc_hv_caps |= VTBLK_F_DISCARD;
+
 #ifndef __FreeBSD__
 	/* Disable write cache until FLUSH feature is negotiated */
 	(void) blockif_set_wce(sc->bc, 0);
@@ -376,25 +480,33 @@ pci_vtblk_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts)
 	pthread_mutex_init(&sc->vsc_mtx, NULL);
 
 	/* init virtio softc and virtqueues */
-	vi_softc_linkup(&sc->vbsc_vs, &vtblk_vi_consts, sc, pi, &sc->vbsc_vq);
+	vi_softc_linkup(&sc->vbsc_vs, &sc->vbsc_consts, sc, pi, &sc->vbsc_vq);
 	sc->vbsc_vs.vs_mtx = &sc->vsc_mtx;
 
 	sc->vbsc_vq.vq_qsize = VTBLK_RINGSZ;
 	/* sc->vbsc_vq.vq_notify = we have no per-queue notify */
 
 	/*
-	 * Create an identifier for the backing file. Use parts of the
-	 * md5 sum of the filename
+	 * If an explicit identifier is not given, create an
+	 * identifier using parts of the md5 sum of the filename.
 	 */
-	MD5Init(&mdctx);
-	MD5Update(&mdctx, opts, strlen(opts));
-	MD5Final(digest, &mdctx);
-	snprintf(sc->vbsc_ident, VTBLK_BLK_ID_BYTES,
-	    "BHYVE-%02X%02X-%02X%02X-%02X%02X",
-	    digest[0], digest[1], digest[2], digest[3], digest[4], digest[5]);
+	bzero(sc->vbsc_ident, VTBLK_BLK_ID_BYTES);
+	if ((serial = get_config_value_node(nvl, "serial")) != NULL ||
+	    (serial = get_config_value_node(nvl, "ser")) != NULL) {
+		strlcpy(sc->vbsc_ident, serial, VTBLK_BLK_ID_BYTES);
+	} else {
+		path = get_config_value_node(nvl, "path");
+		MD5Init(&mdctx);
+		MD5Update(&mdctx, path, strlen(path));
+		MD5Final(digest, &mdctx);
+		snprintf(sc->vbsc_ident, VTBLK_BLK_ID_BYTES,
+		    "BHYVE-%02X%02X-%02X%02X-%02X%02X",
+		    digest[0], digest[1], digest[2], digest[3], digest[4],
+		    digest[5]);
+	}
 
 	/* setup virtio block config space */
-	sc->vbsc_cfg.vbc_capacity = size / DEV_BSIZE; /* 512-byte units */
+	sc->vbsc_cfg.vbc_capacity = size / VTBLK_BSIZE; /* 512-byte units */
 	sc->vbsc_cfg.vbc_size_max = 0;	/* not negotiated */
 
 	/*
@@ -416,6 +528,9 @@ pci_vtblk_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts)
 	sc->vbsc_cfg.vbc_topology.min_io_size = 0;
 	sc->vbsc_cfg.vbc_topology.opt_io_size = 0;
 	sc->vbsc_cfg.vbc_writeback = 0;
+	sc->vbsc_cfg.max_discard_sectors = VTBLK_MAX_DISCARD_SECT;
+	sc->vbsc_cfg.max_discard_seg = VTBLK_MAX_DISCARD_SEG;
+	sc->vbsc_cfg.discard_sector_alignment = MAX(sectsz, sts) / VTBLK_BSIZE;
 
 	/*
 	 * Should we move some of this into virtio.c?  Could
@@ -425,7 +540,7 @@ pci_vtblk_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts)
 	pci_set_cfgdata16(pi, PCIR_DEVICE, VIRTIO_DEV_BLOCK);
 	pci_set_cfgdata16(pi, PCIR_VENDOR, VIRTIO_VENDOR);
 	pci_set_cfgdata8(pi, PCIR_CLASS, PCIC_STORAGE);
-	pci_set_cfgdata16(pi, PCIR_SUBDEV_0, VIRTIO_TYPE_BLOCK);
+	pci_set_cfgdata16(pi, PCIR_SUBDEV_0, VIRTIO_ID_BLOCK);
 	pci_set_cfgdata16(pi, PCIR_SUBVEND_0, VIRTIO_VENDOR);
 
 	if (vi_intr_init(&sc->vbsc_vs, 1, fbsdrun_virtio_msix())) {
@@ -434,14 +549,16 @@ pci_vtblk_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts)
 		return (1);
 	}
 	vi_set_io_bar(&sc->vbsc_vs, 0);
+	blockif_register_resize_callback(sc->bc, pci_vtblk_resized, sc);
 	return (0);
 }
 
 static int
-pci_vtblk_cfgwrite(void *vsc, int offset, int size, uint32_t value)
+pci_vtblk_cfgwrite(void *vsc __unused, int offset, int size __unused,
+    uint32_t value __unused)
 {
 
-	DPRINTF(("vtblk: write to readonly reg %d\n\r", offset));
+	DPRINTF(("vtblk: write to readonly reg %d", offset));
 	return (1);
 }
 
@@ -471,10 +588,11 @@ pci_vtblk_apply_feats(void *vsc, uint64_t caps)
 }
 #endif /* __FreeBSD__ */
 
-struct pci_devemu pci_de_vblk = {
+static const struct pci_devemu pci_de_vblk = {
 	.pe_emu =	"virtio-blk",
 	.pe_init =	pci_vtblk_init,
+	.pe_legacy_config = blockif_legacy_config,
 	.pe_barwrite =	vi_pci_write,
-	.pe_barread =	vi_pci_read
+	.pe_barread =	vi_pci_read,
 };
 PCI_EMUL_SET(pci_de_vblk);

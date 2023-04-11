@@ -22,6 +22,7 @@
 #
 # Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
+# Copyright 2019 Peter Tribble.
 #
 # uts/sun/Makefile.files
 #
@@ -55,33 +56,20 @@ SBUSMEM_OBJS +=	sbusmem.o
 
 SD_OBJS +=	sd.o sd_xbuf.o
 
-SF_OBJS +=	sf.o
-
-SOCAL_OBJS +=	socal.o socal_ucode.o
-
 CMLB_OBJS +=	cmlb.o
 
 DADA_OBJS +=	dcd_hba.o       dcd_transport.o \
 		dcd_control.o   dcd_resource.o  dcd_confsubr.o dcd_subr.o \
 		dcd_confdata.o
 
-SSD_OBJS +=	sd.o sd_xbuf.o
-
-WSDRV_OBJS += 	wsdrv.o
+WSDRV_OBJS +=	wsdrv.o
 
 ZS_OBJS +=	zs_async.o	zs_common.o
 
 ZSH_OBJS +=	zs_hdlc.o
 
 #
-#			streams modules
-#
-
-TTYMUX_OBJS +=	ttymux.o ttymux_ioctl.o
-
-#
 #	Section 3:	Misc.
 #
-LINT_DEFS	+= -Dsun
 
 INC_PATH	+= -I$(UTSBASE)/sun

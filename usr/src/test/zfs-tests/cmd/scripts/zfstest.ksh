@@ -14,13 +14,16 @@
 #
 # Copyright (c) 2012, 2016 by Delphix. All rights reserved.
 # Copyright 2014, OmniTI Computer Consulting, Inc. All rights reserved.
-# Copyright 2016 Nexenta Systems, Inc.
 # Copyright 2019 Joyent, Inc.
+# Copyright 2021 Tintri by DDN, Inc. All rights reserved.
+# Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2022 MNX Cloud, Inc.
 #
 
 export PATH="/usr/bin"
 export NOINUSE_CHECK=1
 export STF_SUITE="/opt/zfs-tests"
+export COMMON="$STF_SUITE/runfiles/common.run"
 export STF_TOOLS="/opt/test-runner/stf"
 export PATHDIR=""
 runner="/opt/test-runner/bin/run"
@@ -41,7 +44,7 @@ function find_disks
 	typeset all_disks=$(echo '' | sudo -k format | awk \
 	    '/c[0-9]/ {print $2}')
 	typeset used_disks=$(zpool status | awk \
-	    '/c[0-9]+(t[0-9a-f]+)?d[0-9]+/ {print $1}' | sed -E \
+	    '/c[0-9]+(t[0-9a-fA-F]+)?d[0-9]+/ {print $1}' | sed -E \
 	    's/(s|p)[0-9]+//g')
 
 	typeset disk used avail_disks
@@ -75,7 +78,7 @@ function find_runfile
 		distro=smartos
 	fi
 
-	[[ -n $distro ]] && echo $STF_SUITE/runfiles/$distro.run
+	[[ -n $distro ]] && echo $COMMON,$STF_SUITE/runfiles/$distro.run
 }
 
 function verify_id
@@ -130,10 +133,10 @@ function constrain_path
 	# Special case links
 	ln -s /usr/gnu/bin/dd $PATHDIR/gnu_dd
 
-	# SmartOS does not ship some required packages by default.
+	# SmartOS does not ship some required commands by default.
 	# Link to them in the package manager's namespace.
-	pkgsrc_bin=/opt/local/bin
-	pkgsrc_packages="sudo truncate python base64"
+	pkgsrc_bin=/opt/tools/bin
+	pkgsrc_packages="sudo truncate python base64 shuf sha256sum"
 	for pkg in $pkgsrc_packages; do
 		if [[ ! -x $PATHDIR/$pkg ]]; then
 			rm $PATHDIR/$pkg &&
@@ -147,7 +150,7 @@ constrain_path
 export PATH=$PATHDIR
 
 verify_id
-while getopts ac:q c; do
+while getopts ac:l:qT: c; do
 	case $c in
 	'a')
 		auto_detect=true
@@ -155,9 +158,22 @@ while getopts ac:q c; do
 	'c')
 		runfile=$OPTARG
 		[[ -f $runfile ]] || fail "Cannot read file: $runfile"
+		if [[ -z $runfiles ]]; then
+			runfiles=$runfile
+		else
+			runfiles+=",$runfile"
+		fi
+		;;
+	'l')
+		logfile=$OPTARG
+		[[ -f $logfile ]] || fail "Cannot read file: $logfile"
+		xargs+=" -l $logfile"
 		;;
 	'q')
-		quiet='-q'
+		xargs+=" -q"
+		;;
+	'T')
+		xargs+=" -T $OPTARG"
 		;;
 	esac
 done
@@ -183,8 +199,8 @@ fi
 export __ZFS_POOL_EXCLUDE="$KEEP"
 export KEEP="^$(echo $KEEP | sed 's/ /$|^/g')\$"
 
-[[ -z $runfile ]] && runfile=$(find_runfile)
-[[ -z $runfile ]] && fail "Couldn't determine distro"
+[[ -z $runfiles ]] && runfiles=$(find_runfile)
+[[ -z $runfiles ]] && fail "Couldn't determine distro"
 
 . $STF_SUITE/include/default.cfg
 
@@ -192,7 +208,7 @@ num_disks=$(echo $DISKS | awk '{print NF}')
 [[ $num_disks -lt 3 ]] && fail "Not enough disks to run ZFS Test Suite"
 
 # Ensure user has only basic privileges.
-ppriv -s EIP=basic -e $runner $quiet -c $runfile
+ppriv -s EIP=basic -e $runner -c $runfiles $xargs
 ret=$?
 
 rm -rf $PATHDIR || fail "Couldn't remove $PATHDIR"

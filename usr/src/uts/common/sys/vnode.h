@@ -21,7 +21,7 @@
 
 /*
  * Copyright (c) 1988, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2018, Joyent, Inc.
+ * Copyright 2020 Joyent, Inc.
  * Copyright (c) 2011, 2017 by Delphix. All rights reserved.
  * Copyright 2017 RackTop Systems.
  */
@@ -197,6 +197,7 @@ struct vsd_node {
  *   v_count
  *   v_shrlocks
  *   v_path
+ *   v_phantom_count
  *   v_vsd
  *   v_xattrdir
  *
@@ -214,6 +215,7 @@ struct vsd_node {
  *     v_lock
  *     v_flag
  *     v_count
+ *     v_phantom_count
  *     v_data
  *     v_vfsp
  *     v_stream
@@ -285,6 +287,8 @@ typedef struct vnode {
 	kmutex_t	v_lock;		/* protects vnode fields */
 	uint_t		v_flag;		/* vnode flags (see below) */
 	uint_t		v_count;	/* reference count */
+				/* non vn_count() ref count (see below) */
+	uint_t		v_phantom_count;
 	void		*v_data;	/* private data for fs */
 	struct vfs	*v_vfsp;	/* ptr to containing VFS */
 	struct stdata	*v_stream;	/* associated stream */
@@ -469,6 +473,8 @@ typedef struct xoptattr {
 	uint64_t	xoa_generation;
 	uint8_t		xoa_offline;
 	uint8_t		xoa_sparse;
+	uint8_t		xoa_projinherit;
+	uint64_t	xoa_projid;
 } xoptattr_t;
 
 /*
@@ -651,11 +657,14 @@ typedef vattr_t		vattr32_t;
 #define	XAT0_GEN	0x00004000	/* object generation number */
 #define	XAT0_OFFLINE	0x00008000	/* offline */
 #define	XAT0_SPARSE	0x00010000	/* sparse */
+#define	XAT0_PROJINHERIT	0x00020000	/* Create with parent projid */
+#define	XAT0_PROJID	0x00040000	/* Project ID */
 
 #define	XAT0_ALL_ATTRS	(XAT0_CREATETIME|XAT0_ARCHIVE|XAT0_SYSTEM| \
     XAT0_READONLY|XAT0_HIDDEN|XAT0_NOUNLINK|XAT0_IMMUTABLE|XAT0_APPENDONLY| \
     XAT0_NODUMP|XAT0_OPAQUE|XAT0_AV_QUARANTINED|  XAT0_AV_MODIFIED| \
-    XAT0_AV_SCANSTAMP|XAT0_REPARSE|XATO_GEN|XAT0_OFFLINE|XAT0_SPARSE)
+    XAT0_AV_SCANSTAMP|XAT0_REPARSE|XATO_GEN|XAT0_OFFLINE|XAT0_SPARSE| \
+    XAT0_PROJINHERIT | XAT0_PROJID)
 
 /* Support for XAT_* optional attributes */
 #define	XVA_MASK		0xffffffff	/* Used to mask off 32 bits */
@@ -692,6 +701,8 @@ typedef vattr_t		vattr32_t;
 #define	XAT_GEN			((XAT0_INDEX << XVA_SHFT) | XAT0_GEN)
 #define	XAT_OFFLINE		((XAT0_INDEX << XVA_SHFT) | XAT0_OFFLINE)
 #define	XAT_SPARSE		((XAT0_INDEX << XVA_SHFT) | XAT0_SPARSE)
+#define	XAT_PROJINHERIT		((XAT0_INDEX << XVA_SHFT) | XAT0_PROJINHERIT)
+#define	XAT_PROJID		((XAT0_INDEX << XVA_SHFT) | XAT0_PROJID)
 
 /*
  * The returned attribute map array (xva_rtnattrmap[]) is located past the
@@ -804,9 +815,9 @@ typedef enum vnevent	{
 	VE_REMOVE	= 3,	/* Remove of vnode's name */
 	VE_RMDIR	= 4,	/* Remove of directory vnode's name */
 	VE_CREATE	= 5,	/* Create with vnode's name which exists */
-	VE_LINK		= 6, 	/* Link with vnode's name as source */
+	VE_LINK		= 6,	/* Link with vnode's name as source */
 	VE_RENAME_DEST_DIR = 7,	/* Rename with vnode as target dir */
-	VE_MOUNTEDOVER	= 8, 	/* File or Filesystem got mounted over vnode */
+	VE_MOUNTEDOVER	= 8,	/* File or Filesystem got mounted over vnode */
 	VE_TRUNCATE = 9,	/* Truncate */
 	VE_PRE_RENAME_SRC = 10,	/* Pre-rename, with vnode as source */
 	VE_PRE_RENAME_DEST = 11, /* Pre-rename, with vnode as target/dest. */
@@ -1287,9 +1298,9 @@ void	vn_recycle(vnode_t *);
 void	vn_free(vnode_t *);
 
 int	vn_is_readonly(vnode_t *);
-int   	vn_is_opened(vnode_t *, v_mode_t);
-int   	vn_is_mapped(vnode_t *, v_mode_t);
-int   	vn_has_other_opens(vnode_t *, v_mode_t);
+int	vn_is_opened(vnode_t *, v_mode_t);
+int	vn_is_mapped(vnode_t *, v_mode_t);
+int	vn_has_other_opens(vnode_t *, v_mode_t);
 void	vn_open_upgrade(vnode_t *, int);
 void	vn_open_downgrade(vnode_t *, int);
 
@@ -1328,10 +1339,12 @@ int	vn_createat(char *pnamep, enum uio_seg seg, struct vattr *vap,
 int	vn_rdwr(enum uio_rw rw, struct vnode *vp, caddr_t base, ssize_t len,
 		offset_t offset, enum uio_seg seg, int ioflag, rlim64_t ulimit,
 		cred_t *cr, ssize_t *residp);
+uint_t	vn_count(struct vnode *vp);
 void	vn_rele(struct vnode *vp);
 void	vn_rele_async(struct vnode *vp, struct taskq *taskq);
 void	vn_rele_dnlc(struct vnode *vp);
 void	vn_rele_stream(struct vnode *vp);
+void	vn_phantom_rele(struct vnode *vp);
 int	vn_link(char *from, char *to, enum uio_seg seg);
 int	vn_linkat(vnode_t *fstartvp, char *from, enum symfollow follow,
 		vnode_t *tstartvp, char *to, enum uio_seg seg);
@@ -1436,6 +1449,16 @@ extern uint_t pvn_vmodsort_supported;
  *	    this->vp->v_path == NULL ? "NULL" : stringof(this->vp->v_path),
  *	    this->vp->v_count)
  * }'
+ *
+ * There are some situations where we don't want a hold to make the vnode
+ * 'busy'. For example, watching a directory via port events or inotify
+ * should not prevent a filesystem from mounting on a watched directory.
+ * For those instances, a phantom hold is used via VN_PHANTOM_HOLD().
+ *
+ * A phantom hold works identically to regular hold, except that those holds
+ * are excluded from the return value of vn_count().
+ *
+ * A phantom hold must be released by VN_PHANTOM_RELE().
  */
 #define	VN_HOLD_LOCKED(vp) {			\
 	ASSERT(mutex_owned(&(vp)->v_lock));	\
@@ -1464,6 +1487,22 @@ extern uint_t pvn_vmodsort_supported;
 	DTRACE_PROBE1(vn__rele, vnode_t *, vp);	\
 }
 
+#define	VN_PHANTOM_HOLD_LOCKED(vp) {			\
+	VN_HOLD_LOCKED(vp);				\
+	(vp)->v_phantom_count++;			\
+	DTRACE_PROBE1(vn__phantom_hold, vnode_t *, vp);	\
+}
+
+#define	VN_PHANTOM_HOLD(vp) {		\
+	mutex_enter(&(vp)->v_lock);	\
+	VN_PHANTOM_HOLD_LOCKED(vp);	\
+	mutex_exit(&(vp)->v_lock);	\
+}
+
+#define	VN_PHANTOM_RELE(vp) {	\
+	vn_phantom_rele(vp);	\
+}
+
 #define	VN_SET_VFS_TYPE_DEV(vp, vfsp, type, dev)	{ \
 	(vp)->v_vfsp = (vfsp); \
 	(vp)->v_type = (type); \
@@ -1474,7 +1513,7 @@ extern uint_t pvn_vmodsort_supported;
  * Compare two vnodes for equality.  In general this macro should be used
  * in preference to calling VOP_CMP directly.
  */
-#define	VN_CMP(VP1, VP2)	((VP1) == (VP2) ? 1 : 	\
+#define	VN_CMP(VP1, VP2)	((VP1) == (VP2) ? 1 :	\
 	((VP1) && (VP2) && (vn_getops(VP1) == vn_getops(VP2)) ? \
 	VOP_CMP(VP1, VP2, NULL) : 0))
 

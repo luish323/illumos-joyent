@@ -29,7 +29,6 @@ PROG=		m4
 XPG4PROG=	m4
 
 include		../../../Makefile.cmd
-include		../../../sgs/Makefile.var
 
 COBJS=		m4.o  m4ext.o  m4macs.o
 
@@ -54,7 +53,7 @@ CPPFLAGS=	$(INCLIST) $(DEFLIST) $(CPPFLAGS.master)
 CFLAGS +=	$(CCVERBOSE)
 CERRWARN +=	-_gcc=-Wno-parentheses
 CERRWARN +=	-_gcc=-Wno-unused-label
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
 CSTD=	$(CSTD_GNU99)
 
 CLEANFILES +=	$(BLTSRCS)
@@ -83,7 +82,7 @@ $(XPG4OBJS):	m4objs.xpg4
 m4objs m4objs.xpg4:
 		-@mkdir -p $@
 
-install:	all $(VAR_SGSBINPROG) $(ROOTXPG4PROG) $(VAR_SGSCCSLINK)
+install:	all $(ROOTPROG) $(ROOTXPG4PROG) $(ROOTCCSBINLINK)
 clean:
 		$(RM) $(ALLOBJS) $(CLEANFILES)
 

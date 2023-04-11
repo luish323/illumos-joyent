@@ -21,8 +21,8 @@
 
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2014, 2016 by Delphix. All rights reserved.
- * Copyright 2019 Joyent, Inc.
+ * Copyright (c) 2014, 2017 by Delphix. All rights reserved.
+ * Copyright 2020 Joyent, Inc.
  */
 
 /* This file contains all TCP output processing functions. */
@@ -80,6 +80,18 @@ static void	tcp_wput_proto(void *, mblk_t *, void *, ip_recv_attr_t *);
  * disable the optimisation.
  */
 static int tcp_tx_pull_len = 16;
+
+static void
+cc_after_idle(tcp_t *tcp)
+{
+	uint32_t old_cwnd = tcp->tcp_cwnd;
+
+	if (CC_ALGO(tcp)->after_idle != NULL)
+		CC_ALGO(tcp)->after_idle(&tcp->tcp_ccv);
+
+	DTRACE_PROBE3(cwnd__cc__after__idle, tcp_t *, tcp, uint32_t, old_cwnd,
+	    uint32_t, tcp->tcp_cwnd);
+}
 
 int
 tcp_wput(queue_t *q, mblk_t *mp)
@@ -219,7 +231,6 @@ tcp_wput_data(tcp_t *tcp, mblk_t *mp, boolean_t urgent)
 	int32_t		total_hdr_len;
 	int32_t		tcp_hdr_len;
 	int		rc;
-	tcp_stack_t	*tcps = tcp->tcp_tcps;
 	conn_t		*connp = tcp->tcp_connp;
 	clock_t		now = LBOLT_FASTPATH;
 
@@ -374,7 +385,7 @@ data_null:
 
 	if ((tcp->tcp_suna == snxt) && !tcp->tcp_localnet &&
 	    (TICK_TO_MSEC(now - tcp->tcp_last_recv_time) >= tcp->tcp_rto)) {
-		TCP_SET_INIT_CWND(tcp, mss, tcps->tcps_slow_start_after_idle);
+		cc_after_idle(tcp);
 	}
 	if (tcpstate == TCPS_SYN_RCVD) {
 		/*
@@ -1195,7 +1206,7 @@ tcp_output(void *arg, mblk_t *mp, void *arg2, ip_recv_attr_t *dummy)
 	now = LBOLT_FASTPATH;
 	if ((tcp->tcp_suna == snxt) && !tcp->tcp_localnet &&
 	    (TICK_TO_MSEC(now - tcp->tcp_last_recv_time) >= tcp->tcp_rto)) {
-		TCP_SET_INIT_CWND(tcp, mss, tcps->tcps_slow_start_after_idle);
+		cc_after_idle(tcp);
 	}
 
 	usable = tcp->tcp_swnd;		/* tcp window size */
@@ -1666,11 +1677,23 @@ finish:
 
 		/* non-STREAM socket, release the upper handle */
 		if (IPCL_IS_NONSTR(connp)) {
-			ASSERT(connp->conn_upper_handle != NULL);
-			(*connp->conn_upcalls->su_closed)
-			    (connp->conn_upper_handle);
+			sock_upcalls_t *upcalls = connp->conn_upcalls;
+			sock_upper_handle_t handle = connp->conn_upper_handle;
+
+			ASSERT(upcalls != NULL);
+			ASSERT(upcalls->su_closed != NULL);
+			ASSERT(handle != NULL);
+			/*
+			 * Set these to NULL first because closed() will free
+			 * upper structures.  Acquire conn_lock because an
+			 * external caller like conn_get_socket_info() will
+			 * upcall if these are non-NULL.
+			 */
+			mutex_enter(&connp->conn_lock);
 			connp->conn_upper_handle = NULL;
 			connp->conn_upcalls = NULL;
+			mutex_exit(&connp->conn_lock);
+			upcalls->su_closed(handle);
 		}
 	}
 
@@ -1776,7 +1799,7 @@ tcp_send(tcp_t *tcp, const int mss, const int total_hdr_len,
     uint32_t *snxt, int *tail_unsent, mblk_t **xmit_tail, mblk_t *local_time)
 {
 	int		num_lso_seg = 1;
-	uint_t		lso_usable;
+	uint_t		lso_usable = 0;
 	boolean_t	do_lso_send = B_FALSE;
 	tcp_stack_t	*tcps = tcp->tcp_tcps;
 	conn_t		*connp = tcp->tcp_connp;

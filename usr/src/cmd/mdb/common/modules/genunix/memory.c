@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2001, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2018 Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
  */
 
 #include <mdb/mdb_param.h>
@@ -565,7 +565,7 @@ memstat(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	stats.ms_unused_vp = (struct vnode *)(uintptr_t)sym.st_value;
 
 	/* walk all pages, collect statistics */
-	if (mdb_walk("allpages", (mdb_walk_cb_t)memstat_callback,
+	if (mdb_walk("allpages", (mdb_walk_cb_t)(uintptr_t)memstat_callback,
 	    &stats) == -1) {
 		mdb_warn("can't walk memseg");
 		return (DCMD_ERR);
@@ -695,7 +695,7 @@ pagelookup(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	if (mdb_getopts(argc, argv,
 	    'v', MDB_OPT_UINTPTR, &vp,
 	    'o', MDB_OPT_UINT64, &offset,
-	    0) != argc) {
+	    NULL) != argc) {
 		return (DCMD_USAGE);
 	}
 

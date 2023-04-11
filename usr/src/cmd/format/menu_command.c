@@ -67,6 +67,7 @@
 extern	struct menu_item menu_partition[];
 extern	struct menu_item menu_analyze[];
 extern	struct menu_item menu_defect[];
+int	prot_type;
 
 /*
  * Choices for the p_tag vtoc field
@@ -112,7 +113,7 @@ slist_t	pflag_choices[] = {
  * disks that were found at startup time.
  */
 int
-c_disk()
+c_disk(void)
 {
 	struct disk_info	*disk;
 	u_ioparam_t		ioparam;
@@ -158,7 +159,7 @@ c_disk()
 		/*
 		 * Convert the token into an integer.
 		 */
-		if (geti(cleantoken, &index, (int *)NULL))
+		if (geti(cleantoken, &index, NULL))
 			return (0);
 
 		/*
@@ -174,7 +175,7 @@ c_disk()
 	fmt_print("\n\nAVAILABLE DISK SELECTIONS:\n");
 
 	i = 0;
-	if ((option_f == (char *)NULL) && isatty(0) == 1 && isatty(1) == 1) {
+	if ((option_f == NULL) && isatty(0) == 1 && isatty(1) == 1) {
 		/*
 		 * We have a real terminal for std input and output, enable
 		 * more style of output for disk selection list.
@@ -358,7 +359,7 @@ exit:
  * in the data file.
  */
 int
-c_type()
+c_type(void)
 {
 	struct disk_type	*type, *tptr, *oldtype;
 	u_ioparam_t		ioparam;
@@ -574,17 +575,21 @@ c_type()
 		 */
 		new_partitiontable(tptr, oldtype);
 	} else if ((index == other_choice) && (cur_label == L_TYPE_EFI)) {
+		uint64_t start_lba = cur_parts->etoc->efi_first_u_lba;
+		uint64_t reserved;
+
+		reserved = efi_reserved_sectors(cur_parts->etoc);
 		maxLBA = get_mlba();
 		cur_parts->etoc->efi_last_lba = maxLBA;
-		cur_parts->etoc->efi_last_u_lba = maxLBA - 34;
+		cur_parts->etoc->efi_last_u_lba = maxLBA - start_lba;
 		for (i = 0; i < cur_parts->etoc->efi_nparts; i++) {
 			cur_parts->etoc->efi_parts[i].p_start = 0;
 			cur_parts->etoc->efi_parts[i].p_size = 0;
 			cur_parts->etoc->efi_parts[i].p_tag = V_UNASSIGNED;
 		}
 		cur_parts->etoc->efi_parts[8].p_start =
-		    maxLBA - 34 - (1024 * 16);
-		cur_parts->etoc->efi_parts[8].p_size = (1024 * 16);
+		    maxLBA - start_lba - reserved;
+		cur_parts->etoc->efi_parts[8].p_size = reserved;
 		cur_parts->etoc->efi_parts[8].p_tag = V_RESERVED;
 		if (write_label()) {
 			err_print("Write label failed\n");
@@ -689,7 +694,7 @@ c_type()
  * the partition menu.
  */
 int
-c_partition()
+c_partition(void)
 {
 
 	/*
@@ -733,7 +738,7 @@ c_partition()
  * current disk.
  */
 int
-c_current()
+c_current(void)
 {
 
 	/*
@@ -792,7 +797,7 @@ c_current()
  * to format and verify any portion of the disk.
  */
 int
-c_format()
+c_format(void)
 {
 	diskaddr_t		start, end;
 	time_t			clock;
@@ -1103,7 +1108,7 @@ currently being used for swapping.\n");
 	 * cause the user to sit for quite awhile with no control, but we
 	 * don't have any other good way of keeping their gun from going off.
 	 */
-	clock = time((time_t *)0);
+	clock = time(NULL);
 	fmt_print("Beginning format. The current time is %s\n",
 	    ctime(&clock));
 	enter_critical();
@@ -1126,7 +1131,7 @@ currently being used for swapping.\n");
 				cur_flags |= LABEL_DIRTY;
 		}
 	} else if (cur_disk->label_type == L_TYPE_EFI) {
-		if (start < 34) {
+		if (start < cur_parts->etoc->efi_first_u_lba) {
 			if (cur_disk->disk_flags & DSK_LABEL)
 				cur_flags |= LABEL_DIRTY;
 		}
@@ -1214,7 +1219,7 @@ currently being used for swapping.\n");
  * to reallocate sectors on the disk that have gone bad.
  */
 int
-c_repair()
+c_repair(void)
 {
 	diskaddr_t	bn;
 	int		status;
@@ -1272,7 +1277,7 @@ c_repair()
 	}
 	bn = input(FIO_BN,
 	    "Enter absolute block number of defect", ':',
-	    &ioparam, (int *)NULL, DATA_INPUT);
+	    &ioparam, NULL, DATA_INPUT);
 	/*
 	 * Check to see if there is a mounted file system over the
 	 * specified sector.  If there is, make sure the user is
@@ -1435,7 +1440,7 @@ This block doesn't appear to be bad.  Repair it anyway")) {
  * cylinder/head/sector format.
  */
 int
-c_show()
+c_show(void)
 {
 	u_ioparam_t	ioparam;
 	diskaddr_t	bn;
@@ -1457,7 +1462,7 @@ c_show()
 		ioparam.io_bounds.upper = cur_parts->etoc->efi_last_lba;
 	}
 	bn = input(FIO_BN, "Enter a disk block", ':',
-	    &ioparam, (int *)NULL, DATA_INPUT);
+	    &ioparam, NULL, DATA_INPUT);
 	/*
 	 * Echo it back.
 	 */
@@ -1472,7 +1477,7 @@ c_show()
  * primary and backup labels onto the current disk.
  */
 int
-c_label()
+c_label(void)
 {
 	int			status;
 	int			deflt, *defltptr = NULL;
@@ -1705,7 +1710,7 @@ c_label()
 			return (-1);
 		}
 		if (efi_write(cur_file, vtoc64) != 0) {
-			err_check(vtoc64);
+			efi_err_check(vtoc64);
 			err_print("Warning: error writing EFI.\n");
 			return (-1);
 		} else {
@@ -1762,7 +1767,7 @@ expert_end:
  * the analyze menu.
  */
 int
-c_analyze()
+c_analyze(void)
 {
 
 	/*
@@ -1788,7 +1793,7 @@ c_analyze()
  * the defect menu.
  */
 int
-c_defect()
+c_defect(void)
 {
 	int	i;
 
@@ -1861,7 +1866,7 @@ c_defect()
  * the current defect list is written out if a backup label is found.
  */
 int
-c_backup()
+c_backup(void)
 {
 	struct	dk_label label;
 	struct	disk_type *dtype;
@@ -1936,7 +1941,7 @@ c_backup()
 			continue;
 		}
 
-		(void *) memcpy((char *)&label, buf, sizeof (struct dk_label));
+		(void) memcpy((char *)&label, buf, sizeof (struct dk_label));
 
 		/*
 		 * Verify that it is a reasonable label.
@@ -2060,7 +2065,7 @@ Unknown disk type in backup label\n");
  * This routine is called by c_verify() for an EFI labeled disk
  */
 static int
-c_verify_efi()
+c_verify_efi(void)
 {
 	struct efi_info efi_info;
 	struct	partition_info	tmp_pinfo;
@@ -2093,6 +2098,12 @@ c_verify_efi()
 	fmt_print("bytes/sector	=  %d\n", cur_blksz);
 	fmt_print("sectors = %llu\n", cur_parts->etoc->efi_last_lba + 1);
 	fmt_print("accessible sectors = %llu\n",
+	    cur_parts->etoc->efi_last_u_lba -
+	    cur_parts->etoc->efi_first_u_lba -
+	    efi_reserved_sectors(cur_parts->etoc) + 1);
+	fmt_print("first usable sector = %llu\n",
+	    cur_parts->etoc->efi_first_u_lba);
+	fmt_print("last usable sector = %llu\n",
 	    cur_parts->etoc->efi_last_u_lba);
 
 	print_map(&tmp_pinfo);
@@ -2108,7 +2119,7 @@ c_verify_efi()
  * to read the labels on the current disk.
  */
 int
-c_verify()
+c_verify(void)
 {
 	struct	dk_label p_label, b_label, *label;
 	struct	partition_info tmp_pinfo;
@@ -2205,7 +2216,7 @@ Warning: Primary label on disk appears to be different from\ncurrent label.\n");
 		    1, buf, F_NORMAL, NULL))
 			continue;
 
-		(void *) memcpy((char *)&b_label, buf,
+		(void) memcpy((char *)&b_label, buf,
 		    sizeof (struct dk_label));
 
 		/*
@@ -2343,7 +2354,7 @@ Warning: Check the current partitioning and 'label' the disk or use the\n\
  * displays the resulting vendor, product id and revision level.
  */
 int
-c_inquiry()
+c_inquiry(void)
 {
 	char			inqbuf[255];
 	struct scsi_inquiry	*inq;
@@ -2375,7 +2386,7 @@ c_inquiry()
  * primary and backup labels onto the current disk.
  */
 int
-c_volname()
+c_volname(void)
 {
 	int	 status;
 	char	*prompt;
