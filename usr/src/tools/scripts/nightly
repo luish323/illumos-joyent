@@ -23,7 +23,7 @@
 #
 # Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
 # Copyright 2008, 2010, Richard Lowe
-# Copyright 2011 Nexenta Systems, Inc.  All rights reserved.
+# Copyright 2022 Tintri by DDN, Inc. All rights reserved.
 # Copyright 2012 Joshua M. Clulow <josh@sysmgr.org>
 # Copyright (c) 2017 by Delphix. All rights reserved.
 # Copyright 2020 Joyent, Inc.
@@ -378,11 +378,11 @@ function bootstrap_tools {
 }
 
 #
-# Build and install the onbld tools.
+# Build and install the tools.
 #
 # usage: build_tools DESTROOT
 #
-# returns non-zero status if the build was successful.
+# returns zero status if the build was successful.
 #
 function build_tools {
 	DESTROOT=$1
@@ -655,7 +655,7 @@ if [ -f /etc/nightly.conf ]; then
 fi
 
 if [ -f $1 ]; then
-	if [[ $1 = */* ]]; then
+	if [[ $1 == */* ]]; then
 		. $1
 	else
 		. ./$1
@@ -785,6 +785,9 @@ do
 	esac
 done
 
+# Skip pkglint if packages aren't being built
+[ $p_FLAG = n ] && L_FLAG=y
+
 if [ $ISUSER -ne 0 ]; then
 	# Set default value for STAFFER, if needed.
 	if [ -z "$STAFFER" -o "$STAFFER" = "nobody" ]; then
@@ -840,19 +843,19 @@ if [ "${SUNWSPRO}" != "" ]; then
 fi
 
 hostname=$(uname -n)
-if [[ $DMAKE_MAX_JOBS != +([0-9]) || $DMAKE_MAX_JOBS -eq 0 ]]
+if [[ $DMAKE_MAX_JOBS != +([0-9]) || $DMAKE_MAX_JOBS == 0 ]]
 then
 	maxjobs=
 	if [[ -f $HOME/.make.machines ]]
 	then
 		# Note: there is a hard tab and space character in the []s
 		# below.
-		egrep -i "^[ 	]*$hostname[ 	\.]" \
+		egrep -i "^[ 	]*${hostname}[ 	\.]" \
 			$HOME/.make.machines | read host jobs
 		maxjobs=${jobs##*=}
 	fi
 
-	if [[ $maxjobs != +([0-9]) || $maxjobs -eq 0 ]]
+	if [[ $maxjobs != +([0-9]) || $maxjobs == 0 ]]
 	then
 		# default
 		maxjobs=4
@@ -1116,7 +1119,7 @@ function create_lock {
 function allprotos {
 	typeset roots="$ROOT"
 
-	if [[ "$F_FLAG" = n && "$MULTI_PROTO" = yes ]]; then
+	if [[ "$F_FLAG" == n && "$MULTI_PROTO" == yes ]]; then
 		roots="$roots $ROOT-nd"
 	fi
 
@@ -1335,7 +1338,7 @@ if [ "$i_FLAG" = "n" -a -d "$SRC" ]; then
 		build_extras_ok=n
 	fi
 
-	if [[ "$t_FLAG" = "y" ]]; then
+	if [[ "$t_FLAG" == "y" ]]; then
 		echo "\n==== Make tools clobber at `date` ====\n" >> $LOGFILE
 		cd ${TOOLS}
 		rm -f ${TOOLS}/clobber-${MACH}.out
@@ -1530,7 +1533,7 @@ if [ "$n_FLAG" = "n" ]; then
 	# $CODEMGR_WS.  If so, then SCM_TYPE was previously "none,"
 	# but should now be the same as $BRINGOVER_WS.
 	#
-	[[ $SCM_TYPE = none ]] && SCM_TYPE=$PARENT_SCM_TYPE
+	[[ $SCM_TYPE == none ]] && SCM_TYPE=$PARENT_SCM_TYPE
 
 	run_hook POST_BRINGOVER
 
@@ -1545,14 +1548,14 @@ fi
 [[ -d "${CODEMGR_WS}" ]] || fatal_error "Error: ${CODEMGR_WS} is not a directory."
 [[ -f "${CODEMGR_WS}/usr/src/Makefile" ]] || fatal_error "Error: ${CODEMGR_WS}/usr/src/Makefile not found."
 
-if [[ "$t_FLAG" = "y" ]]; then
+if [[ "$t_FLAG" == "y" ]]; then
 	set_non_debug_build_flags
-	bootstrap_tools || fatal_error "Error: could not bootstrap tools"
-
 	# Switch ONBLD_TOOLS early if -t is specified so that
 	# we could use bootstrapped cw for compiler checks.
 	ONBLD_TOOLS=${TOOLS_PROTO}/opt/onbld
 	export ONBLD_TOOLS
+
+	bootstrap_tools || fatal_error "Error: could not bootstrap tools"
 fi
 
 echo "\n==== Build environment ====\n" | tee -a $build_environ_file >> $LOGFILE
@@ -1604,11 +1607,6 @@ if [ -f $TMPDIR/nocompiler ]; then
 	exit 1
 fi
 
-# as
-whence as | tee -a $build_environ_file >> $LOGFILE
-as -V 2>&1 | head -1 | tee -a $build_environ_file >> $LOGFILE
-echo | tee -a $build_environ_file >> $LOGFILE
-
 # Check that we're running a capable link-editor
 whence ld | tee -a $build_environ_file >> $LOGFILE
 LDVER=`ld -V 2>&1`
@@ -1624,37 +1622,38 @@ fi
 #
 # Build and use the workspace's tools if requested
 #
-if [[ "$t_FLAG" = "y" ]]; then
+if [[ "$t_FLAG" == "y" ]]; then
 	set_non_debug_build_flags
 
 	build_tools ${TOOLS_PROTO}
 	if (( $? != 0 )); then
 		build_ok=n
-	else
-		STABS=${TOOLS_PROTO}/opt/onbld/bin/${MACH}/stabs
-		export STABS
-		CTFSTABS=${TOOLS_PROTO}/opt/onbld/bin/${MACH}/ctfstabs
-		export CTFSTABS
-		GENOFFSETS=${TOOLS_PROTO}/opt/onbld/bin/genoffsets
-		export GENOFFSETS
-
-		CTFCONVERT=${TOOLS_PROTO}/opt/onbld/bin/${MACH}/ctfconvert
-		export CTFCONVERT
-		CTFMERGE=${TOOLS_PROTO}/opt/onbld/bin/${MACH}/ctfmerge
-		export CTFMERGE
-
-		PATH="${TOOLS_PROTO}/opt/onbld/bin/${MACH}:${PATH}"
-		PATH="${TOOLS_PROTO}/opt/onbld/bin:${PATH}"
-		export PATH
-
-		echo "\n==== New environment settings. ====\n" >> $LOGFILE
-		echo "STABS=${STABS}" >> $LOGFILE
-		echo "CTFSTABS=${CTFSTABS}" >> $LOGFILE
-		echo "CTFCONVERT=${CTFCONVERT}" >> $LOGFILE
-		echo "CTFMERGE=${CTFMERGE}" >> $LOGFILE
-		echo "PATH=${PATH}" >> $LOGFILE
-		echo "ONBLD_TOOLS=${ONBLD_TOOLS}" >> $LOGFILE
+		exit 1
 	fi
+
+	STABS=${TOOLS_PROTO}/opt/onbld/bin/${MACH}/stabs
+	export STABS
+	CTFSTABS=${TOOLS_PROTO}/opt/onbld/bin/${MACH}/ctfstabs
+	export CTFSTABS
+	GENOFFSETS=${TOOLS_PROTO}/opt/onbld/bin/genoffsets
+	export GENOFFSETS
+
+	CTFCONVERT=${TOOLS_PROTO}/opt/onbld/bin/${MACH}/ctfconvert
+	export CTFCONVERT
+	CTFMERGE=${TOOLS_PROTO}/opt/onbld/bin/${MACH}/ctfmerge
+	export CTFMERGE
+
+	PATH="${TOOLS_PROTO}/opt/onbld/bin/${MACH}:${PATH}"
+	PATH="${TOOLS_PROTO}/opt/onbld/bin:${PATH}"
+	export PATH
+
+	echo "\n==== New environment settings. ====\n" >> $LOGFILE
+	echo "STABS=${STABS}" >> $LOGFILE
+	echo "CTFSTABS=${CTFSTABS}" >> $LOGFILE
+	echo "CTFCONVERT=${CTFCONVERT}" >> $LOGFILE
+	echo "CTFMERGE=${CTFMERGE}" >> $LOGFILE
+	echo "PATH=${PATH}" >> $LOGFILE
+	echo "ONBLD_TOOLS=${ONBLD_TOOLS}" >> $LOGFILE
 fi
 
 # timestamp the start of the normal build; the findunref tool uses it.
@@ -1665,13 +1664,35 @@ normal_build
 ORIG_SRC=$SRC
 BINARCHIVE=${CODEMGR_WS}/bin-${MACH}.cpio.Z
 
+abspkg=
+for d in $abssrcdirs; do
+	if [ -d "$d/pkg" ]; then
+		abspkg="$abspkg $d"
+	fi
+done
+
+if [ "$L_FLAG" != "y" -a "$build_ok" = y ]; then
+	echo "\n==== Linting packages ====\n" | \
+	    tee -a $LOGFILE >> $mail_msg_file
+
+	if [ -n "$abspkg" ]; then
+		for d in "$abspkg"; do
+			( cd $d/pkg ; $MAKE -e pkglint ) | \
+			    tee -a $LOGFILE | \
+			    egrep -v 'Lint engine setup|Starting lint run'
+		done 2>&1 | tee $TMPDIR/pkglint_noise >> $mail_msg_file
+		if [[ -s $TMPDIR/pkglint_noise ]]; then
+			build_extras_ok=n
+		fi
+	fi
+fi
 
 #
 # There are several checks that need to look at the proto area, but
 # they only need to look at one, and they don't care whether it's
 # DEBUG or non-DEBUG.
 #
-if [[ "$MULTI_PROTO" = yes && "$D_FLAG" = n ]]; then
+if [[ "$MULTI_PROTO" == yes && "$D_FLAG" == n ]]; then
 	checkroot=$ROOT-nd
 else
 	checkroot=$ROOT
@@ -1751,12 +1772,12 @@ if [ "$U_FLAG" = "y" -a "$build_ok" = "y" ]; then
 	rm -rf $NIGHTLY_PARENT_ROOT/*
 	unset Ulockfile
 	mkdir -p $NIGHTLY_PARENT_ROOT
-	if [[ "$MULTI_PROTO" = no || "$D_FLAG" = y ]]; then
+	if [[ "$MULTI_PROTO" == no || "$D_FLAG" == y ]]; then
 		( cd $ROOT; tar cf - . |
 		    ( cd $NIGHTLY_PARENT_ROOT;  umask 0; tar xpf - ) ) 2>&1 |
 		    tee -a $mail_msg_file >> $LOGFILE
 	fi
-	if [[ "$MULTI_PROTO" = yes && "$F_FLAG" = n ]]; then
+	if [[ "$MULTI_PROTO" == yes && "$F_FLAG" == n ]]; then
 		rm -rf $NIGHTLY_PARENT_ROOT-nd/*
 		mkdir -p $NIGHTLY_PARENT_ROOT-nd
 		cd $ROOT-nd
@@ -1769,7 +1790,7 @@ if [ "$U_FLAG" = "y" -a "$build_ok" = "y" ]; then
 		    tee -a $LOGFILE >> $mail_msg_file
 		rm -rf $NIGHTLY_PARENT_TOOLS_ROOT/*
 		mkdir -p $NIGHTLY_PARENT_TOOLS_ROOT
-		if [[ "$MULTI_PROTO" = no || "$D_FLAG" = y ]]; then
+		if [[ "$MULTI_PROTO" == no || "$D_FLAG" == y ]]; then
 			( cd $TOOLS_PROTO; tar cf - . |
 			    ( cd $NIGHTLY_PARENT_TOOLS_ROOT;
 			    umask 0; tar xpf - ) ) 2>&1 |
@@ -1781,7 +1802,7 @@ fi
 #
 # ELF verification: ABI (-A) and runtime (-r) checks
 #
-if [[ ($build_ok = y) && (($A_FLAG = y) || ($r_FLAG = y)) ]]; then
+if [[ ($build_ok == y) && (($A_FLAG == y) || ($r_FLAG == y)) ]]; then
 	# Directory ELF-data.$MACH holds the files produced by these tests.
 	elf_ddir=$SRC/ELF-data.$MACH
 
@@ -1799,7 +1820,7 @@ if [[ ($build_ok = y) && (($A_FLAG = y) || ($r_FLAG = y)) ]]; then
 	# them from separately calling find_elf to do the same work twice.
 	find_elf -fr $checkroot > $elf_ddir/object_list
 
-	if [[ $A_FLAG = y ]]; then
+	if [[ $A_FLAG == y ]]; then
 		echo "\n==== Check versioning and ABI information ====\n"  | \
 		    tee -a $LOGFILE >> $mail_msg_file
 
@@ -1842,13 +1863,13 @@ if [[ ($build_ok = y) && (($A_FLAG = y) || ($r_FLAG = y)) ]]; then
 		fi
 	fi
 
-	if [[ $r_FLAG = y ]]; then
+	if [[ $r_FLAG == y ]]; then
 		echo "\n==== Check ELF runtime attributes ====\n" | \
 		    tee -a $LOGFILE >> $mail_msg_file
 
 		# If we're doing a DEBUG build the proto area will be left
 		# with debuggable objects, thus don't assert -s.
-		if [[ $D_FLAG = y ]]; then
+		if [[ $D_FLAG == y ]]; then
 			rtime_sflag=""
 		else
 			rtime_sflag="-s"
@@ -1890,7 +1911,7 @@ if [[ ($build_ok = y) && (($A_FLAG = y) || ($r_FLAG = y)) ]]; then
 	fi
 
 	# If -u set, copy contents of ELF-data.$MACH to the parent workspace.
-	if [[ "$u_FLAG" = "y" ]]; then
+	if [[ "$u_FLAG" == "y" ]]; then
 		p_elf_ddir=$PARENT_WS/usr/src/ELF-data.$MACH
 
 		# If parent lacks the ELF-data.$MACH directory, create it
@@ -1978,13 +1999,6 @@ if [ "$CHECK_PATHS" = y -a "$N_FLAG" != y ]; then
 	fi
 fi
 
-abspkg=
-for d in $abssrcdirs; do
-	if [ -d "$d/pkg" ]; then
-		abspkg="$abspkg $d"
-	fi
-done
-
 if [ "$M_FLAG" != "y" -a "$build_ok" = y ]; then
 	echo "\n==== Impact on file permissions ====\n" \
 		>> $mail_msg_file
@@ -1996,28 +2010,12 @@ if [ "$M_FLAG" != "y" -a "$build_ok" = y ]; then
 	fi
 fi
 
-if [ "$L_FLAG" != "y" -a "$build_ok" = y ]; then
-	echo "\n==== Linting packages ====\n" | \
-	    tee -a $LOGFILE >> $mail_msg_file
-
-	if [ -n "$abspkg" ]; then
-		for d in "$abspkg"; do
-			( cd $d/pkg ; $MAKE -e pkglint ) | \
-			    tee -a $LOGFILE | \
-			    egrep -v 'Lint engine setup|Starting lint run'
-		done 2>&1 | tee $TMPDIR/pkglint_noise >> $mail_msg_file
-		if [[ -s $TMPDIR/pkglint_noise ]]; then
-			build_extras_ok=n
-		fi
-	fi
-fi
-
 if [ "$w_FLAG" = "y" -a "$build_ok" = "y" ]; then
-	if [[ "$MULTI_PROTO" = no || "$D_FLAG" = y ]]; then
+	if [[ "$MULTI_PROTO" == no || "$D_FLAG" == y ]]; then
 		do_wsdiff DEBUG $ROOT.prev $ROOT
 	fi
 
-	if [[ "$MULTI_PROTO" = yes && "$F_FLAG" = n ]]; then
+	if [[ "$MULTI_PROTO" == yes && "$F_FLAG" == n ]]; then
 		do_wsdiff non-DEBUG $ROOT-nd.prev $ROOT-nd
 	fi
 fi

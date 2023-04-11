@@ -24,11 +24,12 @@
 # Copyright (c) 2011, 2014 by Delphix. All rights reserved.
 # Copyright (c) 2013 by Saso Kiselkov. All rights reserved.
 # Copyright 2018 Nexenta Systems, Inc.
-# Copyright 2016 Garrett D'Amore <garrett@damore.org>
-# Copyright 2020 Joyent, Inc.
+# Copyright 2022 Garrett D'Amore
+# Copyright 2021 Joyent, Inc.
 # Copyright 2016 OmniTI Computer Consulting, Inc.  All rights reserved.
 # Copyright 2016 Hans Rosenfeld <rosenfeld@grumpf.hope-2000.org>
-# Copyright 2020 RackTop Systems, Inc.
+# Copyright 2022 RackTop Systems, Inc.
+# Copyright 2023 Oxide Computer Company
 #
 
 #
@@ -109,6 +110,7 @@ GENUNIX_OBJS +=	\
 		avl.o		\
 		bdev_dsort.o	\
 		bio.o		\
+		bitext.o	\
 		bitmap.o	\
 		blabel.o	\
 		bootbanner.o	\
@@ -130,7 +132,9 @@ GENUNIX_OBJS +=	\
 		class.o		\
 		clock.o		\
 		clock_highres.o	\
+		clock_process.o	\
 		clock_realtime.o\
+		clock_thread.o	\
 		close.o		\
 		compress.o	\
 		condvar.o	\
@@ -247,7 +251,6 @@ GENUNIX_OBJS +=	\
 		mount.o		\
 		move.o		\
 		msacct.o	\
-		multidata.o	\
 		nbmlock.o	\
 		ndifm.o		\
 		nice.o		\
@@ -374,7 +377,6 @@ GENUNIX_OBJS +=	\
 		timers.o	\
 		thread.o	\
 		tlabel.o	\
-		tnf_res.o	\
 		turnstile.o	\
 		tty_common.o	\
 		u8_textprep.o	\
@@ -627,8 +629,6 @@ SPPPCOMP_OBJS += spppcomp.o spppcomp_mod.o deflate.o bsd-comp.o vjcompress.o \
 TCP_OBJS +=	tcpddi.o
 
 TCP6_OBJS +=	tcp6ddi.o
-
-NCA_OBJS +=	ncaddi.o
 
 SDP_SOCK_MOD_OBJS += sockmod_sdp.o socksdp.o socksdpsubr.o
 
@@ -957,9 +957,6 @@ SYSMSG_OBJS +=	sysmsg.o
 
 SES_OBJS +=	ses.o ses_sen.o ses_safte.o ses_ses.o
 
-TNF_OBJS +=	tnf_buf.o	tnf_trace.o	tnf_writer.o	trace_init.o \
-		trace_funcs.o	tnf_probe.o	tnf.o
-
 LOGINDMUX_OBJS += logindmux.o
 
 DEVINFO_OBJS += devinfo.o
@@ -1079,7 +1076,7 @@ RTLS_OBJS +=	rtls.o
 #
 AOUTEXEC_OBJS +=aout.o
 
-ELFEXEC_OBJS +=	elf.o elf_notes.o old_notes.o
+ELFEXEC_OBJS +=	elf.o elf_notes.o old_notes.o core_shstrtab.o
 
 INTPEXEC_OBJS +=intp.o
 
@@ -1302,8 +1299,7 @@ SOCK_OBJS +=	socksubr.o	sockvfsops.o	sockparams.o	\
 		sockcommon_vnops.o	sockcommon_subr.o \
 		sockcommon_sops.o	sockcommon.o	\
 		sock_notsupp.o	socknotify.o \
-		nl7c.o		nl7curi.o	nl7chttp.o	nl7clogd.o \
-		nl7cnca.o	sodirect.o	sockfilter.o
+		sodirect.o	sockfilter.o
 
 TMPFS_OBJS +=	tmp_dir.o	tmp_subr.o	tmp_tnode.o	tmp_vfsops.o \
 		tmp_vnops.o
@@ -1660,13 +1656,6 @@ RSAPROV_OBJS += rsa.o rsa_impl.o pkcs1.o
 SWRANDPROV_OBJS += swrand.o
 
 #
-#			kernel SSL
-#
-KSSL_OBJS +=	kssl.o ksslioctl.o
-
-KSSL_SOCKFIL_MOD_OBJS += ksslfilter.o ksslapi.o ksslrec.o
-
-#
 #			misc. modules
 #
 
@@ -1940,8 +1929,7 @@ ZYD_OBJS += zyd.o zyd_usb.o zyd_hw.o zyd_fw.o
 
 MXFE_OBJS += mxfe.o
 
-MPTSAS_OBJS += mptsas.o mptsas_impl.o mptsas_init.o \
-		mptsas_raid.o mptsas_smhba.o
+MPTSAS_OBJS += mptsas.o mptsas_impl.o mptsas_init.o mptsas_raid.o mptsas_smhba.o
 
 SFE_OBJS += sfe.o sfe_util.o
 
@@ -1963,6 +1951,8 @@ YGE_OBJS = yge.o
 SKD_OBJS = skd.o
 
 NVME_OBJS = nvme.o
+
+PVSCSI_OBJS = pvscsi.o
 
 #
 #	Build up defines and paths.
@@ -1991,7 +1981,6 @@ CH_COM_OBJS =	ch_mac.o ch_subr.o cspi.o espi.o ixf1010.o mc3.o mc4.o mc5.o \
 #
 #	Chelsio Terminator 4 10G NIC nexus driver module
 #
-CXGBE_FW_OBJS  =	t4_fw.o t4_cfg.o t5_cfg.o t5_fw.o t6_cfg.o t6_fw.o
 CXGBE_COM_OBJS =	t4_hw.o common.o
 CXGBE_NEX_OBJS =	t4_nexus.o t4_sge.o t4_mac.o t4_ioctl.o shared.o \
 			t4_l2t.o osdep.o cudbg_lib.o cudbg_wtp.o fastlz.o \
@@ -2030,7 +2019,8 @@ XGE_HAL_OBJS =  xgehal-channel.o xgehal-fifo.o xgehal-ring.o  xgehal-config.o \
 E1000API_OBJS += e1000_80003es2lan.o e1000_82540.o e1000_82541.o e1000_82542.o \
 		e1000_82543.o e1000_82571.o e1000_api.o e1000_ich8lan.o \
 		e1000_mac.o e1000_manage.o e1000_nvm.o e1000_phy.o \
-		e1000_82575.o e1000_i210.o e1000_mbx.o e1000_vf.o
+		e1000_82575.o e1000_i210.o e1000_mbx.o e1000_vf.o \
+		e1000_illumos.o
 
 #
 #	e1000g module
@@ -2131,6 +2121,12 @@ VIOBLK_OBJS = vioblk.o
 # Virtio network driver
 VIOIF_OBJS = vioif.o
 
+# Virtio SCSI driver
+VIOSCSI_OBJS = vioscsi.o
+
+# Virtio 9P transport driver
+VIO9P_OBJS = vio9p.o
+
 #
 #	kiconv modules
 #
@@ -2174,11 +2170,6 @@ MEGA_SAS_OBJS = megaraid_sas.o
 #	MR_SAS module
 #
 MR_SAS_OBJS = ld_pd_map.o mr_sas.o mr_sas_tbolt.o mr_sas_list.o
-
-#
-#	DR_SAS module
-#
-DR_SAS_OBJS = dr_sas.o
 
 #
 #	CPQARY3 module
@@ -2338,7 +2329,13 @@ BNX_OBJS += \
 	bnx_lm_send.o
 
 #
-# mlxcx(7D)
+# mlxcx(4D)
 #
 MLXCX_OBJS +=	mlxcx.o mlxcx_dma.o mlxcx_cmd.o mlxcx_intr.o mlxcx_gld.o \
 		mlxcx_ring.o mlxcx_sensor.o
+
+#
+# ena(4D)
+#
+ENA_OBJS +=	ena.o ena_admin.o ena_dma.o ena_gld.o ena_hw.o ena_intr.o \
+		ena_stats.o ena_tx.o ena_rx.o

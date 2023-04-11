@@ -32,7 +32,6 @@
 LIBCDIR=	$(SRC)/lib/libc
 LIB_PIC=	libc_pic.a
 VERS=		.1
-CPP=		/usr/lib/cpp
 TARGET_ARCH=	sparc
 
 # objects are grouped by source directory
@@ -533,6 +532,7 @@ PORTGEN=			\
 	madvise.o		\
 	malloc.o		\
 	memalign.o		\
+	memrchr.o		\
 	memset_s.o		\
 	mkdev.o			\
 	mkdtemp.o		\
@@ -1144,7 +1144,8 @@ MAPFILES =	$(LIBCDIR)/port/mapfile-vers
 CFLAGS +=	$(EXTN_CFLAGS)
 CPPFLAGS=	-D_REENTRANT -Dsparc $(EXTN_CPPFLAGS) $(THREAD_DEBUG) \
 		-I$(LIBCBASE)/inc -I$(LIBCDIR)/inc $(CPPFLAGS.master)
-ASFLAGS=	$(EXTN_ASFLAGS) $(AS_PICFLAGS) -P -D__STDC__ -D_ASM $(CPPFLAGS) $(sparc_AS_XARCH)
+ASFLAGS=	$(EXTN_ASFLAGS) $(AS_WITH_CPP) -D__STDC__ \
+		-D_ASM $(CPPFLAGS) $(sparc_XARCH)
 
 # As a favor to the dtrace syscall provider, libc still calls the
 # old syscall traps that have been obsoleted by the *at() interfaces.
@@ -1171,7 +1172,7 @@ DYNFLAGS +=	$(DTRACE_DATA)
 # DTrace needs an executable data segment.
 MAPFILE.NED=
 
-BUILD.s=	$(AS) $(ASFLAGS) $< -o $@
+BUILD.s=	$(AS) $(ASFLAGS) $< -c -o $@
 
 # Override this top level flag so the compiler builds in its native
 # C99 mode.  This has been enabled to support the complex arithmetic
@@ -1203,78 +1204,10 @@ CLOBBERFILES +=	$(LIB_PIC)
 $(DYNLIB) := CRTI = crti.o
 $(DYNLIB) := CRTN = crtn.o
 
-# Files which need the threads .il inline template
-TIL=				\
-	aio.o			\
-	alloc.o			\
-	assfail.o		\
-	atexit.o		\
-	atfork.o		\
-	cancel.o		\
-	door_calls.o		\
-	err.o			\
-	errno.o			\
-	getctxt.o		\
-	lwp.o			\
-	ma.o			\
-	machdep.o		\
-	posix_aio.o		\
-	pthr_attr.o		\
-	pthr_barrier.o		\
-	pthr_cond.o		\
-	pthr_mutex.o		\
-	pthr_rwlock.o		\
-	pthread.o		\
-	rand.o			\
-	rwlock.o		\
-	scalls.o		\
-	sched.o			\
-	sema.o			\
-	sigaction.o		\
-	sigev_thread.o		\
-	spawn.o			\
-	stack.o			\
-	swapctxt.o		\
-	synch.o			\
-	tdb_agent.o		\
-	thr.o			\
-	thread_interface.o	\
-	thread_pool.o		\
-	tls.o			\
-	tsd.o			\
-	unwind.o
-
-$(TIL:%=pics/%) := CFLAGS += $(LIBCBASE)/threads/sparc.il
-
 # special kludge for inlines with 'cas':
 pics/rwlock.o pics/synch.o pics/lwp.o pics/door_calls.o := \
 	sparc_CFLAGS += -_gcc=-Wa,-xarch=v8plus
 
-# Files in port/fp subdirectory that need base.il inline template
-IL=				\
-	__flt_decim.o		\
-	decimal_bin.o
-
-$(IL:%=pics/%) := CFLAGS += $(LIBCBASE)/fp/base.il
-
-# Files in fp subdirectory which need __quad.il inline template
-QIL=				\
-	_Q_add.o		\
-	_Q_cmp.o		\
-	_Q_cmpe.o		\
-	_Q_div.o		\
-	_Q_dtoq.o		\
-	_Q_fcc.o		\
-	_Q_mul.o		\
-	_Q_qtod.o		\
-	_Q_qtoi.o		\
-	_Q_qtos.o		\
-	_Q_qtou.o		\
-	_Q_sqrt.o		\
-	_Q_stoq.o		\
-	_Q_sub.o
-
-$(QIL:%=pics/%) := CFLAGS += $(LIBCDIR)/$(MACH)/fp/__quad.il
 pics/_Q%.o := sparc_COPTFLAG = -xO4 -dalign
 pics/__quad%.o := sparc_COPTFLAG = -xO4 -dalign
 
@@ -1329,11 +1262,6 @@ STACKPROTECT = none
 
 all: $(LIBS) $(LIB_PIC)
 
-# object files that depend on inline template
-$(TIL:%=pics/%): $(LIBCBASE)/threads/sparc.il
-$(IL:%=pics/%): $(LIBCBASE)/fp/base.il
-$(QIL:%=pics/%): $(LIBCDIR)/$(MACH)/fp/__quad.il
-
 # include common libc targets
 include $(LIBCDIR)/Makefile.targ
 
@@ -1351,15 +1279,15 @@ $(STRETS:%=pics/%): $(LIBCBASE)/crt/stret.s
 	$(AS) $(ASFLAGS) -DSTRET$(@F:stret%.o=%) $(LIBCBASE)/crt/stret.s -o $@
 	$(POST_PROCESS_S_O)
 
-$(LIBCBASE)/crt/_rtbootld.s:	$(LIBCBASE)/crt/_rtboot.s $(LIBCBASE)/crt/_rtld.c
+$(LIBCBASE)/crt/_rtbootld.S:	$(LIBCBASE)/crt/_rtboot.S $(LIBCBASE)/crt/_rtld.c
 	$(CC) $(CPPFLAGS) $(CTF_FLAGS) -O -S $(C_PICFLAGS) \
 	    $(LIBCBASE)/crt/_rtld.c -o $(LIBCBASE)/crt/_rtld.s
-	$(CAT) $(LIBCBASE)/crt/_rtboot.s $(LIBCBASE)/crt/_rtld.s > $@
+	$(CAT) $(LIBCBASE)/crt/_rtboot.S $(LIBCBASE)/crt/_rtld.s > $@
 	$(RM) $(LIBCBASE)/crt/_rtld.s
 
 # partially built from C source
-pics/_rtbootld.o: $(LIBCBASE)/crt/_rtbootld.s
-	$(AS) $(ASFLAGS) $(LIBCBASE)/crt/_rtbootld.s -o $@
+pics/_rtbootld.o: $(LIBCBASE)/crt/_rtbootld.S
+	$(AS) $(ASFLAGS) $(LIBCBASE)/crt/_rtbootld.S -o $@
 	$(CTFCONVERT_O)
 
 ASSYMDEP_OBJS=			\
@@ -1381,7 +1309,9 @@ $(ASSYMDEP_OBJS:%=pics/%): assym.h
 assym.h := CFLAGS += $(CCGDEBUG)
 
 GENASSYM_C = $(LIBCDIR)/$(MACH)/genassym.c
-LDFLAGS.native = $(LDASSERTS) $(ZASSERTDEFLIB)=libc.so $(BDIRECT)
+LDFLAGS.native = $(LDASSERTS) $(BDIRECT)
+
+genassym := NATIVE_LIBS += libc.so
 
 genassym: $(GENASSYM_C)
 	$(NATIVECC) $(NATIVE_CFLAGS) -I$(LIBCBASE)/inc -I$(LIBCDIR)/inc \

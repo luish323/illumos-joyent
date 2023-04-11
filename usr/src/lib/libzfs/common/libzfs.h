@@ -89,8 +89,8 @@ typedef enum zfs_error {
 	EZFS_ZONED,		/* used improperly in local zone */
 	EZFS_MOUNTFAILED,	/* failed to mount dataset */
 	EZFS_UMOUNTFAILED,	/* failed to unmount dataset */
-	EZFS_UNSHARENFSFAILED,	/* unshare(1M) failed */
-	EZFS_SHARENFSFAILED,	/* share(1M) failed */
+	EZFS_UNSHARENFSFAILED,	/* unshare(8) failed */
+	EZFS_SHARENFSFAILED,	/* share(8) failed */
 	EZFS_PERM,		/* permission denied */
 	EZFS_NOSPC,		/* out of space */
 	EZFS_FAULT,		/* bad address */
@@ -318,6 +318,8 @@ extern nvlist_t *zpool_find_vdev_by_physpath(zpool_handle_t *, const char *,
     boolean_t *, boolean_t *, boolean_t *);
 extern int zpool_label_disk(libzfs_handle_t *, zpool_handle_t *, const char *,
     zpool_boot_label_t, uint64_t, int *);
+extern void zpool_vdev_refresh_path(libzfs_handle_t *, zpool_handle_t *,
+    nvlist_t *);
 
 /*
  * Functions to manage pool properties

@@ -47,9 +47,6 @@ include $(UTSBASE)/intel/Makefile.intel
 ALL_TARGET	= $(BINARY) $(CONFMOD)
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE) $(ROOT_CONFFILE)
 
-C99MODE=	-xc99=%all
-C99LMODE=	-Xc99=%all
-
 #
 #	Driver-specific flags
 #
@@ -73,7 +70,7 @@ CPPFLAGS += \
 	-I$(SRCDIR)/570x/driver/common/lmdev
 
 
-LDFLAGS		+= -dy -r -Ndrv/ip -Nmisc/mac
+LDFLAGS		+= -Ndrv/ip -Nmisc/mac
 
 #
 #	Default build targets.

@@ -23,6 +23,7 @@
  * Copyright (c) 1994, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2014 Garrett D'Amore <garrett@damore.org>
  * Copyright (c) 2016 by Delphix. All rights reserved.
+ * Copyright 2022 RackTop Systems, Inc.
  */
 
 #include <sys/note.h>
@@ -3229,7 +3230,7 @@ scsi_hba_ioctl(dev_t dev, int cmd, intptr_t arg, int mode, cred_t *credp,
 		    (bus_state == BUS_QUIESCED))
 			rv = EALREADY;
 		else if (tran->tran_quiesce == NULL)
-			rv = ENOTSUP; /* man ioctl(7I) says ENOTTY */
+			rv = ENOTSUP; /* man ioctl(2) says ENOTTY */
 		else if (tran->tran_quiesce(self) != 0)
 			rv = EIO;
 		else if (ndi_set_bus_state(self, BUS_QUIESCED) != NDI_SUCCESS)
@@ -3241,7 +3242,7 @@ scsi_hba_ioctl(dev_t dev, int cmd, intptr_t arg, int mode, cred_t *credp,
 		    (bus_state == BUS_ACTIVE))
 			rv = EALREADY;
 		else if (tran->tran_unquiesce == NULL)
-			rv = ENOTSUP; /* man ioctl(7I) says ENOTTY */
+			rv = ENOTSUP; /* man ioctl(2) says ENOTTY */
 		else if (tran->tran_unquiesce(self) != 0)
 			rv = EIO;
 		else if (ndi_set_bus_state(self, BUS_ACTIVE) != NDI_SUCCESS)
@@ -3250,7 +3251,7 @@ scsi_hba_ioctl(dev_t dev, int cmd, intptr_t arg, int mode, cred_t *credp,
 
 	case DEVCTL_BUS_RESET:
 		if (tran->tran_bus_reset == NULL)
-			rv = ENOTSUP; /* man ioctl(7I) says ENOTTY */
+			rv = ENOTSUP; /* man ioctl(2) says ENOTTY */
 		else if (tran->tran_bus_reset(self, RESET_BUS) != 1)
 			rv = EIO;
 		break;
@@ -3261,7 +3262,7 @@ scsi_hba_ioctl(dev_t dev, int cmd, intptr_t arg, int mode, cred_t *credp,
 			break;		/* reset all worked */
 		}
 		if (tran->tran_bus_reset == NULL) {
-			rv = ENOTSUP; /* man ioctl(7I) says ENOTTY */
+			rv = ENOTSUP; /* man ioctl(2) says ENOTTY */
 			break;
 		}
 		if (tran->tran_bus_reset(self, RESET_BUS) != 1)
@@ -3917,7 +3918,7 @@ scsi_hba_ident_nodename_compatible_get(struct scsi_inquiry *inq,
 	csp = compatp;
 	p = (char *)(compatp + NCOMPAT);
 
-	/* ( 0) driver (optional, not documented in scsi(4)) */
+	/* ( 0) driver (optional, not documented in scsi(5)) */
 	if (compat0) {
 		*csp++ = p;
 		(void) snprintf(p, tlen, "%s", compat0);
@@ -4006,7 +4007,7 @@ scsi_hba_ident_nodename_compatible_get(struct scsi_inquiry *inq,
 		tlen -= len;
 	}
 
-	/* (8.5) scsa,DD.bB (not documented in scsi(4)) */
+	/* (8.5) scsa,DD.bB (not documented in scsi(5)) */
 	if (binding_set) {
 		*csp++ = p;
 		(void) snprintf(p, tlen, "scsa,%02x.b%s",
@@ -5609,7 +5610,7 @@ scsi_hba_pkt_comp(struct scsi_pkt *pkt)
 			pkt->pkt_stmp = scsi_lunchg1_list;
 			scsi_lunchg1_list = pkt;
 			if (pkt->pkt_stmp == NULL)
-				(void) cv_signal(&scsi_lunchg1_cv);
+				cv_signal(&scsi_lunchg1_cv);
 			mutex_exit(&scsi_lunchg1_mutex);
 			return;
 		}
@@ -5719,7 +5720,7 @@ scsi_hba_barrier_add(dev_info_t *probe, int seconds)
 	nb->barrier_probe = probe;
 	*bp = nb;
 	if (bp == &scsi_hba_barrier_list)
-		(void) cv_signal(&scsi_hba_barrier_cv);
+		cv_signal(&scsi_hba_barrier_cv);
 	mutex_exit(&scsi_hba_barrier_mutex);
 }
 
@@ -5935,9 +5936,9 @@ scsi_lunchg1_daemon(void *arg)
 		 * lun enumeration.
 		 */
 		(void) ddi_pathname(self, path);
-		(void) strcat(path, "/luns@");
-		(void) strcat(path, taddr);
-		(void) strcat(path, ",*");
+		(void) strlcat(path, "/luns@", sizeof (path));
+		(void) strlcat(path, taddr, sizeof (path));
+		(void) strlcat(path, ",*", sizeof (path));
 
 		/*
 		 * Now that we have the path, complete the pkt that
@@ -5956,7 +5957,7 @@ scsi_lunchg1_daemon(void *arg)
 		lunchg2->lunchg2_next = scsi_lunchg2_list;
 		scsi_lunchg2_list = lunchg2;
 		if (lunchg2->lunchg2_next == NULL)
-			(void) cv_signal(&scsi_lunchg2_cv);
+			cv_signal(&scsi_lunchg2_cv);
 		mutex_exit(&scsi_lunchg2_mutex);
 	}
 }
@@ -7819,7 +7820,7 @@ scsi_hba_bus_config_spi(dev_info_t *self, uint_t flags,
 		 * Static driver.conf file enumeration:
 		 *
 		 * Force reprobe for BUS_CONFIG_ONE or when manually
-		 * reconfiguring via devfsadm(1m) to emulate deferred attach.
+		 * reconfiguring via devfsadm(8) to emulate deferred attach.
 		 * Reprobe only discovers driver.conf enumerated nodes, more
 		 * dynamic implementations probably require their own
 		 * bus_config.
@@ -8909,6 +8910,39 @@ scsi_hba_tgtmap_tgt_remove(scsi_hba_tgtmap_t *handle,
 
 	return ((damap_addr_del(tgtmap->tgtmap_dam[tgt_type],
 	    tgt_addr) == DAM_SUCCESS) ? DDI_SUCCESS : DDI_FAILURE);
+}
+
+void
+scsi_hba_tgtmap_scan_luns(scsi_hba_tgtmap_t *handle, char *tgt_addr)
+{
+	impl_scsi_tgtmap_t	*tgtmap = (impl_scsi_tgtmap_t *)handle;
+	dev_info_t		*self = tgtmap->tgtmap_tran->tran_iport_dip;
+	struct scsi_lunchg2	*lunchg2;
+	struct scsi_lunchg2	*p;
+	char			path[MAXPATHLEN];
+
+	(void) ddi_pathname(self, path);
+	(void) strlcat(path, "/luns@", sizeof (path));
+	(void) strlcat(path, tgt_addr, sizeof (path));
+	(void) strlcat(path, ",*", sizeof (path));
+
+	mutex_enter(&scsi_lunchg2_mutex);
+
+	/* if we're already scheduled to do this, don't submit another one */
+	for (p = scsi_lunchg2_list; p != NULL; p = p->lunchg2_next) {
+		if (strcmp(path, p->lunchg2_path) == 0) {
+			mutex_exit(&scsi_lunchg2_mutex);
+			return;
+		}
+	}
+
+	lunchg2 = kmem_alloc(sizeof (*lunchg2), KM_SLEEP);
+	lunchg2->lunchg2_path = strdup(path);
+	lunchg2->lunchg2_next = scsi_lunchg2_list;
+	scsi_lunchg2_list = lunchg2;
+	if (lunchg2->lunchg2_next == NULL)
+		cv_signal(&scsi_lunchg2_cv);
+	mutex_exit(&scsi_lunchg2_mutex);
 }
 
 int

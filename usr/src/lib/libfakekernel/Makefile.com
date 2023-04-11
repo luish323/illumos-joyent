@@ -61,7 +61,7 @@ CFLAGS +=	$(CCVERBOSE)
 CPPFLAGS.first += -I../common
 CPPFLAGS= $(CPPFLAGS.first)
 
-INCS += -I$(SRC)/uts/common
+INCS += -I$(SRC)/uts/common -I$(ROOT)/usr/include
 
 CPPFLAGS += $(INCS) -D_REENTRANT -D_FAKE_KERNEL
 CPPFLAGS += -D_FILE_OFFSET_BITS=64
@@ -69,6 +69,10 @@ CPPFLAGS += -D_FILE_OFFSET_BITS=64
 # Could make this $(NOT_RELEASE_BUILD) but as the main purpose of
 # this library is for debugging, let's always define DEBUG here.
 CPPFLAGS += -DDEBUG
+
+# libfakekernel isn't delivered, and is a special case, disable global data
+# complaints
+ZGUIDANCE= -Wl,-zguidance=noasserts
 
 LDLIBS += -lumem -lcryptoutil -lsocket -lc
 

@@ -45,7 +45,7 @@
 /*
  * Link Aggregation Administration Library.
  *
- * This library is used by administration tools such as dladm(1M) to
+ * This library is used by administration tools such as dladm(8) to
  * configure link aggregations.
  */
 
@@ -381,7 +381,7 @@ i_dladm_aggr_add_rmv(dladm_handle_t handle, datalink_id_t linkid,
 	char *orig_portstr = NULL, *portstr = NULL;
 	laioc_add_rem_t *iocp = NULL;
 	laioc_port_t *ioc_ports;
-	uint32_t orig_nports, result_nports, len, i, j;
+	uint32_t orig_nports = 0, result_nports, len, i, j;
 	dladm_conf_t conf;
 	datalink_class_t class;
 	dladm_status_t status = DLADM_STATUS_OK;

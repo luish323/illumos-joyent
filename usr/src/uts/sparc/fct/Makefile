@@ -56,9 +56,7 @@ INSTALL_TARGET	= $(BINARY) $(ROOTMODULE) $(ROOT_CONFFILE)
 #	Overrides and depends_on
 #
 MODSTUBS_DIR	 = $(OBJS_DIR)
-LDFLAGS		+= -dy -Ndrv/stmf
-
-C99LMODE=	-Xc99=%all
+LDFLAGS		+= -Ndrv/stmf
 
 #
 # For now, disable these warnings; maintainers should endeavor

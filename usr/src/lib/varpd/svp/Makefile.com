@@ -48,6 +48,4 @@ CSTD=		$(CSTD_GNU99)
 
 all:	$(LIBS)
 
-lint:	lintcheck
-
 include ../../../Makefile.targ

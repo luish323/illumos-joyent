@@ -21,7 +21,7 @@
 
 /*
  * Copyright (c) 2006, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2014 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2022 Tintri by DDN, Inc. All rights reserved.
  * Copyright (c) 2016 by Delphix. All rights reserved.
  */
 
@@ -58,7 +58,7 @@
 #define	DFSTAB_NOTICE_LINES	5
 static char *notice[DFSTAB_NOTICE_LINES] =	{
 	"# Do not modify this file directly.\n",
-	"# Use the sharemgr(1m) command for all share management\n",
+	"# Use the sharemgr(8) command for all share management\n",
 	"# This file is reconstructed and only maintained for backward\n",
 	"# compatibility. Configuration lines could be lost.\n",
 	"#\n"
@@ -1604,7 +1604,6 @@ parse_sharetab(sa_handle_t handle)
 	sa_group_t lgroup;
 	xfs_sharelist_t *list = get_share_list(&err);
 
-	list = get_share_list(&err);
 	if (list == NULL)
 		return (legacy);
 

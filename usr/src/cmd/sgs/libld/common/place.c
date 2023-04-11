@@ -254,7 +254,7 @@ add_comdat(Ofl_desc *ofl, Os_desc *osp, Is_desc *isp)
 	 * Create a COMDAT avl tree for this output section if required.
 	 */
 	if ((avlt = osp->os_comdats) == NULL) {
-		if ((avlt = libld_calloc(sizeof (avl_tree_t), 1)) == NULL)
+		if ((avlt = libld_calloc(1, sizeof (avl_tree_t))) == NULL)
 			return (S_ERROR);
 		avl_create(avlt, isdavl_compare, sizeof (Isd_node),
 		    SGSOFFSETOF(Isd_node, isd_avl));
@@ -295,7 +295,7 @@ add_comdat(Ofl_desc *ofl, Os_desc *osp, Is_desc *isp)
 	/*
 	 * This is a new COMDAT section - so keep it.
 	 */
-	if ((isdp = libld_calloc(sizeof (Isd_node), 1)) == NULL)
+	if ((isdp = libld_calloc(1, sizeof (Isd_node))) == NULL)
 		return (S_ERROR);
 
 	isdp->isd_name = isd.isd_name;
@@ -1080,7 +1080,8 @@ ld_place_section(Ofl_desc *ofl, Is_desc *isp, Place_path_info *path_info,
 		 * -	The ident values match
 		 * -	The names match
 		 * -	Not a GROUP section
-		 * - 	Not a DTrace dof section
+		 * -	Not a GROUP member, if producing a relocatable object
+		 * -	Not a DTrace dof section
 		 * -	Section types match
 		 * -	Matching section flags, after screening out the
 		 *	shflagmask flags.
@@ -1096,6 +1097,8 @@ ld_place_section(Ofl_desc *ofl, Is_desc *isp, Place_path_info *path_info,
 		    (ident != ld_targ.t_id.id_rel) &&
 		    (onamehash == osp->os_namehash) &&
 		    (shdr->sh_type != SHT_GROUP) &&
+		    (((shdr->sh_flags & SHF_GROUP) == 0) ||
+		    ((ofl->ofl_flags & FLG_OF_RELOBJ) == 0)) &&
 		    (shdr->sh_type != SHT_SUNW_dof) &&
 		    ((shdr->sh_type == os_shdr->sh_type) ||
 		    (is_ehframe && (osp->os_flags & FLG_OS_EHFRAME)) ||
@@ -1214,9 +1217,9 @@ ld_place_section(Ofl_desc *ofl, Is_desc *isp, Place_path_info *path_info,
 	/*
 	 * Create a new output section descriptor.
 	 */
-	if ((osp = libld_calloc(sizeof (Os_desc), 1)) == NULL)
+	if ((osp = libld_calloc(1, sizeof (Os_desc))) == NULL)
 		return ((Os_desc *)S_ERROR);
-	if ((osp->os_shdr = libld_calloc(sizeof (Shdr), 1)) == NULL)
+	if ((osp->os_shdr = libld_calloc(1, sizeof (Shdr))) == NULL)
 		return ((Os_desc *)S_ERROR);
 
 	/*

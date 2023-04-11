@@ -42,8 +42,8 @@ SHELL= /usr/bin/ksh93
 $(KMOD_SOURCES_DIFFERENT)KMODSRCS = $(MODSRCS)
 $(KMOD_SOURCES_DIFFERENT)KMODASMSRCS = $(MODASMSRCS)
 
-MODOBJS = $(MODSRCS:%.c=dmod/%.o) $(MODASMSRCS:%.s=dmod/%.o)
-KMODOBJS = $(KMODSRCS:%.c=kmod/%.o) $(KMODASMSRCS:%.s=kmod/%.o)
+MODOBJS = $(MODSRCS:%.c=dmod/%.o) $(MODASMSRCS:%.S=dmod/%.o)
+KMODOBJS = $(KMODSRCS:%.c=kmod/%.o) $(KMODASMSRCS:%.S=kmod/%.o)
 
 MODNAME_cmd = if [ -n "$(MODULE_NAME)" ]; then print $(MODULE_NAME); else print $(MODULE)| sed -e 's:\.so$$::'; fi
 MODNAME = $(MODNAME_cmd:sh)
@@ -96,15 +96,9 @@ ROOTTGTS		= $(ROOTTGTS_$(MDBTGT))
 # building with an LFS python, we attempt to use -isystem when it's
 # available.
 #
-PYCPPFLAGS		= -_gcc=-isystem -_gcc=$(ADJUNCT_PROTO)/usr/include/python$(PYTHON_VERSION)
-PYCPPFLAGS		+= -_cc=-I$(ADJUNCT_PROTO)/usr/include/python$(PYTHON_VERSION)
-PYLNFLAGS		= -I$(ADJUNCT_PROTO)/usr/include/python$(PYTHON_VERSION)
-
-#
-# At this time, we do not have python27 in the adjunct proto area, only
-# python26. As such, we explicitly override the python version dmod here.
-#
-PYTHON_VERSION		= 2.6
+PYCPPFLAGS		= -_gcc=-isystem -_gcc=$(ADJUNCT_PROTO)/usr/include/python$(PYTHON3_VERSION)$(PYTHON3_SUFFIX)
+PYCPPFLAGS		+= -_cc=-I$(ADJUNCT_PROTO)/usr/include/python$(PYTHON3_VERSION)$(PYTHON3_SUFFIX)
+PYLNFLAGS		= -I$(ADJUNCT_PROTO)/usr/include/python$(PYTHON3_VERSION)$(PYTHON3_SUFFIX)
 
 kvm_TGTFLAGS		= -D_KERNEL
 proc_TGTFLAGS		= -D_USER
@@ -116,7 +110,6 @@ CFLAGS64		+= $(CCVERBOSE)
 CPPFLAGS		+= $($(MDBTGT)_TGTFLAGS) -I../../../common
 LDFLAGS			+= $(ZTEXT)
 LDFLAGS64		+= $(ZTEXT)
-ASFLAGS			+= -P
 AS_CPPFLAGS		+= -D_ASM
 
 SMOFF += all_func_returns,index_overflow
@@ -184,23 +177,21 @@ $(MODFILE): dmod .WAIT $(MODOBJS) $$(MAPFILE-EXT)
 LINKTESTOBJ = $(KMDBDIR)/kmdb_modlinktest.o
 
 KMDB_LINKTEST = \
-	$(LD) $(ZDEFS) -dy -r -o $@.linktest $(KMODOBJS) \
+	$(LD) $(ZDEFS) -ztype=kmod -o $@.linktest $(KMODOBJS) \
 	$(STANDOBJS) $(LINKTESTOBJ) && \
 	$(RM) $@.linktest
 
 KMDB_LINKTEST_ENABLE=$(POUND_SIGN)
 $(KMDB_LINKTEST_ENABLE)KMDB_LINKTEST_CMD = $(KMDB_LINKTEST)
 
-#
-# Ensure that dmods don't use floating point
-#
-KMDB_FPTEST_CMD = $(KMDB_FPTEST)
+# Allow overriding this because mdb_ks is special case fake module,
+# see Makefile.mdb_ks
+KMODFLAG = -ztype=kmod
 
 $(KMODFILE): kmod .WAIT $(KMODOBJS) $(MAPFILE)
-	$(LD) -dy -r $(MAPFILE:%=-Wl,-M%) -Nmisc/kmdbmod -o $@ $(KMODOBJS) \
+	$(LD) $(KMODFLAG) $(MAPFILE:%=-Wl,-M%) -Nmisc/kmdbmod -o $@ $(KMODOBJS) \
 	$(STANDOBJS)
 	$(KMDB_LINKTEST_CMD)
-	$(KMDB_FPTEST_CMD)
 	$(CTFMERGE) -l "$(UTS_LABEL)" -o $@ $(KMODOBJS)
 	$(POST_PROCESS)
 	$(SETDYNFLAG) -f DF_1_NOKSYMS $@
@@ -222,28 +213,28 @@ dmod/%.o kmod/%.o: %.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
-dmod/%.o kmod%.o: %.s
+dmod/%.o kmod%.o: %.S
 	$(COMPILE.s) -o $@ $<
 
 dmod/%.o kmod/%.o: ../%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
-dmod/%.o kmod%.o: ../%.s
+dmod/%.o kmod%.o: ../%.S
 	$(COMPILE.s) -o $@ $<
 
 dmod/%.o kmod/%.o: ../../../common/modules/$(MODNAME)/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
-dmod/%.o kmod%.o: ../../../common/modules/$(MODNAME)/%.s
+dmod/%.o kmod%.o: ../../../common/modules/$(MODNAME)/%.S
 	$(COMPILE.s) -o $@ $<
 
 dmod/%.o kmod/%.o: $$(MODSRCS_DIR)/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
-dmod/%.o kmod%.o: $$(MODSRCS_DIR)/%.s
+dmod/%.o kmod%.o: $$(MODSRCS_DIR)/%.S
 	$(COMPILE.s) -o $@ $<
 
 #

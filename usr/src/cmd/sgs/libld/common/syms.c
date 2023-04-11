@@ -388,9 +388,9 @@ ld_sym_enter(const char *name, Sym *osym, Word hash, Ifl_desc *ifl,
 	 * Allocate a Sym Descriptor, Auxiliary Descriptor, and a Sym AVLNode -
 	 * contiguously.
 	 */
-	if ((savl = libld_calloc(S_DROUND(sizeof (Sym_avlnode)) +
+	if ((savl = libld_calloc(1, S_DROUND(sizeof (Sym_avlnode)) +
 	    S_DROUND(sizeof (Sym_desc)) +
-	    S_DROUND(sizeof (Sym_aux)), 1)) == NULL)
+	    S_DROUND(sizeof (Sym_aux)))) == NULL)
 		return ((Sym_desc *)S_ERROR);
 	sdp = (Sym_desc *)((uintptr_t)savl +
 	    S_DROUND(sizeof (Sym_avlnode)));
@@ -738,7 +738,7 @@ sym_add_spec(const char *name, const char *uname, Word sdaux_id,
 		/*
 		 * If the symbol does not exist create it.
 		 */
-		if ((sym = libld_calloc(sizeof (Sym), 1)) == NULL)
+		if ((sym = libld_calloc(1, sizeof (Sym))) == NULL)
 			return (S_ERROR);
 		sym->st_shndx = SHN_ABS;
 		sym->st_info = ELF_ST_INFO(STB_GLOBAL, STT_OBJECT);
@@ -1718,8 +1718,9 @@ ld_sym_validate(Ofl_desc *ofl)
 				    sym->st_name) && (st_insert(ofl->ofl_strtab,
 				    sdp->sd_name) == -1))
 					return (S_ERROR);
-				if (allow_ldynsym && sym->st_name &&
-				    ldynsym_symtype[type]) {
+				if (allow_ldynsym && ldynsym_symtype[type] &&
+				    ((sym->st_name != 0) ||
+				    (type == STT_FILE))) {
 					ofl->ofl_dynscopecnt++;
 					if (st_insert(ofl->ofl_dynstrtab,
 					    sdp->sd_name) == -1)
@@ -2156,7 +2157,7 @@ ld_sym_process(Is_desc *isc, Ifl_desc *ifl, Ofl_desc *ofl)
 		return (S_ERROR);
 	if ((etype == ET_REL) && (local != 0)) {
 		if ((ifl->ifl_locs =
-		    libld_calloc(sizeof (Sym_desc), local)) == NULL)
+		    libld_calloc(local, sizeof (Sym_desc))) == NULL)
 			return (S_ERROR);
 		/* LINTED */
 		ifl->ifl_locscnt = local;
@@ -2452,8 +2453,14 @@ ld_sym_process(Is_desc *isc, Ifl_desc *ifl, Ofl_desc *ofl)
 				    sdp->sd_name) == -1))
 					return (S_ERROR);
 
-				if (allow_ldynsym && sym->st_name &&
-				    ldynsym_symtype[type]) {
+				/*
+				 * STT_FILE symbols must always remain, to
+				 * maintain the ordering semantics of symbol
+				 * tables.
+				 */
+				if (allow_ldynsym && ldynsym_symtype[type] &&
+				    ((sym->st_name != 0) ||
+				    (type == STT_FILE))) {
 					ofl->ofl_dynlocscnt++;
 					if (st_insert(ofl->ofl_dynstrtab,
 					    sdp->sd_name) == -1)
@@ -2630,7 +2637,7 @@ ld_sym_process(Is_desc *isc, Ifl_desc *ifl, Ofl_desc *ofl)
 
 			if (shndx >= ifl->ifl_shnum) {
 				/*
-				 * Carry our some basic sanity checks
+				 * Carry out some basic sanity checks.
 				 * The symbol will not be carried forward to
 				 * the output file, which won't be a problem
 				 * unless a relocation is required against it.
@@ -2645,9 +2652,42 @@ ld_sym_process(Is_desc *isc, Ifl_desc *ifl, Ofl_desc *ofl)
 			}
 
 			isp = ifl->ifl_isdesc[shndx];
-			if (isp && (isp->is_flags & FLG_IS_DISCARD)) {
+			if ((isp != NULL) &&
+			    (isp->is_flags & FLG_IS_DISCARD) &&
+			    (isp->is_flags & FLG_IS_COMDAT)) {
+				Sym *rsym;
+
+				/*
+				 * Replace the original symbol definition with
+				 * a symbol reference, so that resolution can
+				 * occur.
+				 *
+				 * It is common due to compiler issues or
+				 * build system intricacy for COMDAT groups to
+				 * refer to symbols of different visibility,
+				 * even though this is erroneous.  By
+				 * replacing the discarded members of these
+				 * groups with symbol references we allow
+				 * symbol resolution to occur and the most
+				 * restrictive visibility to be chosen.
+				 */
+				if ((rsym = libld_malloc(sizeof (Sym))) == NULL)
+					return (S_ERROR);
+
+				*rsym = *nsym;
+				rsym->st_shndx = shndx = SHN_UNDEF;
+				rsym->st_value = 0x0;
+				rsym->st_size = 0x0;
+
+				nsym = rsym;
+
+				sdflags |= FLG_SY_ISDISC;
+				DBG_CALL(Dbg_syms_discarded(ofl->ofl_lml, sdp));
+			} else if ((isp != NULL) &&
+			    (isp->is_flags & FLG_IS_DISCARD)) {
+				/* Discarded but not via COMDAT */
 				if ((sdp =
-				    libld_calloc(sizeof (Sym_desc), 1)) == NULL)
+				    libld_calloc(1, sizeof (Sym_desc))) == NULL)
 					return (S_ERROR);
 
 				/*
@@ -2661,7 +2701,6 @@ ld_sym_process(Is_desc *isc, Ifl_desc *ifl, Ofl_desc *ofl)
 				sdp->sd_isc = isp;
 				sdp->sd_flags = FLG_SY_ISDISC;
 				ifl->ifl_oldndx[ndx] = sdp;
-
 				DBG_CALL(Dbg_syms_discarded(ofl->ofl_lml, sdp));
 				continue;
 			}
@@ -3101,7 +3140,7 @@ ld_sym_process(Is_desc *isc, Ifl_desc *ifl, Ofl_desc *ofl)
 			idstr = capset->oc_id.cs_str;
 			nsize = strlen(oname);
 			tsize = nsize + 1 + strlen(idstr) + 1;
-			if ((cname = libld_malloc(tsize)) == 0)
+			if ((cname = libld_malloc(tsize)) == NULL)
 				return (S_ERROR);
 
 			(void) strcpy(cname, oname);
@@ -3198,11 +3237,11 @@ ld_sym_add_u(const char *name, Ofl_desc *ofl, Msg mid)
 	 * If no descriptor exists create one.
 	 */
 	if (ifl == NULL) {
-		if ((ifl = libld_calloc(sizeof (Ifl_desc), 1)) == NULL)
+		if ((ifl = libld_calloc(1, sizeof (Ifl_desc))) == NULL)
 			return ((Sym_desc *)S_ERROR);
 		ifl->ifl_name = reference;
 		ifl->ifl_flags = FLG_IF_NEEDED | FLG_IF_FILEREF;
-		if ((ifl->ifl_ehdr = libld_calloc(sizeof (Ehdr), 1)) == NULL)
+		if ((ifl->ifl_ehdr = libld_calloc(1, sizeof (Ehdr))) == NULL)
 			return ((Sym_desc *)S_ERROR);
 		ifl->ifl_ehdr->e_type = ET_REL;
 
@@ -3213,7 +3252,7 @@ ld_sym_add_u(const char *name, Ofl_desc *ofl, Msg mid)
 	/*
 	 * Allocate a symbol structure and add it to the global symbol table.
 	 */
-	if ((sym = libld_calloc(sizeof (Sym), 1)) == NULL)
+	if ((sym = libld_calloc(1, sizeof (Sym))) == NULL)
 		return ((Sym_desc *)S_ERROR);
 	sym->st_info = ELF_ST_INFO(STB_GLOBAL, STT_NOTYPE);
 	sym->st_shndx = SHN_UNDEF;

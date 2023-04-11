@@ -24,8 +24,9 @@
  * Copyright (c) 1990 Mentat Inc.
  * Copyright (c) 2017 OmniTI Computer Consulting, Inc. All rights reserved.
  * Copyright (c) 2016 by Delphix. All rights reserved.
- * Copyright (c) 2019 Joyent, Inc. All rights reserved.
  * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2021 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Company
  */
 
 #include <sys/types.h>
@@ -2845,6 +2846,20 @@ icmp_pkt(mblk_t *mp, void *stuff, size_t len, ip_recv_attr_t *ira)
 	len_needed = IPH_HDR_LENGTH(ipha);
 	if (ipha->ipha_protocol == IPPROTO_ENCAP ||
 	    ipha->ipha_protocol == IPPROTO_IPV6) {
+		/*
+		 * NOTE: It is posssible that the inner packet is poorly
+		 * formed (e.g. IP version is corrupt, or v6 extension headers
+		 * got cut off).  The receiver of the ICMP message should see
+		 * what we saw.  In the absence of a sane inner-packet (which
+		 * protocol types IPPPROTO_ENCAP and IPPROTO_IPV6 indicate
+		 * would be an IP header), we should send the size of what is
+		 * normally expected to be there (either sizeof (ipha_t) or
+		 * sizeof (ip6_t).  It may be useful for diagnostic purposes.
+		 *
+		 * ALSO NOTE: "inner_ip6h" is the inner packet header, v4 or v6.
+		 */
+		ip6_t *inner_ip6h = (ip6_t *)((uchar_t *)ipha + len_needed);
+
 		if (!pullupmsg(mp, -1)) {
 			BUMP_MIB(&ipst->ips_ip_mib, ipIfStatsOutDiscards);
 			ip_drop_output("ipIfStatsOutDiscards", mp, NULL);
@@ -2854,13 +2869,20 @@ icmp_pkt(mblk_t *mp, void *stuff, size_t len, ip_recv_attr_t *ira)
 		ipha = (ipha_t *)mp->b_rptr;
 
 		if (ipha->ipha_protocol == IPPROTO_ENCAP) {
-			len_needed += IPH_HDR_LENGTH(((uchar_t *)ipha +
-			    len_needed));
+			/*
+			 * Check the inner IP version here to guard against
+			 * bogons.
+			 */
+			if (IPH_HDR_VERSION(inner_ip6h) == IPV4_VERSION) {
+				len_needed +=
+				    IPH_HDR_LENGTH(((uchar_t *)inner_ip6h));
+			} else {
+				len_needed = sizeof (ipha_t);
+			}
 		} else {
-			ip6_t *ip6h = (ip6_t *)((uchar_t *)ipha + len_needed);
-
 			ASSERT(ipha->ipha_protocol == IPPROTO_IPV6);
-			len_needed += ip_hdr_length_v6(mp, ip6h);
+			/* function called next-line checks inner IP version */
+			len_needed += ip_hdr_length_v6(mp, inner_ip6h);
 		}
 	}
 	len_needed += ipst->ips_ip_icmp_return;
@@ -3729,10 +3751,17 @@ ip_get_pmtu(ip_xmit_attr_t *ixa)
 
 	pmtu = IP_MAXPACKET;
 	/*
-	 * Decide whether whether IPv4 sets DF
-	 * For IPv6 "no DF" means to use the 1280 mtu
+	 * We need to determine if it is acceptable to set DF for IPv4 or not
+	 * and for IPv6 if we need to use the minimum MTU. If a connection has
+	 * opted into path MTU discovery, then we can use 'DF' in IPv4 and do
+	 * not have to constrain ourselves to the IPv6 minimum MTU. There is a
+	 * second consideration here: IXAF_DONTFRAG. This is set as a result of
+	 * someone setting the IP_DONTFRAG or IPV6_DONTFRAG socket option. In
+	 * such a case, it is acceptable to set DF for IPv4 and to use a larger
+	 * MTU. Note, the actual MTU is constrained by the ill_t later on in
+	 * this function.
 	 */
-	if (ixa->ixa_flags & IXAF_PMTU_DISCOVERY) {
+	if (ixa->ixa_flags & (IXAF_PMTU_DISCOVERY | IXAF_DONTFRAG)) {
 		ixa->ixa_flags |= IXAF_PMTU_IPV4_DF;
 	} else {
 		ixa->ixa_flags &= ~IXAF_PMTU_IPV4_DF;
@@ -5792,7 +5821,7 @@ ip_net_mask(ipaddr_t addr)
 	ipaddr_t mask = 0;
 	uchar_t	*maskp = (uchar_t *)&mask;
 
-#if defined(__i386) || defined(__amd64)
+#if defined(__x86)
 #define	TOTALLY_BRAIN_DAMAGED_C_COMPILER
 #endif
 #ifdef  TOTALLY_BRAIN_DAMAGED_C_COMPILER

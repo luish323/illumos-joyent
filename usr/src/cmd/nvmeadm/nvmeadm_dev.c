@@ -10,8 +10,7 @@
  */
 
 /*
- * Copyright 2016 Nexenta Systems, Inc.
- * Copyright 2019 Western Digital Corporation
+ * Copyright 2022 Tintri by DDN, Inc. All rights reserved.
  */
 
 #include <sys/types.h>
@@ -34,9 +33,6 @@ nvme_ioctl(int fd, int ioc, size_t *bufsize, void **buf, uint64_t arg,
 	nvme_ioctl_t nioc = { 0 };
 	void *ptr = NULL;
 	int ret;
-
-	if (res != NULL)
-		*res = ~0ULL;
 
 	if (bufsize != NULL && *bufsize != 0) {
 		assert(buf != NULL);
@@ -62,6 +58,13 @@ nvme_ioctl(int fd, int ioc, size_t *bufsize, void **buf, uint64_t arg,
 		*res = nioc.n_arg;
 
 	if (ret != 0) {
+		/*
+		 * We're not clearing *res here as there may be cases where
+		 * we get an error _and_ we have interesting information in
+		 * returned in *res that callers of this functions might be
+		 * interested in.
+		 */
+
 		if (debug)
 			warn("nvme_ioctl()");
 		if (ptr != NULL)
@@ -101,27 +104,15 @@ nvme_version(int fd)
 	return (vs);
 }
 
-nvme_identify_ctrl_t *
-nvme_identify_ctrl(int fd)
+void *
+nvme_identify(int fd, uint8_t cns)
 {
 	void *idctl = NULL;
 	size_t bufsize = NVME_IDENTIFY_BUFSIZE;
 
-	(void) nvme_ioctl(fd, NVME_IOC_IDENTIFY_CTRL, &bufsize, &idctl, 0,
-	    NULL);
+	(void) nvme_ioctl(fd, NVME_IOC_IDENTIFY, &bufsize, &idctl, cns, NULL);
 
 	return (idctl);
-}
-
-nvme_identify_nsid_t *
-nvme_identify_nsid(int fd)
-{
-	void *idns = NULL;
-	size_t bufsize = NVME_IDENTIFY_BUFSIZE;
-
-	(void) nvme_ioctl(fd, NVME_IOC_IDENTIFY_NSID, &bufsize, &idns, 0, NULL);
-
-	return (idns);
 }
 
 void *
@@ -178,14 +169,28 @@ nvme_attach(int fd)
 }
 
 boolean_t
-nvme_firmware_load(int fd, void *buf, size_t len, offset_t offset)
+nvme_firmware_load(int fd, void *buf, size_t len, offset_t offset, uint16_t *sc)
 {
-	return (nvme_ioctl(fd, NVME_IOC_FIRMWARE_DOWNLOAD, &len, &buf, offset,
-	    NULL));
+	boolean_t rv;
+	uint64_t res;
+
+	rv = nvme_ioctl(fd, NVME_IOC_FIRMWARE_DOWNLOAD, &len, &buf, offset,
+	    &res);
+
+	/*
+	 * If the hardware returned a command-specific status code, we'll get
+	 * it as a negative value from the driver.
+	 */
+	if ((int64_t)res < 0)
+		*sc = (uint16_t)-(int64_t)res;
+	else
+		*sc = 0;
+
+	return (rv);
 }
 
 boolean_t
-nvme_firmware_commit(int fd, int slot, int action, uint16_t *sct, uint16_t *sc)
+nvme_firmware_commit(int fd, int slot, int action, uint16_t *sc)
 {
 	boolean_t rv;
 	uint64_t res;
@@ -193,16 +198,39 @@ nvme_firmware_commit(int fd, int slot, int action, uint16_t *sct, uint16_t *sc)
 	rv = nvme_ioctl(fd, NVME_IOC_FIRMWARE_COMMIT, NULL, NULL,
 	    ((uint64_t)action << 32) | slot, &res);
 
-	if (sct != NULL)
-		*sct = (uint16_t)(res >> 16);
-	if (sc != NULL)
-		*sc = (uint16_t)res;
+	/*
+	 * If the hardware returned a command-specific status code, we'll get
+	 * it as a negative value from the driver.
+	 */
+	if ((int64_t)res < 0)
+		*sc = (uint16_t)-(int64_t)res;
+	else
+		*sc = 0;
 
 	return (rv);
 }
 
+uint32_t
+nvme_namespace_state(int fd)
+{
+	uint64_t res = 0;
+
+	/*
+	 * Ask the driver for the namespace state.
+	 */
+	if (nvme_ioctl(fd, NVME_IOC_NS_STATE, NULL, NULL, 0, &res)) {
+		return (res);
+	}
+
+	/*
+	 * We're only here if the ioctl failed, which it really shouldnt. If so,
+	 * we treat this the same as if the namespace was ignored.
+	 */
+	return (NVME_NS_STATE_IGNORED);
+}
+
 int
-nvme_open(di_minor_t minor)
+nvme_open(di_minor_t minor, boolean_t excl)
 {
 	char *devpath, *path;
 	int fd;
@@ -217,7 +245,7 @@ nvme_open(di_minor_t minor)
 
 	di_devfs_path_free(devpath);
 
-	fd = open(path, O_RDWR);
+	fd = open(path, O_RDWR | (excl ? O_EXCL: 0));
 
 	if (fd < 0) {
 		if (debug)

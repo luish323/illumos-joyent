@@ -737,7 +737,6 @@ dboot_loader_mmap_get_type(int index)
 {
 #if !defined(__xpv)
 	mb_memory_map_t *mp, *mpend;
-	caddr32_t mmap_addr;
 	int i;
 
 	switch (multiboot_version) {
@@ -1386,13 +1385,13 @@ fixup_modules(void)
 		return;
 
 	if (modules[0].bm_type != BMT_FILE ||
-	    modules_used > 1 && modules[1].bm_type != BMT_FILE) {
+	    (modules_used > 1 && modules[1].bm_type != BMT_FILE)) {
 		return;
 	}
 
 	if (modules[0].bm_hash != (native_ptr_t)(uintptr_t)NULL ||
-	    modules_used > 1 &&
-	    modules[1].bm_hash != (native_ptr_t)(uintptr_t)NULL) {
+	    (modules_used > 1 &&
+	    modules[1].bm_hash != (native_ptr_t)(uintptr_t)NULL)) {
 		return;
 	}
 
@@ -1675,8 +1674,6 @@ dboot_multiboot1_highest_addr(void)
 static uint64_t
 dboot_multiboot_highest_addr(void)
 {
-	paddr_t addr;
-
 	switch (multiboot_version) {
 	case 1:
 		return (dboot_multiboot1_highest_addr());

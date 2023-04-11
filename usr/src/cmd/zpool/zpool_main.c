@@ -503,7 +503,7 @@ usage(boolean_t requested)
 		(void) fprintf(fp, "YES   disabled | enabled | active\n");
 
 		(void) fprintf(fp, gettext("\nThe feature@ properties must be "
-		    "appended with a feature name.\nSee zpool-features(5).\n"));
+		    "appended with a feature name.\nSee zpool-features(7).\n"));
 	}
 
 	/*
@@ -5151,8 +5151,8 @@ print_pool(zpool_handle_t *zhp, list_cbdata_t *cb)
 }
 
 static void
-print_one_column(zpool_prop_t prop, uint64_t value, boolean_t scripted,
-    boolean_t valid)
+print_one_column(zpool_prop_t prop, uint64_t value, const char *str,
+    boolean_t scripted, boolean_t valid, enum zfs_nicenum_format format)
 {
 	char propval[64];
 	boolean_t fixed;
@@ -5161,26 +5161,40 @@ print_one_column(zpool_prop_t prop, uint64_t value, boolean_t scripted,
 	switch (prop) {
 	case ZPOOL_PROP_EXPANDSZ:
 	case ZPOOL_PROP_CHECKPOINT:
+	case ZPOOL_PROP_DEDUPRATIO:
 		if (value == 0)
 			(void) strlcpy(propval, "-", sizeof (propval));
 		else
-			zfs_nicenum(value, propval, sizeof (propval));
+			zfs_nicenum_format(value, propval, sizeof (propval),
+			    format);
 		break;
 	case ZPOOL_PROP_FRAGMENTATION:
 		if (value == ZFS_FRAG_INVALID) {
 			(void) strlcpy(propval, "-", sizeof (propval));
+		} else if (format == ZFS_NICENUM_RAW) {
+			(void) snprintf(propval, sizeof (propval), "%llu",
+			    (unsigned long long)value);
 		} else {
 			(void) snprintf(propval, sizeof (propval), "%llu%%",
-			    value);
+			    (unsigned long long)value);
 		}
 		break;
 	case ZPOOL_PROP_CAPACITY:
-		(void) snprintf(propval, sizeof (propval),
-		    value < 1000 ? "%1.2f%%" : value < 10000 ?
-		    "%2.1f%%" : "%3.0f%%", value / 100.0);
+		if (format == ZFS_NICENUM_RAW)
+			(void) snprintf(propval, sizeof (propval), "%llu",
+			    (unsigned long long)value / 100);
+
+		else
+			(void) snprintf(propval, sizeof (propval),
+			    value < 1000 ? "%1.2f%%" : value < 10000 ?
+			    "%2.1f%%" : "%3.0f%%", value / 100.0);
+		break;
+	case ZPOOL_PROP_HEALTH:
+		width = 8;
+		(void) strlcpy(propval, str, sizeof (propval));
 		break;
 	default:
-		zfs_nicenum(value, propval, sizeof (propval));
+		zfs_nicenum_format(value, propval, sizeof (propval), format);
 	}
 
 	if (!valid)
@@ -5197,7 +5211,7 @@ print_one_column(zpool_prop_t prop, uint64_t value, boolean_t scripted,
  */
 void
 print_list_stats(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
-    list_cbdata_t *cb, int depth)
+    list_cbdata_t *cb, int depth, boolean_t isspare)
 {
 	nvlist_t **child;
 	vdev_stat_t *vs;
@@ -5205,7 +5219,8 @@ print_list_stats(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 	char *vname;
 	boolean_t scripted = cb->cb_scripted;
 	uint64_t islog = B_FALSE;
-	char *dashes = "%-*s      -      -      -         -      -      -\n";
+	char *dashes = " %-*s     -      -      -        -         "
+	    "-      -      -      -         -\n";
 
 	verify(nvlist_lookup_uint64_array(nv, ZPOOL_CONFIG_VDEV_STATS,
 	    (uint64_t **)&vs, &c) == 0);
@@ -5213,6 +5228,13 @@ print_list_stats(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 	if (name != NULL) {
 		boolean_t toplevel = (vs->vs_space != 0);
 		uint64_t cap;
+		enum zfs_nicenum_format format;
+		const char *state;
+
+		if (cb->cb_literal)
+			format = ZFS_NICENUM_RAW;
+		else
+			format = ZFS_NICENUM_1024;
 
 		if (strcmp(name, VDEV_TYPE_INDIRECT) == 0)
 			return;
@@ -5231,22 +5253,35 @@ print_list_stats(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 		 * 'toplevel' boolean value is passed to the print_one_column()
 		 * to indicate that the value is valid.
 		 */
-		print_one_column(ZPOOL_PROP_SIZE, vs->vs_space, scripted,
-		    toplevel);
-		print_one_column(ZPOOL_PROP_ALLOCATED, vs->vs_alloc, scripted,
-		    toplevel);
+		print_one_column(ZPOOL_PROP_SIZE, vs->vs_space, NULL, scripted,
+		    toplevel, format);
+		print_one_column(ZPOOL_PROP_ALLOCATED, vs->vs_alloc, NULL,
+		    scripted, toplevel, format);
 		print_one_column(ZPOOL_PROP_FREE, vs->vs_space - vs->vs_alloc,
-		    scripted, toplevel);
+		    NULL, scripted, toplevel, format);
 		print_one_column(ZPOOL_PROP_CHECKPOINT,
-		    vs->vs_checkpoint_space, scripted, toplevel);
-		print_one_column(ZPOOL_PROP_EXPANDSZ, vs->vs_esize, scripted,
-		    B_TRUE);
+		    vs->vs_checkpoint_space, NULL, scripted, toplevel, format);
+		print_one_column(ZPOOL_PROP_EXPANDSZ, vs->vs_esize, NULL,
+		    scripted, B_TRUE, format);
 		print_one_column(ZPOOL_PROP_FRAGMENTATION,
-		    vs->vs_fragmentation, scripted,
-		    (vs->vs_fragmentation != ZFS_FRAG_INVALID && toplevel));
+		    vs->vs_fragmentation, NULL, scripted,
+		    (vs->vs_fragmentation != ZFS_FRAG_INVALID && toplevel),
+		    format);
 		cap = (vs->vs_space == 0) ? 0 :
 		    (vs->vs_alloc * 10000 / vs->vs_space);
-		print_one_column(ZPOOL_PROP_CAPACITY, cap, scripted, toplevel);
+		print_one_column(ZPOOL_PROP_CAPACITY, cap, NULL,
+		    scripted, toplevel, format);
+		print_one_column(ZPOOL_PROP_DEDUPRATIO, 0, NULL,
+		    scripted, toplevel, format);
+		state = zpool_state_to_name(vs->vs_state, vs->vs_aux);
+		if (isspare) {
+			if (vs->vs_aux == VDEV_AUX_SPARED)
+				state = "INUSE";
+			else if (vs->vs_state == VDEV_STATE_HEALTHY)
+				state = "AVAIL";
+		}
+		print_one_column(ZPOOL_PROP_HEALTH, 0, state, scripted,
+		    B_TRUE, format);
 		(void) printf("\n");
 	}
 
@@ -5271,7 +5306,7 @@ print_list_stats(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 
 		vname = zpool_vdev_name(g_zfs, zhp, child[c],
 		    cb->cb_name_flags);
-		print_list_stats(zhp, vname, child[c], cb, depth + 2);
+		print_list_stats(zhp, vname, child[c], cb, depth + 1, B_FALSE);
 		free(vname);
 	}
 
@@ -5298,38 +5333,38 @@ print_list_stats(zpool_handle_t *zhp, const char *name, nvlist_t *nv,
 				continue;
 
 			if (!printed) {
-				/* LINTED E_SEC_PRINTF_VAR_FMT */
 				(void) printf(dashes, cb->cb_namewidth,
 				    class_name[n]);
 				printed = B_TRUE;
 			}
 			vname = zpool_vdev_name(g_zfs, zhp, child[c],
 			    cb->cb_name_flags);
-			print_list_stats(zhp, vname, child[c], cb, depth + 2);
+			print_list_stats(zhp, vname, child[c], cb, depth + 2,
+			    B_FALSE);
 			free(vname);
 		}
 	}
 
 	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_L2CACHE,
 	    &child, &children) == 0 && children > 0) {
-		/* LINTED E_SEC_PRINTF_VAR_FMT */
 		(void) printf(dashes, cb->cb_namewidth, "cache");
 		for (c = 0; c < children; c++) {
 			vname = zpool_vdev_name(g_zfs, zhp, child[c],
 			    cb->cb_name_flags);
-			print_list_stats(zhp, vname, child[c], cb, depth + 2);
+			print_list_stats(zhp, vname, child[c], cb, depth + 2,
+			    B_FALSE);
 			free(vname);
 		}
 	}
 
 	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_SPARES, &child,
 	    &children) == 0 && children > 0) {
-		/* LINTED E_SEC_PRINTF_VAR_FMT */
 		(void) printf(dashes, cb->cb_namewidth, "spare");
 		for (c = 0; c < children; c++) {
 			vname = zpool_vdev_name(g_zfs, zhp, child[c],
 			    cb->cb_name_flags);
-			print_list_stats(zhp, vname, child[c], cb, depth + 2);
+			print_list_stats(zhp, vname, child[c], cb, depth + 2,
+			    B_TRUE);
 			free(vname);
 		}
 	}
@@ -5342,26 +5377,17 @@ int
 list_callback(zpool_handle_t *zhp, void *data)
 {
 	list_cbdata_t *cbp = data;
-	nvlist_t *config;
-	nvlist_t *nvroot;
-
-	config = zpool_get_config(zhp, NULL);
-
-	if (cbp->cb_verbose) {
-		config = zpool_get_config(zhp, NULL);
-
-		verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
-		    &nvroot) == 0);
-	}
-
-	if (cbp->cb_verbose)
-		cbp->cb_namewidth = max_width(zhp, nvroot, 0, 0,
-		    cbp->cb_name_flags);
 
 	print_pool(zhp, cbp);
 
-	if (cbp->cb_verbose)
-		print_list_stats(zhp, NULL, nvroot, cbp, 0);
+	if (cbp->cb_verbose) {
+		nvlist_t *config, *nvroot;
+
+		config = zpool_get_config(zhp, NULL);
+		verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
+		    &nvroot) == 0);
+		print_list_stats(zhp, NULL, nvroot, cbp, 0, B_FALSE);
+	}
 
 	return (0);
 }
@@ -6400,9 +6426,10 @@ zpool_do_trim(int argc, char **argv)
 				    "combined with the -c or -s options\n"));
 				usage(B_FALSE);
 			}
-			if (zfs_nicestrtonum(NULL, optarg, &rate) == -1) {
-				(void) fprintf(stderr,
-				    gettext("invalid value for rate\n"));
+			if (zfs_nicestrtonum(g_zfs, optarg, &rate) == -1) {
+				(void) fprintf(stderr, "%s: %s\n",
+				    gettext("invalid value for rate"),
+				    libzfs_error_description(g_zfs));
 				usage(B_FALSE);
 			}
 			break;
@@ -7176,7 +7203,7 @@ status_callback(zpool_handle_t *zhp, void *data)
 		(void) printf(gettext("action: Enable all features using "
 		    "'zpool upgrade'. Once this is done,\n\tthe pool may no "
 		    "longer be accessible by software that does not support\n\t"
-		    "the features. See zpool-features(5) for details.\n"));
+		    "the features. See zpool-features(7) for details.\n"));
 		break;
 
 	case ZPOOL_STATUS_UNSUP_FEAT_READ:
@@ -7697,7 +7724,7 @@ upgrade_list_disabled_cb(zpool_handle_t *zhp, void *arg)
 					    "pool may become incompatible with "
 					    "software\nthat does not support "
 					    "the feature. See "
-					    "zpool-features(5) for "
+					    "zpool-features(7) for "
 					    "details.\n\n"));
 					(void) printf(gettext("POOL  "
 					    "FEATURE\n"));

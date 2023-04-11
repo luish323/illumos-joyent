@@ -56,6 +56,8 @@ __FBSDID("$FreeBSD$");
 #include <md5.h>
 
 #include "bhyverun.h"
+#include "config.h"
+#include "debug.h"
 #include "pci_emul.h"
 #include "ahci.h"
 #include "block_if.h"
@@ -610,8 +612,10 @@ ahci_build_iov(struct ahci_port *p, struct ahci_ioreq *aior,
     struct ahci_prdt_entry *prdt, uint16_t prdtl)
 {
 	struct blockif_req *breq = &aior->io_req;
-	int i, j, skip, todo, left, extra;
-	uint32_t dbcsz;
+	uint32_t dbcsz, extra, left, skip, todo;
+	int i, j;
+
+	assert(aior->len >= aior->done);
 
 	/* Copy part of PRDT between 'done' and 'len' bytes into the iov. */
 	skip = aior->done;
@@ -779,13 +783,14 @@ ahci_handle_flush(struct ahci_port *p, int slot, uint8_t *cfis)
 }
 
 static inline void
-read_prdt(struct ahci_port *p, int slot, uint8_t *cfis,
-		void *buf, int size)
+read_prdt(struct ahci_port *p, int slot, uint8_t *cfis, void *buf,
+    unsigned int size)
 {
 	struct ahci_cmd_hdr *hdr;
 	struct ahci_prdt_entry *prdt;
-	void *to;
-	int i, len;
+	uint8_t *to;
+	unsigned int len;
+	int i;
 
 	hdr = (struct ahci_cmd_hdr *)(p->cmd_lst + slot * AHCI_CL_SIZE);
 	len = size;
@@ -794,7 +799,7 @@ read_prdt(struct ahci_port *p, int slot, uint8_t *cfis,
 	for (i = 0; i < hdr->prdtl && len; i++) {
 		uint8_t *ptr;
 		uint32_t dbcsz;
-		int sublen;
+		unsigned int sublen;
 
 		dbcsz = (prdt->dbc & DBCMASK) + 1;
 		ptr = paddr_guest2host(ahci_ctx(p->pr_sc), prdt->dba, dbcsz);
@@ -893,13 +898,14 @@ next:
 }
 
 static inline void
-write_prdt(struct ahci_port *p, int slot, uint8_t *cfis,
-		void *buf, int size)
+write_prdt(struct ahci_port *p, int slot, uint8_t *cfis, void *buf,
+    unsigned int size)
 {
 	struct ahci_cmd_hdr *hdr;
 	struct ahci_prdt_entry *prdt;
-	void *from;
-	int i, len;
+	uint8_t *from;
+	unsigned int len;
+	int i;
 
 	hdr = (struct ahci_cmd_hdr *)(p->cmd_lst + slot * AHCI_CL_SIZE);
 	len = size;
@@ -1136,7 +1142,7 @@ atapi_inquiry(struct ahci_port *p, int slot, uint8_t *cfis)
 {
 	uint8_t buf[36];
 	uint8_t *acmd;
-	int len;
+	unsigned int len;
 	uint32_t tfd;
 
 	acmd = cfis + 0x40;
@@ -1198,7 +1204,7 @@ atapi_read_toc(struct ahci_port *p, int slot, uint8_t *cfis)
 {
 	uint8_t *acmd;
 	uint8_t format;
-	int len;
+	unsigned int len;
 
 	acmd = cfis + 0x40;
 
@@ -1207,7 +1213,8 @@ atapi_read_toc(struct ahci_port *p, int slot, uint8_t *cfis)
 	switch (format) {
 	case 0:
 	{
-		int msf, size;
+		size_t size;
+		int msf;
 		uint64_t sectors;
 		uint8_t start_track, buf[20], *bp;
 
@@ -1281,7 +1288,8 @@ atapi_read_toc(struct ahci_port *p, int slot, uint8_t *cfis)
 	}
 	case 2:
 	{
-		int msf, size;
+		size_t size;
+		int msf;
 		uint64_t sectors;
 		uint8_t *bp, buf[50];
 
@@ -1443,7 +1451,7 @@ atapi_request_sense(struct ahci_port *p, int slot, uint8_t *cfis)
 {
 	uint8_t buf[64];
 	uint8_t *acmd;
-	int len;
+	unsigned int len;
 
 	acmd = cfis + 0x40;
 	len = acmd[4];
@@ -1489,7 +1497,7 @@ atapi_mode_sense(struct ahci_port *p, int slot, uint8_t *cfis)
 	uint8_t *acmd;
 	uint32_t tfd = 0;
 	uint8_t pc, code;
-	int len;
+	unsigned int len;
 
 	acmd = cfis + 0x40;
 	len = be16dec(acmd + 7);
@@ -1574,7 +1582,7 @@ atapi_get_event_status_notification(struct ahci_port *p, int slot,
 		tfd = (p->sense_key << 12) | ATA_S_READY | ATA_S_ERROR;
 	} else {
 		uint8_t buf[8];
-		int len;
+		unsigned int len;
 
 		len = be16dec(acmd + 7);
 		if (len > sizeof(buf))
@@ -1930,7 +1938,7 @@ ata_ioreq_cb(struct blockif_req *br, int err)
 	if (!err && aior->more) {
 		if (dsm)
 			ahci_handle_dsm_trim(p, slot, cfis, aior->done);
-		else 
+		else
 			ahci_handle_rw(p, slot, cfis, aior->done);
 		goto out;
 	}
@@ -2184,8 +2192,9 @@ pci_ahci_host_write(struct pci_ahci_softc *sc, uint64_t offset, uint64_t value)
 }
 
 static void
-pci_ahci_write(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
-		int baridx, uint64_t offset, int size, uint64_t value)
+pci_ahci_write(struct vmctx *ctx __unused,
+    struct pci_devinst *pi, int baridx, uint64_t offset, int size,
+    uint64_t value)
 {
 	struct pci_ahci_softc *sc = pi->pi_arg;
 
@@ -2196,7 +2205,7 @@ pci_ahci_write(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
 
 	if (offset < AHCI_OFFSET)
 		pci_ahci_host_write(sc, offset, value);
-	else if (offset < AHCI_OFFSET + sc->ports * AHCI_STEP)
+	else if (offset < (uint64_t)AHCI_OFFSET + sc->ports * AHCI_STEP)
 		pci_ahci_port_write(sc, offset, value);
 	else
 		WPRINTF("pci_ahci: unknown i/o write offset 0x%"PRIx64"", offset);
@@ -2278,8 +2287,8 @@ pci_ahci_port_read(struct pci_ahci_softc *sc, uint64_t offset)
 }
 
 static uint64_t
-pci_ahci_read(struct vmctx *ctx, int vcpu, struct pci_devinst *pi, int baridx,
-    uint64_t regoff, int size)
+pci_ahci_read(struct vmctx *ctx __unused,
+    struct pci_devinst *pi, int baridx, uint64_t regoff, int size)
 {
 	struct pci_ahci_softc *sc = pi->pi_arg;
 	uint64_t offset;
@@ -2294,7 +2303,7 @@ pci_ahci_read(struct vmctx *ctx, int vcpu, struct pci_devinst *pi, int baridx,
 	offset = regoff & ~0x3;	    /* round down to a multiple of 4 bytes */
 	if (offset < AHCI_OFFSET)
 		value = pci_ahci_host_read(sc, offset);
-	else if (offset < AHCI_OFFSET + sc->ports * AHCI_STEP)
+	else if (offset < (uint64_t)AHCI_OFFSET + sc->ports * AHCI_STEP)
 		value = pci_ahci_port_read(sc, offset);
 	else {
 		value = 0;
@@ -2308,20 +2317,115 @@ pci_ahci_read(struct vmctx *ctx, int vcpu, struct pci_devinst *pi, int baridx,
 	return (value);
 }
 
+/*
+ * Each AHCI controller has a "port" node which contains nodes for
+ * each port named after the decimal number of the port (no leading
+ * zeroes).  Port nodes contain a "type" ("hd" or "cd"), as well as
+ * options for blockif.  For example:
+ *
+ * pci.0.1.0
+ *          .device="ahci"
+ *          .port
+ *               .0
+ *                 .type="hd"
+ *                 .path="/path/to/image"
+ */
 static int
-pci_ahci_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts, int atapi)
+pci_ahci_legacy_config_port(nvlist_t *nvl, int port, const char *type,
+    const char *opts)
 {
-	char bident[sizeof("XX:XX:XX")];
+	char node_name[sizeof("XX")];
+	nvlist_t *port_nvl;
+
+	snprintf(node_name, sizeof(node_name), "%d", port);
+	port_nvl = create_relative_config_node(nvl, node_name);
+	set_config_value_node(port_nvl, "type", type);
+	return (blockif_legacy_config(port_nvl, opts));
+}
+
+static int
+pci_ahci_legacy_config(nvlist_t *nvl, const char *opts)
+{
+	nvlist_t *ports_nvl;
+	const char *type;
+	char *next, *next2, *str, *tofree;
+	int p, ret;
+
+	if (opts == NULL)
+		return (0);
+
+	ports_nvl = create_relative_config_node(nvl, "port");
+	ret = 1;
+	tofree = str = strdup(opts);
+	for (p = 0; p < MAX_PORTS && str != NULL; p++, str = next) {
+		/* Identify and cut off type of present port. */
+		if (strncmp(str, "hd:", 3) == 0) {
+			type = "hd";
+			str += 3;
+		} else if (strncmp(str, "cd:", 3) == 0) {
+			type = "cd";
+			str += 3;
+		} else
+			type = NULL;
+
+		/* Find and cut off the next port options. */
+		next = strstr(str, ",hd:");
+		next2 = strstr(str, ",cd:");
+		if (next == NULL || (next2 != NULL && next2 < next))
+			next = next2;
+		if (next != NULL) {
+			next[0] = 0;
+			next++;
+		}
+
+		if (str[0] == 0)
+			continue;
+
+		if (type == NULL) {
+			EPRINTLN("Missing or invalid type for port %d: \"%s\"",
+			    p, str);
+			goto out;
+		}
+
+		if (pci_ahci_legacy_config_port(ports_nvl, p, type, str) != 0)
+			goto out;
+	}
+	ret = 0;
+out:
+	free(tofree);
+	return (ret);
+}
+
+static int
+pci_ahci_cd_legacy_config(nvlist_t *nvl, const char *opts)
+{
+	nvlist_t *ports_nvl;
+
+	ports_nvl = create_relative_config_node(nvl, "port");
+	return (pci_ahci_legacy_config_port(ports_nvl, 0, "cd", opts));
+}
+
+static int
+pci_ahci_hd_legacy_config(nvlist_t *nvl, const char *opts)
+{
+	nvlist_t *ports_nvl;
+
+	ports_nvl = create_relative_config_node(nvl, "port");
+	return (pci_ahci_legacy_config_port(ports_nvl, 0, "hd", opts));
+}
+
+static int
+pci_ahci_init(struct vmctx *ctx __unused, struct pci_devinst *pi, nvlist_t *nvl)
+{
+	char bident[sizeof("XXX:XXX:XXX")];
+	char node_name[sizeof("XX")];
 	struct blockif_ctxt *bctxt;
 	struct pci_ahci_softc *sc;
-	int ret, slots, p;
+	int atapi, ret, slots, p;
 	MD5_CTX mdctx;
 	u_char digest[16];
-	char *next, *next2;
-	char *bopt, *uopt, *xopts, *config;
-	FILE* fp;
-	size_t block_len;
-	int comma, optpos;
+	const char *path, *type, *value;
+	nvlist_t *ports_nvl, *port_nvl;
 
 	ret = 0;
 
@@ -2337,117 +2441,76 @@ pci_ahci_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts, int atapi)
 	sc->pi = 0;
 	slots = 32;
 
-	for (p = 0; p < MAX_PORTS && opts != NULL; p++, opts = next) {
+	ports_nvl = find_relative_config_node(nvl, "port");
+	for (p = 0; ports_nvl != NULL && p < MAX_PORTS; p++) {
 		struct ata_params *ata_ident = &sc->port[p].ata_ident;
-		memset(ata_ident, 0, sizeof(struct ata_params));
+		char ident[AHCI_PORT_IDENT];
 
-		/* Identify and cut off type of present port. */
-		if (strncmp(opts, "hd:", 3) == 0) {
-			atapi = 0;
-			opts += 3;
-		} else if (strncmp(opts, "cd:", 3) == 0) {
-			atapi = 1;
-			opts += 3;
-		}
-
-		/* Find and cut off the next port options. */
-		next = strstr(opts, ",hd:");
-		next2 = strstr(opts, ",cd:");
-		if (next == NULL || (next2 != NULL && next2 < next))
-			next = next2;
-		if (next != NULL) {
-			next[0] = 0;
-			next++;
-		}
-
-		if (opts[0] == 0)
+		snprintf(node_name, sizeof(node_name), "%d", p);
+		port_nvl = find_relative_config_node(ports_nvl, node_name);
+		if (port_nvl == NULL)
 			continue;
 
-		uopt = strdup(opts);
-		bopt = NULL;
-		fp = open_memstream(&bopt, &block_len);
-		comma = 0;
-		optpos = 0;
+		type = get_config_value_node(port_nvl, "type");
+		if (type == NULL)
+			continue;
 
-		for (xopts = strtok(uopt, ",");
-		     xopts != NULL;
-		     xopts = strtok(NULL, ",")) {
-
-			/* First option assume as block filename. */
-			if (optpos == 0) {
-				/*
-				 * Create an identifier for the backing file.
-				 * Use parts of the md5 sum of the filename
-				 */
-				char ident[AHCI_PORT_IDENT];
-				MD5Init(&mdctx);
-				MD5Update(&mdctx, opts, strlen(opts));
-				MD5Final(digest, &mdctx);
-				snprintf(ident, AHCI_PORT_IDENT,
-					"BHYVE-%02X%02X-%02X%02X-%02X%02X",
-					digest[0], digest[1], digest[2], digest[3], digest[4],
-					digest[5]);
-				ata_string((uint8_t*)&ata_ident->serial, ident, 20);
-				ata_string((uint8_t*)&ata_ident->revision, "001", 8);
-				if (atapi) {
-					ata_string((uint8_t*)&ata_ident->model, "BHYVE SATA DVD ROM", 40);
-				}
-				else {
-					ata_string((uint8_t*)&ata_ident->model, "BHYVE SATA DISK", 40);
-				}
-			}
-
-			if ((config = strchr(xopts, '=')) != NULL) {
-				*config++ = '\0';
-				if (!strcmp("nmrr", xopts)) {
-					ata_ident->media_rotation_rate = atoi(config);
-				}
-				else if (!strcmp("ser", xopts)) {
-					ata_string((uint8_t*)(&ata_ident->serial), config, 20);
-				}
-				else if (!strcmp("rev", xopts)) {
-					ata_string((uint8_t*)(&ata_ident->revision), config, 8);
-				}
-				else if (!strcmp("model", xopts)) {
-					ata_string((uint8_t*)(&ata_ident->model), config, 40);
-				}
-				else {
-					/* Pass all other options to blockif_open. */
-					*--config = '=';
-					fprintf(fp, "%s%s", comma ? "," : "", xopts);
-					comma = 1;
-				}
-			}
-			else {
-				/* Pass all other options to blockif_open. */
-				fprintf(fp, "%s%s", comma ? "," : "", xopts);
-				comma = 1;
-			}
-			optpos++;
-		}
-		free(uopt);
-		fclose(fp);
-
-		DPRINTF("%s\n", bopt);
+		if (strcmp(type, "hd") == 0)
+			atapi = 0;
+		else
+			atapi = 1;
 
 		/*
 		 * Attempt to open the backing image. Use the PCI slot/func
 		 * and the port number for the identifier string.
 		 */
-		snprintf(bident, sizeof(bident), "%d:%d:%d", pi->pi_slot,
+		snprintf(bident, sizeof(bident), "%u:%u:%u", pi->pi_slot,
 		    pi->pi_func, p);
-		bctxt = blockif_open(bopt, bident);
-		free(bopt);
 
+		bctxt = blockif_open(port_nvl, bident);
 		if (bctxt == NULL) {
 			sc->ports = p;
 			ret = 1;
 			goto open_fail;
-		}	
+		}
 		sc->port[p].bctx = bctxt;
 		sc->port[p].pr_sc = sc;
 		sc->port[p].port = p;
 		sc->port[p].atapi = atapi;
+
+		/*
+		 * Create an identifier for the backing file.
+		 * Use parts of the md5 sum of the filename
+		 */
+		path = get_config_value_node(port_nvl, "path");
+		MD5Init(&mdctx);
+		MD5Update(&mdctx, path, strlen(path));
+		MD5Final(digest, &mdctx);
+		snprintf(ident, AHCI_PORT_IDENT,
+			"BHYVE-%02X%02X-%02X%02X-%02X%02X",
+			digest[0], digest[1], digest[2], digest[3], digest[4],
+			digest[5]);
+
+		memset(ata_ident, 0, sizeof(struct ata_params));
+		ata_string((uint8_t*)&ata_ident->serial, ident, 20);
+		ata_string((uint8_t*)&ata_ident->revision, "001", 8);
+		if (atapi)
+			ata_string((uint8_t*)&ata_ident->model, "BHYVE SATA DVD ROM", 40);
+		else
+			ata_string((uint8_t*)&ata_ident->model, "BHYVE SATA DISK", 40);
+		value = get_config_value_node(port_nvl, "nmrr");
+		if (value != NULL)
+			ata_ident->media_rotation_rate = atoi(value);
+		value = get_config_value_node(port_nvl, "ser");
+		if (value != NULL)
+			ata_string((uint8_t*)(&ata_ident->serial), value, 20);
+		value = get_config_value_node(port_nvl, "rev");
+		if (value != NULL)
+			ata_string((uint8_t*)(&ata_ident->revision), value, 8);
+		value = get_config_value_node(port_nvl, "model");
+		if (value != NULL)
+			ata_string((uint8_t*)(&ata_ident->model), value, 40);
+		ata_identify_init(&sc->port[p], atapi);
 
 #ifndef __FreeBSD__
 		/*
@@ -2459,8 +2522,6 @@ pci_ahci_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts, int atapi)
 		 */
 		(void) blockif_set_wce(bctxt, 1);
 #endif
-
-		ata_identify_init(&sc->port[p], atapi);
 
 		/*
 		 * Allocate blockif request structures and add them
@@ -2513,43 +2574,28 @@ open_fail:
 	return (ret);
 }
 
-static int
-pci_ahci_hd_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts)
-{
-
-	return (pci_ahci_init(ctx, pi, opts, 0));
-}
-
-static int
-pci_ahci_atapi_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts)
-{
-
-	return (pci_ahci_init(ctx, pi, opts, 1));
-}
-
 /*
  * Use separate emulation names to distinguish drive and atapi devices
  */
-struct pci_devemu pci_de_ahci = {
+static const struct pci_devemu pci_de_ahci = {
 	.pe_emu =	"ahci",
-	.pe_init =	pci_ahci_hd_init,
+	.pe_init =	pci_ahci_init,
+	.pe_legacy_config = pci_ahci_legacy_config,
 	.pe_barwrite =	pci_ahci_write,
-	.pe_barread =	pci_ahci_read
+	.pe_barread =	pci_ahci_read,
 };
 PCI_EMUL_SET(pci_de_ahci);
 
-struct pci_devemu pci_de_ahci_hd = {
+static const struct pci_devemu pci_de_ahci_hd = {
 	.pe_emu =	"ahci-hd",
-	.pe_init =	pci_ahci_hd_init,
-	.pe_barwrite =	pci_ahci_write,
-	.pe_barread =	pci_ahci_read
+	.pe_legacy_config = pci_ahci_hd_legacy_config,
+	.pe_alias =	"ahci",
 };
 PCI_EMUL_SET(pci_de_ahci_hd);
 
-struct pci_devemu pci_de_ahci_cd = {
+static const struct pci_devemu pci_de_ahci_cd = {
 	.pe_emu =	"ahci-cd",
-	.pe_init =	pci_ahci_atapi_init,
-	.pe_barwrite =	pci_ahci_write,
-	.pe_barread =	pci_ahci_read
+	.pe_legacy_config = pci_ahci_cd_legacy_config,
+	.pe_alias =	"ahci",
 };
 PCI_EMUL_SET(pci_de_ahci_cd);

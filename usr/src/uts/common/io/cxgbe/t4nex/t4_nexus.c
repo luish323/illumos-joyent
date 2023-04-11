@@ -20,6 +20,10 @@
  * release for licensing terms and conditions.
  */
 
+/*
+ * Copyright 2023 Oxide Computer Company
+ */
+
 #include <sys/ddi.h>
 #include <sys/sunddi.h>
 #include <sys/sunndi.h>
@@ -38,17 +42,12 @@
 #include <sys/queue.h>
 #include <sys/containerof.h>
 #include <sys/sensors.h>
+#include <sys/firmload.h>
 
 #include "version.h"
 #include "common/common.h"
 #include "common/t4_msg.h"
 #include "common/t4_regs.h"
-#include "firmware/t4_fw.h"
-#include "firmware/t4_cfg.h"
-#include "firmware/t5_fw.h"
-#include "firmware/t5_cfg.h"
-#include "firmware/t6_fw.h"
-#include "firmware/t6_cfg.h"
 #include "t4_l2t.h"
 
 static int t4_cb_open(dev_t *devp, int flag, int otyp, cred_t *credp);
@@ -136,8 +135,6 @@ struct intrs_and_queues {
 	int nofldrxq1g;		/* # of TOE rxq's for each 1G port */
 #endif
 };
-
-struct fw_info fi[3];
 
 static int cpl_not_handled(struct sge_iq *iq, const struct rss_header *rss,
     mblk_t *m);
@@ -303,7 +300,7 @@ t4_devo_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 	struct adapter *sc = NULL;
 	struct sge *s;
 	int i, instance, rc = DDI_SUCCESS, rqidx, tqidx, q;
-	int irq = 0, nxg, n100g, n40g, n25g, n10g, n1g;
+	int irq = 0, nxg = 0, n1g = 0;
 #ifdef TCP_OFFLOAD_ENABLE
 	int ofld_rqidx, ofld_tqidx;
 #endif
@@ -313,12 +310,12 @@ t4_devo_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 	ddi_device_acc_attr_t da = {
 		.devacc_attr_version = DDI_DEVICE_ATTR_V0,
 		.devacc_attr_endian_flags = DDI_STRUCTURE_LE_ACC,
-		.devacc_attr_dataorder = DDI_UNORDERED_OK_ACC
+		.devacc_attr_dataorder = DDI_STRICTORDER_ACC 
 	};
 	ddi_device_acc_attr_t da1 = {
 		.devacc_attr_version = DDI_DEVICE_ATTR_V0,
 		.devacc_attr_endian_flags = DDI_STRUCTURE_LE_ACC,
-		.devacc_attr_dataorder = DDI_MERGING_OK_ACC
+		.devacc_attr_dataorder = DDI_STRICTORDER_ACC
 	};
 
 	if (cmd != DDI_ATTACH)
@@ -342,6 +339,8 @@ t4_devo_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 	cv_init(&sc->cv, NULL, CV_DRIVER, NULL);
 	mutex_init(&sc->sfl_lock, NULL, MUTEX_DRIVER, NULL);
 	TAILQ_INIT(&sc->sfl);
+	mutex_init(&sc->mbox_lock, NULL, MUTEX_DRIVER, NULL);
+	STAILQ_INIT(&sc->mbox_list);
 
 	mutex_enter(&t4_adapter_list_lock);
 	SLIST_INSERT_HEAD(&t4_adapter_list, sc, link);
@@ -523,7 +522,6 @@ t4_devo_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 	 * out whether a port is 10G or 1G and use that information when
 	 * calculating how many interrupts to attempt to allocate.
 	 */
-	n100g = n40g = n25g = n10g = n1g = 0;
 	for_each_port(sc, i) {
 		struct port_info *pi;
 
@@ -550,20 +548,8 @@ t4_devo_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 		mutex_init(&pi->lock, NULL, MUTEX_DRIVER, NULL);
 		pi->mtu = ETHERMTU;
 
-		if (is_100G_port(pi)) {
-			n100g++;
-			pi->tmr_idx = prp->tmr_idx_10g;
-			pi->pktc_idx = prp->pktc_idx_10g;
-		} else if (is_40G_port(pi)) {
-			n40g++;
-			pi->tmr_idx = prp->tmr_idx_10g;
-			pi->pktc_idx = prp->pktc_idx_10g;
-		} else if (is_25G_port(pi)) {
-			n25g++;
-			pi->tmr_idx = prp->tmr_idx_10g;
-			pi->pktc_idx = prp->pktc_idx_10g;
-		} else if (is_10G_port(pi)) {
-			n10g++;
+		if (is_10XG_port(pi)) {
+			nxg++;
 			pi->tmr_idx = prp->tmr_idx_10g;
 			pi->pktc_idx = prp->pktc_idx_10g;
 		} else {
@@ -578,7 +564,6 @@ t4_devo_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 		setbit(&sc->registered_device_map, i);
 	}
 
-	nxg = n10g + n25g + n40g + n100g;
 	(void) remove_extra_props(sc, nxg, n1g);
 
 	if (sc->registered_device_map == 0) {
@@ -640,8 +625,8 @@ t4_devo_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 #endif
 	s->rxq = kmem_zalloc(s->nrxq * sizeof (struct sge_rxq), KM_SLEEP);
 	s->txq = kmem_zalloc(s->ntxq * sizeof (struct sge_txq), KM_SLEEP);
-	s->iqmap = kmem_zalloc(s->niq * sizeof (struct sge_iq *), KM_SLEEP);
-	s->eqmap = kmem_zalloc(s->neq * sizeof (struct sge_eq *), KM_SLEEP);
+	s->iqmap = kmem_zalloc(s->iqmap_sz * sizeof (struct sge_iq *), KM_SLEEP);
+	s->eqmap = kmem_zalloc(s->eqmap_sz * sizeof (struct sge_eq *), KM_SLEEP);
 
 	sc->intr_handle = kmem_zalloc(sc->intr_count *
 	    sizeof (ddi_intr_handle_t), KM_SLEEP);
@@ -813,46 +798,12 @@ ofld_queues:
 	 */
 	t4_dump_version_info(sc);
 
-	if (n100g) {
-		cxgb_printf(dip, CE_NOTE,
-		    "%dx100G (%d rxq, %d txq total) %d %s.",
-		    n100g, rqidx, tqidx, sc->intr_count,
+	cxgb_printf(dip, CE_NOTE,
+		    "(%d rxq, %d txq total) %d %s.",
+		    rqidx, tqidx, sc->intr_count,
 		    sc->intr_type == DDI_INTR_TYPE_MSIX ? "MSI-X interrupts" :
 		    sc->intr_type == DDI_INTR_TYPE_MSI ? "MSI interrupts" :
 		    "fixed interrupt");
-	} else if (n40g) {
-		cxgb_printf(dip, CE_NOTE,
-		    "%dx40G (%d rxq, %d txq total) %d %s.",
-		    n40g, rqidx, tqidx, sc->intr_count,
-		    sc->intr_type == DDI_INTR_TYPE_MSIX ? "MSI-X interrupts" :
-		    sc->intr_type == DDI_INTR_TYPE_MSI ? "MSI interrupts" :
-		    "fixed interrupt");
-	} else if (n25g) {
-		cxgb_printf(dip, CE_NOTE,
-		    "%dx25G (%d rxq, %d txq total) %d %s.",
-		    n25g, rqidx, tqidx, sc->intr_count,
-		    sc->intr_type == DDI_INTR_TYPE_MSIX ? "MSI-X interrupts" :
-		    sc->intr_type == DDI_INTR_TYPE_MSI ? "MSI interrupts" :
-		    "fixed interrupt");
-	} else if (n10g && n1g) {
-		cxgb_printf(dip, CE_NOTE,
-		    "%dx10G %dx1G (%d rxq, %d txq total) %d %s.",
-		    n10g, n1g, rqidx, tqidx, sc->intr_count,
-		    sc->intr_type == DDI_INTR_TYPE_MSIX ? "MSI-X interrupts" :
-		    sc->intr_type == DDI_INTR_TYPE_MSI ? "MSI interrupts" :
-		    "fixed interrupt");
-	} else {
-		cxgb_printf(dip, CE_NOTE,
-		    "%dx%sG (%d rxq, %d txq per port) %d %s.",
-		    n10g ? n10g : n1g,
-		    n10g ? "10" : "1",
-		    n10g ? iaq.nrxq10g : iaq.nrxq1g,
-		    n10g ? iaq.ntxq10g : iaq.ntxq1g,
-		    sc->intr_count,
-		    sc->intr_type == DDI_INTR_TYPE_MSIX ? "MSI-X interrupts" :
-		    sc->intr_type == DDI_INTR_TYPE_MSI ? "MSI interrupts" :
-		    "fixed interrupt");
-	}
 
 	sc->ksp = setup_kstats(sc);
 	sc->ksp_stat = setup_wc_kstats(sc);
@@ -932,9 +883,9 @@ t4_devo_detach(dev_info_t *dip, ddi_detach_cmd_t cmd)
 	if (s->txq != NULL)
 		kmem_free(s->txq, s->ntxq * sizeof (struct sge_txq));
 	if (s->iqmap != NULL)
-		kmem_free(s->iqmap, s->niq * sizeof (struct sge_iq *));
+		kmem_free(s->iqmap, s->iqmap_sz * sizeof (struct sge_iq *));
 	if (s->eqmap != NULL)
-		kmem_free(s->eqmap, s->neq * sizeof (struct sge_eq *));
+		kmem_free(s->eqmap, s->eqmap_sz * sizeof (struct sge_eq *));
 
 	if (s->rxbuf_cache != NULL)
 		rxbuf_cache_destroy(s->rxbuf_cache);
@@ -974,9 +925,10 @@ t4_devo_detach(dev_info_t *dip, ddi_detach_cmd_t cmd)
 		pci_config_teardown(&sc->pci_regh);
 
 	mutex_enter(&t4_adapter_list_lock);
-	SLIST_REMOVE_HEAD(&t4_adapter_list, link);
+	SLIST_REMOVE(&t4_adapter_list, sc, adapter, link);
 	mutex_exit(&t4_adapter_list_lock);
 
+	mutex_destroy(&sc->mbox_lock);
 	mutex_destroy(&sc->lock);
 	cv_destroy(&sc->cv);
 	mutex_destroy(&sc->sfl_lock);
@@ -1200,56 +1152,6 @@ getpf(struct adapter *sc)
 	return (pf);
 }
 
-
-static struct fw_info *
-find_fw_info(int chip)
-{
-	u32 i;
-
-	fi[0].chip = CHELSIO_T4;
-	fi[0].fw_hdr.chip = FW_HDR_CHIP_T4;
-	fi[0].fw_hdr.fw_ver = cpu_to_be32(FW_VERSION(T4));
-	fi[0].fw_hdr.intfver_nic = FW_INTFVER(T4, NIC);
-	fi[0].fw_hdr.intfver_vnic = FW_INTFVER(T4, VNIC);
-	fi[0].fw_hdr.intfver_ofld = FW_INTFVER(T4, OFLD);
-	fi[0].fw_hdr.intfver_ri = FW_INTFVER(T4, RI);
-	fi[0].fw_hdr.intfver_iscsipdu = FW_INTFVER(T4, ISCSIPDU);
-	fi[0].fw_hdr.intfver_iscsi = FW_INTFVER(T4, ISCSI);
-	fi[0].fw_hdr.intfver_fcoepdu = FW_INTFVER(T4, FCOEPDU);
-	fi[0].fw_hdr.intfver_fcoe = FW_INTFVER(T4, FCOE);
-
-	fi[1].chip = CHELSIO_T5;
-	fi[1].fw_hdr.chip = FW_HDR_CHIP_T5;
-	fi[1].fw_hdr.fw_ver = cpu_to_be32(FW_VERSION(T5));
-	fi[1].fw_hdr.intfver_nic = FW_INTFVER(T5, NIC);
-	fi[1].fw_hdr.intfver_vnic = FW_INTFVER(T5, VNIC);
-	fi[1].fw_hdr.intfver_ofld = FW_INTFVER(T5, OFLD);
-	fi[1].fw_hdr.intfver_ri = FW_INTFVER(T5, RI);
-	fi[1].fw_hdr.intfver_iscsipdu = FW_INTFVER(T5, ISCSIPDU);
-	fi[1].fw_hdr.intfver_iscsi = FW_INTFVER(T5, ISCSI);
-	fi[1].fw_hdr.intfver_fcoepdu = FW_INTFVER(T5, FCOEPDU);
-	fi[1].fw_hdr.intfver_fcoe = FW_INTFVER(T5, FCOE);
-
-	fi[2].chip = CHELSIO_T6;
-	fi[2].fw_hdr.chip = FW_HDR_CHIP_T6;
-	fi[2].fw_hdr.fw_ver = cpu_to_be32(FW_VERSION(T6));
-	fi[2].fw_hdr.intfver_nic = FW_INTFVER(T6, NIC);
-	fi[2].fw_hdr.intfver_vnic = FW_INTFVER(T6, VNIC);
-	fi[2].fw_hdr.intfver_ofld = FW_INTFVER(T6, OFLD);
-	fi[2].fw_hdr.intfver_ri = FW_INTFVER(T6, RI);
-	fi[2].fw_hdr.intfver_iscsipdu = FW_INTFVER(T6, ISCSIPDU);
-	fi[2].fw_hdr.intfver_iscsi = FW_INTFVER(T6, ISCSI);
-	fi[2].fw_hdr.intfver_fcoepdu = FW_INTFVER(T6, FCOEPDU);
-	fi[2].fw_hdr.intfver_fcoe = FW_INTFVER(T6, FCOE);
-
-	for (i = 0; i < ARRAY_SIZE(fi); i++) {
-		if (fi[i].chip == chip)
-			return &fi[i];
-	}
-
-	return NULL;
-}
-
 /*
  * Install a compatible firmware (if required), establish contact with it,
  * become the master, and reset the device.
@@ -1258,12 +1160,14 @@ static int
 prep_firmware(struct adapter *sc)
 {
 	int rc;
-	int fw_size;
+	size_t fw_size;
 	int reset = 1;
 	enum dev_state state;
 	unsigned char *fw_data;
-	struct fw_info *fw_info;
-	struct fw_hdr *card_fw;
+	struct fw_hdr *card_fw, *hdr;
+	const char *fw_file = NULL;
+	firmware_handle_t fw_hdl;
+	struct fw_info fi, *fw_info = &fi;
 
 	struct driver_properties *p = &sc->props;
 
@@ -1281,45 +1185,77 @@ prep_firmware(struct adapter *sc)
 
 	/* We may need FW version info for later reporting */
 	t4_get_version_info(sc);
-	fw_info = find_fw_info(CHELSIO_CHIP_VERSION(sc->params.chip));
-	/* allocate memory to read the header of the firmware on the
-	 * card
-	 */
-	if (!fw_info) {
-		cxgb_printf(sc->dip, CE_WARN,
-			    "unable to look up firmware information for chip %d.\n",
-			    CHELSIO_CHIP_VERSION(sc->params.chip));
-		return EINVAL;
-	}
-	card_fw = kmem_zalloc(sizeof(*card_fw), KM_SLEEP);
-	if(!card_fw) {
-		cxgb_printf(sc->dip, CE_WARN,
-			    "Memory allocation for card FW header failed\n");
-		return ENOMEM;
-	}
+
 	switch(CHELSIO_CHIP_VERSION(sc->params.chip)) {
 	case CHELSIO_T4:
-		fw_data = t4fw_data;
-		fw_size = t4fw_size;
+		fw_file = "t4fw.bin";
 		break;
 	case CHELSIO_T5:
-		fw_data = t5fw_data;
-		fw_size = t5fw_size;
+		fw_file = "t5fw.bin";
 		break;
 	case CHELSIO_T6:
-		fw_data = t6fw_data;
-		fw_size = t6fw_size;
+		fw_file = "t6fw.bin";
 		break;
 	default:
 		cxgb_printf(sc->dip, CE_WARN, "Adapter type not supported\n");
-		kmem_free(card_fw, sizeof(*card_fw));
-		return EINVAL;
+		return (EINVAL);
 	}
 
-	rc = -t4_prep_fw(sc, fw_info, fw_data, fw_size, card_fw,
-			 p->t4_fw_install, state, &reset);
+	if (firmware_open(T4_PORT_NAME, fw_file, &fw_hdl) != 0) {
+		cxgb_printf(sc->dip, CE_WARN, "Could not open %s\n", fw_file);
+		return (EINVAL);
+	}
 
-	kmem_free(card_fw, sizeof(*card_fw));
+	fw_size = firmware_get_size(fw_hdl);
+
+	if (fw_size < sizeof (struct fw_hdr)) {
+		cxgb_printf(sc->dip, CE_WARN, "%s is too small (%ld bytes)\n",
+		    fw_file, fw_size);
+		firmware_close(fw_hdl);
+		return (EINVAL);
+	}
+
+	if (fw_size > FLASH_FW_MAX_SIZE) {
+		cxgb_printf(sc->dip, CE_WARN,
+		    "%s is too large (%ld bytes, max allowed is %ld)\n",
+		    fw_file, fw_size, FLASH_FW_MAX_SIZE);
+		firmware_close(fw_hdl);
+		return (EFBIG);
+	}
+
+	fw_data = kmem_zalloc(fw_size, KM_SLEEP);
+	if (firmware_read(fw_hdl, 0, fw_data, fw_size) != 0) {
+		cxgb_printf(sc->dip, CE_WARN, "Failed to read from %s\n",
+		    fw_file);
+		firmware_close(fw_hdl);
+		kmem_free(fw_data, fw_size);
+		return (EINVAL);
+	}
+	firmware_close(fw_hdl);
+
+	bzero(fw_info, sizeof (*fw_info));
+	fw_info->chip = CHELSIO_CHIP_VERSION(sc->params.chip);
+
+	hdr = (struct fw_hdr *)fw_data;
+	fw_info->fw_hdr.fw_ver = hdr->fw_ver;
+	fw_info->fw_hdr.chip = hdr->chip;
+	fw_info->fw_hdr.intfver_nic = hdr->intfver_nic;
+	fw_info->fw_hdr.intfver_vnic = hdr->intfver_vnic;
+	fw_info->fw_hdr.intfver_ofld = hdr->intfver_ofld;
+	fw_info->fw_hdr.intfver_ri = hdr->intfver_ri;
+	fw_info->fw_hdr.intfver_iscsipdu = hdr->intfver_iscsipdu;
+	fw_info->fw_hdr.intfver_iscsi = hdr->intfver_iscsi;
+	fw_info->fw_hdr.intfver_fcoepdu = hdr->intfver_fcoepdu;
+	fw_info->fw_hdr.intfver_fcoe = hdr->intfver_fcoe;
+
+	/* allocate memory to read the header of the firmware on the card */
+	card_fw = kmem_zalloc(sizeof (*card_fw), KM_SLEEP);
+
+	rc = -t4_prep_fw(sc, fw_info, fw_data, fw_size, card_fw,
+	    p->t4_fw_install, state, &reset);
+
+	kmem_free(card_fw, sizeof (*card_fw));
+	kmem_free(fw_data, fw_size);
 
 	if (rc != 0) {
 		cxgb_printf(sc->dip, CE_WARN,
@@ -1455,11 +1391,14 @@ memwin_info(struct adapter *sc, int win, uint32_t *base, uint32_t *aperture)
 static int
 upload_config_file(struct adapter *sc, uint32_t *mt, uint32_t *ma)
 {
-	int rc = 0, cflen;
+	int rc = 0;
+	size_t cflen, cfbaselen;
 	u_int i, n;
 	uint32_t param, val, addr, mtype, maddr;
 	uint32_t off, mw_base, mw_aperture;
-	const uint32_t *cfdata;
+	uint32_t *cfdata, *cfbase;
+	firmware_handle_t fw_hdl;
+	const char *cfg_file = NULL;
 
 	/* Figure out where the firmware wants us to upload it. */
 	param = FW_PARAM_DEV(CF);
@@ -1475,42 +1414,60 @@ upload_config_file(struct adapter *sc, uint32_t *mt, uint32_t *ma)
 
 	switch (CHELSIO_CHIP_VERSION(sc->params.chip)) {
 	case CHELSIO_T4:
-		cflen = t4cfg_size & ~3;
-		/* LINTED: E_BAD_PTR_CAST_ALIGN */
-		cfdata = (const uint32_t *)t4cfg_data;
+		cfg_file = "t4fw_cfg.txt";
 		break;
 	case CHELSIO_T5:
-		cflen = t5cfg_size & ~3;
-		/* LINTED: E_BAD_PTR_CAST_ALIGN */
-		cfdata = (const uint32_t *)t5cfg_data;
+		cfg_file = "t5fw_cfg.txt";
 		break;
 	case CHELSIO_T6:
-		cflen = t6cfg_size & ~3;
-		/* LINTED: E_BAD_PTR_CAST_ALIGN */
-		cfdata = (const uint32_t *)t6cfg_data;
+		cfg_file = "t6fw_cfg.txt";
 		break;
 	default:
-		cxgb_printf(sc->dip, CE_WARN,
-			    "Invalid Adapter detected\n");
+		cxgb_printf(sc->dip, CE_WARN, "Invalid Adapter detected\n");
 		return EINVAL;
 	}
+
+	if (firmware_open(T4_PORT_NAME, cfg_file, &fw_hdl) != 0) {
+		cxgb_printf(sc->dip, CE_WARN, "Could not open %s\n", cfg_file);
+		return EINVAL;
+	}
+
+	cflen = firmware_get_size(fw_hdl);
+	/*
+	 * Truncate the length to a multiple of uint32_ts. The configuration
+	 * text files have trailing comments (and hopefully always will) so
+	 * nothing important is lost.
+	 */
+	cflen &= ~3;
 
 	if (cflen > FLASH_CFG_MAX_SIZE) {
 		cxgb_printf(sc->dip, CE_WARN,
 		    "config file too long (%d, max allowed is %d).  ",
 		    cflen, FLASH_CFG_MAX_SIZE);
+		firmware_close(fw_hdl);
 		return (EFBIG);
 	}
 
 	rc = validate_mt_off_len(sc, mtype, maddr, cflen, &addr);
 	if (rc != 0) {
-
 		cxgb_printf(sc->dip, CE_WARN,
 		    "%s: addr (%d/0x%x) or len %d is not valid: %d.  "
 		    "Will try to use the config on the card, if any.\n",
 		    __func__, mtype, maddr, cflen, rc);
+		firmware_close(fw_hdl);
 		return (EFAULT);
 	}
+
+	cfbaselen = cflen;
+	cfbase = cfdata = kmem_zalloc(cflen, KM_SLEEP);
+	if (firmware_read(fw_hdl, 0, cfdata, cflen) != 0) {
+		cxgb_printf(sc->dip, CE_WARN, "Failed to read from %s\n",
+		    cfg_file);
+		firmware_close(fw_hdl);
+		kmem_free(cfbase, cfbaselen);
+		return EINVAL;
+	}
+	firmware_close(fw_hdl);
 
 	memwin_info(sc, 2, &mw_base, &mw_aperture);
 	while (cflen) {
@@ -1521,6 +1478,8 @@ upload_config_file(struct adapter *sc, uint32_t *mt, uint32_t *ma)
 		cflen -= n;
 		addr += n;
 	}
+
+	kmem_free(cfbase, cfbaselen);
 
 	return (rc);
 }
@@ -1705,6 +1664,19 @@ get_params__post_init(struct adapter *sc)
 	sc->vres.l2t.start = val[4];
 	sc->vres.l2t.size = val[5] - val[4] + 1;
 
+	param[0] = FW_PARAM_PFVF(IQFLINT_END);
+	param[1] = FW_PARAM_PFVF(EQ_END);
+	rc = -t4_query_params(sc, sc->mbox, sc->pf, 0, 2, param, val);
+	if (rc != 0) {
+		cxgb_printf(sc->dip, CE_WARN,
+			    "failed to query eq/iq map size parameters (post_init): %d.\n",
+			    rc);
+		return (rc);
+	}
+
+	sc->sge.iqmap_sz = val[0] - sc->sge.iq_start + 1;
+	sc->sge.eqmap_sz = val[1] - sc->sge.eq_start + 1;
+
 	/* get capabilites */
 	bzero(&caps, sizeof (caps));
 	caps.op_to_write = htonl(V_FW_CMD_OP(FW_CAPS_CONFIG_CMD) |
@@ -1739,6 +1711,13 @@ get_params__post_init(struct adapter *sc)
 		sc->vres.ddp.size = val[4] - val[3] + 1;
 		sc->params.ofldq_wr_cred = val[5];
 		sc->params.offload = 1;
+	}
+
+	rc = -t4_get_pfres(sc);
+	if (rc != 0) {
+		cxgb_printf(sc->dip, CE_WARN,
+			    "failed to query PF resource params: %d.\n", rc);
+		return (rc);
 	}
 
 	/* These are finalized by FW initialization, load their values now */
@@ -2124,21 +2103,112 @@ cfg_itype_and_nqueues(struct adapter *sc, int n10g, int n1g,
     struct intrs_and_queues *iaq)
 {
 	struct driver_properties *p = &sc->props;
-	int rc, itype, itypes, navail, nc, nrxq10g, nrxq1g, n;
-	int nofldrxq10g = 0, nofldrxq1g = 0;
+	int rc, itype, itypes, navail, nc, n;
+	int pfres_rxq, pfres_txq, pfresq;
 
 	bzero(iaq, sizeof (*iaq));
 	nc = ncpus;	/* our snapshot of the number of CPUs */
 	iaq->ntxq10g = min(nc, p->max_ntxq_10g);
 	iaq->ntxq1g = min(nc, p->max_ntxq_1g);
-	iaq->nrxq10g = nrxq10g = min(nc, p->max_nrxq_10g);
-	iaq->nrxq1g = nrxq1g = min(nc, p->max_nrxq_1g);
+	iaq->nrxq10g = min(nc, p->max_nrxq_10g);
+	iaq->nrxq1g = min(nc, p->max_nrxq_1g);
 #ifdef TCP_OFFLOAD_ENABLE
 	iaq->nofldtxq10g = min(nc, p->max_nofldtxq_10g);
 	iaq->nofldtxq1g = min(nc, p->max_nofldtxq_1g);
-	iaq->nofldrxq10g = nofldrxq10g = min(nc, p->max_nofldrxq_10g);
-	iaq->nofldrxq1g = nofldrxq1g = min(nc, p->max_nofldrxq_1g);
+	iaq->nofldrxq10g = min(nc, p->max_nofldrxq_10g);
+	iaq->nofldrxq1g = min(nc, p->max_nofldrxq_1g);
 #endif
+
+	pfres_rxq = iaq->nrxq10g * n10g + iaq->nrxq1g * n1g;
+	pfres_txq = iaq->ntxq10g * n10g + iaq->ntxq1g * n1g;
+#ifdef TCP_OFFLOAD_ENABLE
+	pfres_rxq += iaq->nofldrxq10g * n10g + iaq->nofldrxq1g * n1g;
+	pfres_txq += iaq->nofldtxq10g * n10g + iaq->nofldtxq1g * n1g;
+#endif
+
+	/* If current configuration of max number of Rxqs and Txqs exceed
+	 * the max available for all the ports under this PF, then shrink
+	 * the queues to max available. Reduce them in a way that each
+	 * port under this PF has equally distributed number of queues.
+	 * Must guarantee at least 1 queue for each port for both NIC
+	 * and Offload queues.
+	 *
+	 * neq - fixed max number of Egress queues on Tx path and Free List
+	 * queues that hold Rx payload data on Rx path. Half are reserved
+	 * for Egress queues and the other half for Free List queues.
+	 * Hence, the division by 2.
+	 *
+	 * niqflint - max number of Ingress queues with interrupts on Rx
+	 * path to receive completions that indicate Rx payload has been
+	 * posted in its associated Free List queue. Also handles Tx
+	 * completions for packets successfully transmitted on Tx path.
+	 *
+	 * nethctrl - max number of Egress queues only for Tx path. This
+	 * number is usually half of neq. However, if it became less than
+	 * neq due to lack of resources based on firmware configuration,
+	 * then take the lower value.
+	 */
+	while (pfres_rxq >
+	       min(sc->params.pfres.neq / 2, sc->params.pfres.niqflint)) {
+		pfresq = pfres_rxq;
+
+		if (iaq->nrxq10g > 1) {
+			iaq->nrxq10g--;
+			pfres_rxq -= n10g;
+		}
+
+		if (iaq->nrxq1g > 1) {
+			iaq->nrxq1g--;
+			pfres_rxq -= n1g;
+		}
+
+#ifdef TCP_OFFLOAD_ENABLE
+		if (iaq->nofldrxq10g > 1) {
+			iaq->nofldrxq10g--;
+			pfres_rxq -= n10g;
+		}
+
+		if (iaq->nofldrxq1g > 1) {
+			iaq->nofldrxq1g--;
+			pfres_rxq -= n1g;
+		}
+#endif
+
+		/* Break if nothing changed */
+		if (pfresq == pfres_rxq)
+			break;
+	}
+
+	while (pfres_txq >
+	       min(sc->params.pfres.neq / 2, sc->params.pfres.nethctrl)) {
+		pfresq = pfres_txq;
+
+		if (iaq->ntxq10g > 1) {
+			iaq->ntxq10g--;
+			pfres_txq -= n10g;
+		}
+
+		if (iaq->ntxq1g > 1) {
+			iaq->ntxq1g--;
+			pfres_txq -= n1g;
+		}
+
+#ifdef TCP_OFFLOAD_ENABLE
+		if (iaq->nofldtxq10g > 1) {
+			iaq->nofldtxq10g--;
+			pfres_txq -= n10g;
+		}
+
+		if (iaq->nofldtxq1g > 1) {
+			iaq->nofldtxq1g--;
+			pfres_txq -= n1g;
+		}
+#endif
+
+		/* Break if nothing changed */
+		if (pfresq == pfres_txq)
+			break;
+	}
 
 	rc = ddi_intr_get_supported_types(sc->dip, &itypes);
 	if (rc != DDI_SUCCESS) {
@@ -2174,8 +2244,12 @@ cfg_itype_and_nqueues(struct adapter *sc, int n10g, int n1g,
 		 * as offload).
 		 */
 		iaq->nirq = T4_EXTRA_INTR;
-		iaq->nirq += n10g * (nrxq10g + nofldrxq10g);
-		iaq->nirq += n1g * (nrxq1g + nofldrxq1g);
+		iaq->nirq += n10g * iaq->nrxq10g;
+		iaq->nirq += n1g * iaq->nrxq1g;
+#ifdef TCP_OFFLOAD_ENABLE
+		iaq->nirq += n10g * iaq->nofldrxq10g;
+		iaq->nirq += n1g * iaq->nofldrxq1g;
+#endif
 
 		if (iaq->nirq <= navail &&
 		    (itype != DDI_INTR_TYPE_MSI || ISP2(iaq->nirq))) {
@@ -2189,8 +2263,13 @@ cfg_itype_and_nqueues(struct adapter *sc, int n10g, int n1g,
 		 * offload rxq's.
 		 */
 		iaq->nirq = T4_EXTRA_INTR;
-		iaq->nirq += n10g * max(nrxq10g, nofldrxq10g);
-		iaq->nirq += n1g * max(nrxq1g, nofldrxq1g);
+#ifdef TCP_OFFLOAD_ENABLE
+		iaq->nirq += n10g * max(iaq->nrxq10g, iaq->nofldrxq10g);
+		iaq->nirq += n1g * max(iaq->nrxq1g, iaq->nofldrxq1g);
+#else
+		iaq->nirq += n10g * iaq->nrxq10g;
+		iaq->nirq += n1g * iaq->nrxq1g;
+#endif
 		if (iaq->nirq <= navail &&
 		    (itype != DDI_INTR_TYPE_MSI || ISP2(iaq->nirq))) {
 			iaq->intr_fwd = 1;
@@ -2209,32 +2288,38 @@ cfg_itype_and_nqueues(struct adapter *sc, int n10g, int n1g,
 			int leftover = navail - iaq->nirq;
 
 			if (n10g > 0) {
-				int target = max(nrxq10g, nofldrxq10g);
+				int target = iaq->nrxq10g;
 
+#ifdef TCP_OFFLOAD_ENABLE
+				target = max(target, iaq->nofldrxq10g);
+#endif
 				n = 1;
 				while (n < target && leftover >= n10g) {
 					leftover -= n10g;
 					iaq->nirq += n10g;
 					n++;
 				}
-				iaq->nrxq10g = min(n, nrxq10g);
+				iaq->nrxq10g = min(n, iaq->nrxq10g);
 #ifdef TCP_OFFLOAD_ENABLE
-				iaq->nofldrxq10g = min(n, nofldrxq10g);
+				iaq->nofldrxq10g = min(n, iaq->nofldrxq10g);
 #endif
 			}
 
 			if (n1g > 0) {
-				int target = max(nrxq1g, nofldrxq1g);
+				int target = iaq->nrxq1g;
 
+#ifdef TCP_OFFLOAD_ENABLE
+				target = max(target, iaq->nofldrxq1g);
+#endif
 				n = 1;
 				while (n < target && leftover >= n1g) {
 					leftover -= n1g;
 					iaq->nirq += n1g;
 					n++;
 				}
-				iaq->nrxq1g = min(n, nrxq1g);
+				iaq->nrxq1g = min(n, iaq->nrxq1g);
 #ifdef TCP_OFFLOAD_ENABLE
-				iaq->nofldrxq1g = min(n, nofldrxq1g);
+				iaq->nofldrxq1g = min(n, iaq->nofldrxq1g);
 #endif
 			}
 
@@ -2332,6 +2417,26 @@ remove_child_node(struct adapter *sc, int idx)
 done:
 	PORT_UNLOCK(pi);
 	return (rc);
+}
+
+static char *
+print_port_speed(const struct port_info *pi)
+{
+	if (!pi)
+		return "-";
+
+	if (is_100G_port(pi))
+		return "100G";
+	else if (is_50G_port(pi))
+		return "50G";
+	else if (is_40G_port(pi))
+		return "40G";
+	else if (is_25G_port(pi))
+		return "25G";
+	else if (is_10G_port(pi))
+		return "10G";
+	else
+		return "1G";
 }
 
 #define	KS_UINIT(x)	kstat_named_init(&kstatp->x, #x, KSTAT_DATA_ULONG)
@@ -2735,12 +2840,12 @@ t4_os_find_pci_capability(struct adapter *sc, int cap)
 }
 
 void
-t4_os_portmod_changed(const struct adapter *sc, int idx)
+t4_os_portmod_changed(struct adapter *sc, int idx)
 {
 	static const char *mod_str[] = {
 		NULL, "LR", "SR", "ER", "TWINAX", "active TWINAX", "LRM"
 	};
-	const struct port_info *pi = sc->port[idx];
+	struct port_info *pi = sc->port[idx];
 
 	if (pi->mod_type == FW_PORT_MOD_TYPE_NONE)
 		cxgb_printf(pi->dip, CE_NOTE, "transceiver unplugged.");
@@ -2756,6 +2861,10 @@ t4_os_portmod_changed(const struct adapter *sc, int idx)
 	else
 		cxgb_printf(pi->dip, CE_NOTE, "transceiver (type %d) inserted.",
 		    pi->mod_type);
+
+	if ((isset(&sc->open_device_map, pi->port_id) != 0) &&
+	    pi->link_cfg.new_module)
+		pi->link_cfg.redo_l1cfg = true;
 }
 
 /* ARGSUSED */

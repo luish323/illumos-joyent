@@ -14,21 +14,24 @@
  * Copyright 2020 Joyent, Inc.
  * Copyright 2019 Western Digital Corporation
  * Copyright 2021 Oxide Computer Company
+ * Copyright 2022 OmniOS Community Edition (OmniOSce) Association.
  */
 
 #ifndef _SYS_NVME_H
 #define	_SYS_NVME_H
 
 #include <sys/types.h>
+#include <sys/debug.h>
 
 #ifdef _KERNEL
 #include <sys/types32.h>
 #else
+#include <sys/uuid.h>
 #include <stdint.h>
 #endif
 
 /*
- * Declarations used for communication between nvmeadm(1M) and nvme(7D)
+ * Declarations used for communication between nvmeadm(8) and nvme(4D)
  */
 
 #ifdef __cplusplus
@@ -40,8 +43,7 @@ extern "C" {
  */
 
 #define	NVME_IOC			(('N' << 24) | ('V' << 16) | ('M' << 8))
-#define	NVME_IOC_IDENTIFY_CTRL		(NVME_IOC | 1)
-#define	NVME_IOC_IDENTIFY_NSID		(NVME_IOC | 2)
+#define	NVME_IOC_IDENTIFY		(NVME_IOC | 1)
 #define	NVME_IOC_CAPABILITIES		(NVME_IOC | 3)
 #define	NVME_IOC_GET_LOGPAGE		(NVME_IOC | 4)
 #define	NVME_IOC_GET_FEATURES		(NVME_IOC | 5)
@@ -52,7 +54,9 @@ extern "C" {
 #define	NVME_IOC_ATTACH			(NVME_IOC | 10)
 #define	NVME_IOC_FIRMWARE_DOWNLOAD	(NVME_IOC | 11)
 #define	NVME_IOC_FIRMWARE_COMMIT	(NVME_IOC | 12)
-#define	NVME_IOC_MAX			NVME_IOC_FIRMWARE_COMMIT
+#define	NVME_IOC_PASSTHRU		(NVME_IOC | 13)
+#define	NVME_IOC_NS_STATE		(NVME_IOC | 14)
+#define	NVME_IOC_MAX			NVME_IOC_NS_STATE
 
 #define	IS_NVME_IOC(x)			((x) > NVME_IOC && (x) <= NVME_IOC_MAX)
 #define	NVME_IOC_CMD(x)			((x) & 0xff)
@@ -108,6 +112,19 @@ typedef struct {
  */
 
 #define	NVME_IDENTIFY_BUFSIZE	4096	/* buffer size for Identify */
+
+/* NVMe Identify parameters (cdw10) */
+#define	NVME_IDENTIFY_NSID		0x0	/* Identify Namespace */
+#define	NVME_IDENTIFY_CTRL		0x1	/* Identify Controller */
+#define	NVME_IDENTIFY_NSID_LIST		0x2	/* List Active Namespaces */
+#define	NVME_IDENTIFY_NSID_DESC		0x3	/* Namespace ID Descriptors */
+
+#define	NVME_IDENTIFY_NSID_ALLOC_LIST	0x10	/* List Allocated NSID */
+#define	NVME_IDENTIFY_NSID_ALLOC	0x11	/* Identify Allocated NSID */
+#define	NVME_IDENTIFY_NSID_CTRL_LIST	0x12	/* List Controllers on NSID */
+#define	NVME_IDENTIFY_CTRL_LIST		0x13	/* Controller List */
+#define	NVME_IDENTIFY_PRIMARY_CAPS	0x14	/* Primary Controller Caps */
+
 
 /* NVMe Queue Entry Size bitfield */
 typedef struct {
@@ -371,7 +388,7 @@ typedef struct {
 		uint16_t sgl_tport:1;	/* Transport SGL Data Block (1.4) */
 		uint16_t sgl_rsvd2:10;
 	} id_sgls;
-	uint32_t id_mnam;		/* Maximum Number of Allowed NSes */
+	uint32_t id_mnan;		/* Maximum Number of Allowed NSes */
 	uint8_t id_rsvd_nc_4[768 - 544];
 
 	/* I/O Command Set Attributes */
@@ -515,6 +532,37 @@ typedef struct {
 	uint8_t id_vs[4096 - 384];	/* Vendor Specific */
 } nvme_identify_nsid_t;
 
+/* NVMe Identify Namespace ID List */
+typedef struct {
+					/* Ordered list of Namespace IDs */
+	uint32_t nl_nsid[NVME_IDENTIFY_BUFSIZE / sizeof (uint32_t)];
+} nvme_identify_nsid_list_t;
+
+/* NVME Identify Controller ID List */
+typedef struct {
+	uint16_t	cl_nid;		/* Number of controller entries */
+					/* unique controller identifiers */
+	uint16_t	cl_ctlid[NVME_IDENTIFY_BUFSIZE / sizeof (uint16_t) - 1];
+} nvme_identify_ctrl_list_t;
+
+/* NVMe Identify Namespace Descriptor */
+typedef struct {
+	uint8_t nd_nidt;		/* Namespace Identifier Type */
+	uint8_t nd_nidl;		/* Namespace Identifier Length */
+	uint8_t nd_resv[2];
+	uint8_t nd_nid[];		/* Namespace Identifier */
+} nvme_identify_nsid_desc_t;
+
+#define	NVME_NSID_DESC_EUI64	1
+#define	NVME_NSID_DESC_NGUID	2
+#define	NVME_NSID_DESC_NUUID	3
+#define	NVME_NSID_DESC_MIN	NVME_NSID_DESC_EUI64
+#define	NVME_NSID_DESC_MAX	NVME_NSID_DESC_NUUID
+
+#define	NVME_NSID_DESC_LEN_EUI64	8
+#define	NVME_NSID_DESC_LEN_NGUID	16
+#define	NVME_NSID_DESC_LEN_NUUID	UUID_LEN
+
 /* NVMe Identify Primary Controller Capabilities */
 typedef struct {
 	uint16_t	nipc_cntlid;	/* Controller ID */
@@ -556,6 +604,7 @@ typedef struct {
 #define	NVME_LOGPAGE_ERROR	0x1	/* Error Information */
 #define	NVME_LOGPAGE_HEALTH	0x2	/* SMART/Health Information */
 #define	NVME_LOGPAGE_FWSLOT	0x3	/* Firmware Slot Information */
+#define	NVME_LOGPAGE_NSCHANGE	0x4	/* Changed namespace (1.2) */
 
 typedef struct {
 	uint64_t el_count;		/* Error Count */
@@ -633,6 +682,15 @@ typedef struct {
 	uint8_t fw_rsvd4[512 - 64];
 } nvme_fwslot_log_t;
 
+/*
+ * The NVMe spec specifies that the changed namespace list contains up to
+ * 1024 entries.
+ */
+#define	NVME_NSCHANGE_LIST_SIZE	1024
+
+typedef struct {
+	uint32_t	nscl_ns[NVME_NSCHANGE_LIST_SIZE];
+} nvme_nschange_list_t;
 
 /*
  * NVMe Format NVM
@@ -797,13 +855,21 @@ typedef union {
 /* Asynchronous Event Configuration Feature */
 typedef union {
 	struct {
-		uint8_t aec_avail:1;	/* available space too low */
-		uint8_t aec_temp:1;	/* temperature too high */
-		uint8_t aec_reliab:1;	/* degraded reliability */
-		uint8_t aec_readonly:1;	/* media is read-only */
-		uint8_t aec_volatile:1;	/* volatile memory backup failed */
+		uint8_t aec_avail:1;	/* Available space too low */
+		uint8_t aec_temp:1;	/* Temperature too high */
+		uint8_t aec_reliab:1;	/* Degraded reliability */
+		uint8_t aec_readonly:1;	/* Media is read-only */
+		uint8_t aec_volatile:1;	/* Volatile memory backup failed */
 		uint8_t aec_rsvd1:3;
-		uint8_t aec_rsvd2[3];
+		uint8_t aec_nsan:1;	/* Namespace attribute notices (1.2) */
+		uint8_t aec_fwact:1;	/* Firmware activation notices (1.2) */
+		uint8_t aec_telln:1;	/* Telemetry log notices (1.3) */
+		uint8_t aec_ansacn:1;	/* Asymm. NS access change (1.4) */
+		uint8_t aec_plat:1;	/* Predictable latency ev. agg. (1.4) */
+		uint8_t aec_lbasi:1;	/* LBA status information (1.4) */
+		uint8_t aec_egeal:1;	/* Endurance group ev. agg. (1.4) */
+		uint8_t aec_rsvd2:1;
+		uint8_t aec_rsvd3[2];
 	} b;
 	uint32_t r;
 } nvme_async_event_conf_t;
@@ -909,6 +975,7 @@ typedef union {
 #define	NVME_CQE_SC_GEN_NVM_CAP_EXC	0x81	/* Capacity Exceeded */
 #define	NVME_CQE_SC_GEN_NVM_NS_NOTRDY	0x82	/* Namespace Not Ready */
 #define	NVME_CQE_SC_GEN_NVM_RSV_CNFLCT	0x83	/* Reservation Conflict */
+#define	NVME_CQE_SC_GEN_NVM_FORMATTING	0x84	/* Format in progress (1.2) */
 
 /* NVMe completion status code (command specific) */
 #define	NVME_CQE_SC_SPC_INV_CQ		0x0	/* Completion Queue Invalid */
@@ -945,6 +1012,89 @@ typedef union {
 #define	NVME_CQE_SC_INT_NVM_REF_TAG	0x84	/* Reference Tag Check Err */
 #define	NVME_CQE_SC_INT_NVM_COMPARE	0x85	/* Compare Failure */
 #define	NVME_CQE_SC_INT_NVM_ACCESS	0x86	/* Access Denied */
+
+/* Flags for NVMe passthru commands. */
+#define	NVME_PASSTHRU_READ	0x1 /* Read from device */
+#define	NVME_PASSTHRU_WRITE	0x2 /* Write to device */
+
+/* Error codes for NVMe passthru command validation. */
+/* Must be sizeof(nvme_passthru_cmd_t) */
+#define	NVME_PASSTHRU_ERR_CMD_SIZE	0x01
+#define	NVME_PASSTHRU_ERR_NOT_SUPPORTED	0x02	/* Not supported on device */
+#define	NVME_PASSTHRU_ERR_INVALID_OPCODE	0x03
+#define	NVME_PASSTHRU_ERR_READ_AND_WRITE	0x04	/* Must read ^ write */
+#define	NVME_PASSTHRU_ERR_INVALID_TIMEOUT	0x05
+
+/*
+ * Must be
+ * - multiple of 4 bytes in length
+ * - non-null iff length is non-zero
+ * - null if neither reading nor writing
+ * - non-null if either reading or writing
+ * - <= `nvme_vendor_specific_admin_cmd_size` in length, 16 MiB
+ * - <= UINT32_MAX in length
+ */
+#define	NVME_PASSTHRU_ERR_INVALID_BUFFER	0x06
+
+
+/* Generic struct for passing through vendor-unique commands to a device. */
+typedef struct {
+	uint8_t npc_opcode;	/* Command opcode. */
+	uint8_t npc_status;	/* Command completion status code. */
+	uint8_t npc_err;	/* Error-code if validation fails. */
+	uint8_t npc_rsvd0;	/* Align to 4 bytes */
+	uint32_t npc_timeout;	/* Command timeout, in seconds. */
+	uint32_t npc_flags;	/* Flags for the command. */
+	uint32_t npc_cdw0;	/* Command-specific result DWord 0 */
+	uint32_t npc_cdw12;	/* Command-specific DWord 12 */
+	uint32_t npc_cdw13;	/* Command-specific DWord 13 */
+	uint32_t npc_cdw14;	/* Command-specific DWord 14 */
+	uint32_t npc_cdw15;	/* Command-specific DWord 15 */
+	size_t npc_buflen;	/* Size of npc_buf. */
+	uintptr_t npc_buf;	/* I/O source or destination */
+} nvme_passthru_cmd_t;
+
+#ifdef _KERNEL
+typedef struct {
+	uint8_t npc_opcode;	/* Command opcode. */
+	uint8_t npc_status;	/* Command completion status code. */
+	uint8_t npc_err;	/* Error-code if validation fails. */
+	uint8_t npc_rsvd0;	/* Align to 4 bytes */
+	uint32_t npc_timeout;	/* Command timeout, in seconds. */
+	uint32_t npc_flags;	/* Flags for the command. */
+	uint32_t npc_cdw0;	/* Command-specific result DWord 0 */
+	uint32_t npc_cdw12;	/* Command-specific DWord 12 */
+	uint32_t npc_cdw13;	/* Command-specific DWord 13 */
+	uint32_t npc_cdw14;	/* Command-specific DWord 14 */
+	uint32_t npc_cdw15;	/* Command-specific DWord 15 */
+	size32_t npc_buflen;	/* Size of npc_buf. */
+	uintptr32_t npc_buf;	/* I/O source or destination */
+} nvme_passthru_cmd32_t;
+#endif
+
+/*
+ * NVME namespace state flags for NVME_IOC_NS_STATE ioctl
+ *
+ * The values are defined entirely by the driver. Some states correspond to
+ * namespace states described by the NVMe specification r1.3 section 6.1, others
+ * are specific to the implementation of this driver.
+ *
+ * The states are as follows:
+ * - ALLOCATED: the namespace exists in the controller as per the NVMe spec
+ * - ACTIVE: the namespace exists and is attached to this controller as per the
+ *   NVMe spec. Any namespace that is ACTIVE is also ALLOCATED. This must not be
+ *   confused with the ATTACHED state.
+ * - ATTACHED: the driver has attached a blkdev(4D) instance to this namespace.
+ *   This state can be changed by userspace with the ioctls NVME_IOC_ATTACH and
+ *   NVME_IOC_DETACH. A namespace can only be ATTACHED when it is not IGNORED.
+ * - IGNORED: the driver ignores this namespace, it never attaches a blkdev(4D).
+ *   Namespaces are IGNORED when they are not ACTIVE, or if they are ACTIVE but
+ *   have certain properties that the driver cannot handle.
+ */
+#define	NVME_NS_STATE_ALLOCATED		0x1
+#define	NVME_NS_STATE_ACTIVE		0x2
+#define	NVME_NS_STATE_ATTACHED		0x4
+#define	NVME_NS_STATE_IGNORED		0x8
 
 #ifdef __cplusplus
 }

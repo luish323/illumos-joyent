@@ -50,7 +50,11 @@ include		$(SRC)/cmd/sgs/Makefile.com
 
 SRCDIR =	../common
 ELFCAP =	$(SRC)/common/elfcap
-PLAT =		$(VAR_PLAT_$(BASEPLAT))
+
+PLAT_i386 =	intel/ia32
+PLAT_amd64 =	intel/amd64
+PLAT_sparc =	sparc
+PLAT = $(PLAT_$(BASEPLAT))
 
 # DTrace needs an executable data segment.
 MAPFILE.NED=
@@ -91,13 +95,13 @@ CPPFLAGS +=	-I$(SRC)/lib/libc/inc \
 		-I$(ELFCAP) \
 		 $(CPPFEATUREMACROS)
 
-ASFLAGS=	-P -D_ASM $(CPPFLAGS)
+ASFLAGS +=	-D_ASM $(CPPFLAGS)
+ASFLAGS64 +=	-D_ASM $(CPPFLAGS)
 LDLIB =		-L ../../libld/$(MACH)
 RTLDLIB =	-L ../../librtld/$(MACH)
 
 CERRWARN +=	$(CNOWARN_UNINIT)
 CERRWARN +=	-_gcc=-Wno-unused-variable
-CERRWARN +=	-_gcc=-Wno-switch
 
 # not linted
 SMATCH=off
@@ -105,8 +109,8 @@ SMATCH=off
 # These definitions require that libc be built in the same workspace
 # as the run-time linker and before the run-time linker is built.
 # This is required for the system's self-consistency in any case.
-CPICLIB =	$(VAR_RTLD_CPICLIB)
-CPICLIB64 =	$(VAR_RTLD_CPICLIB64)
+CPICLIB =	-L $(SRC)/lib/libc/$(MACH)
+CPICLIB64 =	-L $(SRC)/lib/libc/$(MACH64)
 CLIB =		-lc_pic
 
 LDLIBS +=	$(CONVLIBDIR) -lconv \
@@ -117,8 +121,6 @@ LDLIBS +=	$(CONVLIBDIR) -lconv \
 
 DYNFLAGS +=	-i -e _rt_boot $(VERSREF) $(ZNODLOPEN) \
 		$(ZINTERPOSE) -zdtrace=dtrace_data '-R$$ORIGIN'
-
-BUILD.s=	$(AS) $(ASFLAGS) $< -o $@
 
 BLTDEFS=	msg.h
 BLTDATA=	msg.c
@@ -144,13 +146,13 @@ SGSMSGALL=	$(SGSMSGCOM) $(SGSMSG32) $(SGSMSG64) \
 SGSMSGFLAGS1=	$(SGSMSGFLAGS) -m $(BLTMESG)
 SGSMSGFLAGS2=	$(SGSMSGFLAGS) -h $(BLTDEFS) -d $(BLTDATA) -n rtld_msg
 
-SRCS=		$(AVLOBJ:%.o=$(VAR_AVLDIR)/%.c) \
-		$(DTROBJ:%.o=$(VAR_DTRDIR)/%.c) \
+SRCS=		$(AVLOBJ:%.o=$(SRC)/common/avl/%.c) \
+		$(DTROBJ:%.o=$(SRC)/common/dtrace/%.c) \
 		$(SGSCOMMONOBJ:%.o=$(SGSCOMMON)/%.c) \
 		$(COMOBJS:%.o=../common/%.c)  $(MACHOBJS:%.o=%.c) $(BLTDATA) \
 		$(G_MACHOBJS:%.o=$(SRC)/uts/$(PLAT)/krtld/%.c) \
 		$(CP_MACHOBJS:%.o=../$(MACH)/%.c) \
-		$(ASOBJS:%.o=%.s)
+		$(ASOBJS:%.o=%.S)
 
 CLEANFILES +=	$(CRTS) $(BLTFILES)
 CLOBBERFILES +=	$(RTLD)

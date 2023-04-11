@@ -58,12 +58,7 @@ CFLAGS += $(CCVERBOSE)
 #
 # md5 depends on the kcf framework
 #
-LDFLAGS		+= -dy -Nmisc/kcf
-
-#
-# need extra inline file for here.
-#
-INLINES += $(SRC)/common/crypto/md5/sparc/sun4u/byteswap.il
+LDFLAGS		+= -Nmisc/kcf
 
 #
 #	Default build targets.

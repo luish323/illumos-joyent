@@ -10,10 +10,12 @@
  */
 
 /*
- * Copyright 2018 Nexenta Systems, Inc.
  * Copyright 2016 The MathWorks, Inc. All rights reserved.
  * Copyright 2019 Joyent, Inc.
- * Copyright 2019 Western Digital Corporation.
+ * Copyright 2019 Unix Software Ltd.
+ * Copyright 2021 Oxide Computer Company.
+ * Copyright 2022 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2022 Tintri by DDN, Inc. All rights reserved.
  */
 
 #ifndef _NVME_VAR_H
@@ -39,6 +41,8 @@ extern "C" {
 #define	NVME_CTRL_LIMITS		0x8
 #define	NVME_INTERRUPTS			0x10
 #define	NVME_UFM_INIT			0x20
+#define	NVME_MUTEX_INIT			0x40
+#define	NVME_MGMT_INIT			0x80
 
 #define	NVME_MIN_ADMIN_QUEUE_LEN	16
 #define	NVME_MIN_IO_QUEUE_LEN		16
@@ -59,9 +63,8 @@ typedef struct nvme_qpair nvme_qpair_t;
 typedef struct nvme_task_arg nvme_task_arg_t;
 
 struct nvme_minor_state {
-	kmutex_t	nm_mutex;
-	boolean_t	nm_oexcl;
-	uint_t		nm_ocnt;
+	kthread_t	*nm_oexcl;
+	boolean_t	nm_open;
 };
 
 struct nvme_dma {
@@ -87,6 +90,7 @@ struct nvme_cmd {
 	uint16_t nc_sqid;
 
 	nvme_dma_t *nc_dma;
+	nvme_dma_t *nc_prp; /* DMA for PRP lists */
 
 	kmutex_t nc_mutex;
 	kcondvar_t nc_cv;
@@ -211,6 +215,12 @@ struct nvme {
 
 	ksema_t n_abort_sema;
 
+	/* protects namespace management operations */
+	kmutex_t n_mgmt_mutex;
+
+	/* protects minor node operations */
+	kmutex_t n_minor_mutex;
+
 	/* state for devctl minor node */
 	nvme_minor_state_t n_minor;
 
@@ -230,6 +240,7 @@ struct nvme {
 	uint32_t n_abort_sq_del;
 	uint32_t n_nvm_cap_exc;
 	uint32_t n_nvm_ns_notrdy;
+	uint32_t n_nvm_ns_formatting;
 	uint32_t n_inv_cq_err;
 	uint32_t n_inv_qid_err;
 	uint32_t n_max_qsz_exc;
@@ -250,6 +261,7 @@ struct nvme {
 	uint32_t n_temperature_event;
 	uint32_t n_spare_event;
 	uint32_t n_vendor_event;
+	uint32_t n_notice_event;
 	uint32_t n_unknown_event;
 
 	/* hot removal NDI event handling */
@@ -267,7 +279,8 @@ struct nvme {
 struct nvme_namespace {
 	nvme_t *ns_nvme;
 	uint8_t ns_eui64[8];
-	char	ns_name[17];
+	uint8_t	ns_nguid[16];
+	char	ns_name[11];
 
 	bd_handle_t ns_bd_hdl;
 
@@ -276,7 +289,10 @@ struct nvme_namespace {
 	size_t ns_block_size;
 	size_t ns_best_block_size;
 
+	boolean_t ns_allocated;
+	boolean_t ns_active;
 	boolean_t ns_ignore;
+	boolean_t ns_attached;
 
 	nvme_identify_nsid_t *ns_idns;
 
@@ -284,7 +300,7 @@ struct nvme_namespace {
 	nvme_minor_state_t ns_minor;
 
 	/*
-	 * If a namespace has no EUI64, we create a devid in
+	 * If a namespace has neither NGUID nor EUI64, we create a devid in
 	 * nvme_prepare_devid().
 	 */
 	char *ns_devid;

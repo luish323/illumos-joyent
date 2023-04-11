@@ -321,6 +321,9 @@ write_arglist(mdb_tgt_as_t as, mdb_tgt_addr_t addr,
 	case 'Z':
 		write_value = write_uint64;
 		break;
+	default:
+		write_value = NULL;
+		break;
 	}
 
 	for (argv++, i = 1; i < argc; i++, argv++) {
@@ -435,6 +438,10 @@ match_arglist(mdb_tgt_as_t as, uint_t flags, mdb_tgt_addr_t addr,
 	case 'M':
 		match_value = match_uint64;
 		break;
+	default:
+		mdb_warn("unknown match value %c\n",
+		    argv->a_un.a_char);
+		return (DCMD_ERR);
 	}
 
 	for (argv++, i = 1; i < argc; i++, argv++) {
@@ -1731,7 +1738,7 @@ showrev_objectversions(int showall)
 }
 
 /*
- * Display information similar to what showrev(1M) displays when invoked
+ * Display information similar to what showrev(8) displays when invoked
  * with no arguments.
  */
 static int
@@ -1748,7 +1755,7 @@ showrev_sysinfo(void)
 	}
 
 	/*
-	 * Match the order of the showrev(1M) output and put "Application
+	 * Match the order of the showrev(8) output and put "Application
 	 * architecture" before "Kernel version"
 	 */
 	if ((s = mdb_tgt_isa(mdb.m_target)) != NULL)

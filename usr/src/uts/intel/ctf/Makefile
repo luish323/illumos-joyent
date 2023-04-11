@@ -36,10 +36,8 @@ include $(UTSBASE)/intel/Makefile.intel
 ALL_TARGET	= $(BINARY)
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 
-C99LMODE=	-Xc99=%all
-
 CPPFLAGS	+= -I$(SRC)/common/ctf -DCTF_OLD_VERSIONS
-LDFLAGS		+= $(BREDUCE) -M$(UTSBASE)/common/ctf/mapfile -dy
+LDFLAGS		+= $(BREDUCE) -M$(UTSBASE)/common/ctf/mapfile
 
 #
 # For now, disable these warnings; maintainers should endeavor

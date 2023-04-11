@@ -165,7 +165,6 @@ COMMON_SUBDIRS=		\
 	fdetach		\
 	fdformat	\
 	fdisk		\
-	ficl		\
 	filesync	\
 	file		\
 	find		\
@@ -304,7 +303,9 @@ COMMON_SUBDIRS=		\
 	passwd		\
 	pathchk		\
 	pbind		\
+	pcidb		\
 	pcidr		\
+	pcieadm		\
 	pcieb		\
 	pcitool		\
 	pfexec		\
@@ -374,7 +375,6 @@ COMMON_SUBDIRS=		\
 	setfacl		\
 	setmnt		\
 	setpgrp		\
-	setuname	\
 	sgs		\
 	sh		\
 	sleep		\
@@ -416,7 +416,6 @@ COMMON_SUBDIRS=		\
 	tic		\
 	time		\
 	tip		\
-	tnf		\
 	touch		\
 	tput		\
 	tr		\
@@ -491,9 +490,11 @@ i386_SUBDIRS=		\
 	biosdev		\
 	cxgbetool	\
 	diskscan	\
+	ficl		\
 	nvmeadm		\
 	pptadm		\
 	rdmsr		\
+	rsrvrctl	\
 	rtc		\
 	ucodeadm	\
 	xhci		\
@@ -711,7 +712,6 @@ MSGSUBDIRS=		\
 	tar		\
 	tbl		\
 	time		\
-	tnf		\
 	touch		\
 	tput		\
 	troff		\

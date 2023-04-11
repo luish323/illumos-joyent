@@ -10,7 +10,8 @@
  */
 
 /*
- * Copyright 2019 Nexenta by DDN, Inc. All rights reserved.
+ * Copyright 2017-2022 Tintri by DDN, Inc. All rights reserved.
+ * Copyright 2022 RackTop Systems, Inc.
  */
 
 /*
@@ -179,6 +180,8 @@ preserve_some:
 	/* preserve_opens == SMB2_DH_PRESERVE_SOME */
 
 	switch (of->dh_vers) {
+		uint32_t ol_state;
+
 	case SMB2_RESILIENT:
 		return (B_TRUE);
 
@@ -188,7 +191,11 @@ preserve_some:
 		/* FALLTHROUGH */
 	case SMB2_DURABLE_V1:
 		/* IS durable (v1 or v2) */
-		if ((of->f_oplock.og_state & (OPLOCK_LEVEL_BATCH |
+		if (of->f_lease != NULL)
+			ol_state = of->f_lease->ls_state;
+		else
+			ol_state = of->f_oplock.og_state;
+		if ((ol_state & (OPLOCK_LEVEL_BATCH |
 		    OPLOCK_LEVEL_CACHE_HANDLE)) != 0)
 			return (B_TRUE);
 		/* FALLTHROUGH */
@@ -344,8 +351,8 @@ smb2_dh_import_share(void *arg)
 	 * Open the ext. attr dir under the share root and
 	 * import CA handles for this share.
 	 */
-	if (smb_odir_openat(sr, snode, &od) != 0) {
-		cmn_err(CE_NOTE, "Share [%s] CA import, no xattr dir?",
+	if (smb_odir_openat(sr, snode, &od, B_FALSE) != 0) {
+		cmn_err(CE_NOTE, "!Share [%s] CA import, no xattr dir?",
 		    shr->shr_name);
 		goto out;
 	}
@@ -357,6 +364,12 @@ smb2_dh_import_share(void *arg)
 		 * bail out so we don't hold things up.
 		 */
 		if (shr->shr_flags & SMB_SHRF_REMOVED)
+			break;
+
+		/*
+		 * If the server's stopping, no point importing.
+		 */
+		if (smb_server_is_stopping(sr->sr_server))
 			break;
 
 		/*
@@ -392,6 +405,7 @@ smb2_dh_import_share(void *arg)
 			of = NULL;
 		}
 		sr->fid_ofile = NULL;
+		smb_llist_flush(&sr->tid_tree->t_ofile_list);
 
 	} while (!eof);
 
@@ -1413,7 +1427,7 @@ smb2_dh_reconnect(smb_request_t *sr)
 	/*
 	 * The ofile is now in the caller's session & tree.
 	 *
-	 * In case smb_ofile_hold or smb_oplock_send_brk() are
+	 * In case smb_ofile_hold or smb_oplock_send_break() are
 	 * waiting for state RECONNECT to complete, wakeup.
 	 */
 	mutex_enter(&of->f_mutex);

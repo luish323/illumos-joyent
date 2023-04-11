@@ -22,7 +22,7 @@
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
  * Copyright 2017 Joyent, Inc.
- * Copyright 2020 RackTop Systems, Inc.
+ * Copyright 2022 RackTop Systems, Inc.
  */
 
 #ifndef _SMB_IOCTL_H_
@@ -172,13 +172,14 @@ typedef struct smb_ioc_cfg {
 	int32_t		ipv6_enable;
 	int32_t		print_enable;
 	int32_t		traverse_mounts;
+	int32_t		short_names;
 	uint32_t	max_protocol;
 	uint32_t	min_protocol;
 	uint32_t	encrypt;
+	uint32_t	encrypt_ciphers;
 	uint32_t	exec_flags;
 	uint32_t	negtok_len;
 	smb_version_t	version;
-	uint16_t	encrypt_cipher;
 	uint16_t	initial_credits;
 	uint16_t	maximum_credits;
 	/* SMB negotiate protocol response. */

@@ -23,6 +23,7 @@
 # Copyright 2016 RackTop Systems.
 # Copyright 2017 Joyent, Inc.
 # Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2022 Garrett D'Amore <garrett@damore.org>
 #
 
 include		$(SRC)/cmd/Makefile.cmd
@@ -34,7 +35,7 @@ include		$(SRC)/cmd/Makefile.cmd
 # all dependencies of an item have been built before the
 # item itself.
 #
-SUBDIRS-common= libconv		\
+SUBDIRS=	 libconv	\
 		.WAIT		\
 		libdl		\
 		libelf		\
@@ -59,6 +60,7 @@ SUBDIRS-common= libconv		\
 		crle		\
 		ar		\
 		dump		\
+		elfcap.chk	\
 		elfdump		\
 		elfedit		\
 		elfwrap		\
@@ -81,11 +83,6 @@ SUBDIRS-common= libconv		\
 		.WAIT		\
 		demo_rdb
 
-SUBDIRS-i386=
-SUBDIRS-sparc=	rtld.4.x
-
-SUBDIRS=	$(SUBDIRS-common) $(SUBDIRS-$(MACH))
-
 # Messaging support
 #
 POSUBDIRS=	m4		nm	tsort		yacc
@@ -98,19 +95,19 @@ MSGSUBDIRS=	ld		ldd		libld		liblddbg \
 		elfedit		crle		moe		lari \
 		librtld_db	elfwrap		ar
 
-MSGDIR=		messages
+CHKSUBDIRS=	elfcap.chk
 
+MSGDIR=		messages
 
 all :=		TARGET= all
 install :=	TARGET= install
 clean :=	TARGET= clean
 clobber :=	TARGET= clobber
-delete :=	TARGET= delete
-lint :=		TARGET= lint
 _msg :=		TARGET= catalog
 _msg_gettext :=	TARGET= catalog
 _msg_sgsmsg :=	TARGET= catalog
 chkmsg :=	TARGET= chkmsg
+check :=	TARGET= check
 
 
 .KEEP_STATE:
@@ -141,16 +138,14 @@ $(MSGDIR):	$(MSGSUBDIRS) FRC
 
 chkmsg:		libconv $(MSGSUBDIRS) FRC
 
-check:		chkmsg
+check:		chkmsg $(CHKSUBDIRS)
 
 # built from lib/Makefile
 install_lib:	FRC
 		@ cd lex; pwd; $(MAKE) $@
 		@ cd yacc; pwd; $(MAKE) $@
 
-lint:
-
-delete clean clobber: $(SUBDIRS) $(MSGDIR)
+clean clobber: $(SUBDIRS) $(MSGDIR)
 
 $(SUBDIRS):	FRC
 		@ cd $@; pwd; $(MAKE) $(TARGET)
@@ -158,10 +153,8 @@ $(SUBDIRS):	FRC
 FRC:
 
 #
-# Cross-reference customization: ignore the directories named by XRPRUNE,
-# and tweak the file globs slightly.
+# Cross-reference customization: tweak the file globs slightly.
 #
-XRPRUNE=	rtld.4.x abi
 XRADD=		*.msg mapfile*
 XRDEL=		Makefile* kobj_*
 

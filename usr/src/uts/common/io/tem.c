@@ -236,6 +236,10 @@ tem_internal_init(struct tem_vt_state *ptem, cred_t *credp,
 	ptem->tvs_screen_rows = kmem_alloc(ptem->tvs_screen_history_size *
 	    sizeof (term_char_t *), KM_SLEEP);
 
+	ptem->tvs_maxtab = width / 8;
+	ptem->tvs_tabs = kmem_alloc(ptem->tvs_maxtab * sizeof (*ptem->tvs_tabs),
+	    KM_SLEEP);
+
 	tem_safe_reset_display(ptem, credp, CALLED_FROM_NORMAL,
 	    clear_screen, init_color);
 
@@ -272,7 +276,7 @@ tem_initialized(tem_vt_state_t tem_arg)
 }
 
 tem_vt_state_t
-tem_init(cred_t *credp)
+tem_init(cred_t *credp, queue_t *rq)
 {
 	struct tem_vt_state *ptem;
 
@@ -284,6 +288,7 @@ tem_init(cred_t *credp)
 
 	ptem->tvs_isactive = B_FALSE;
 	ptem->tvs_fbmode = KD_TEXT;
+	ptem->tvs_queue = rq;
 
 	/*
 	 * A tem is regarded as initialized only after tem_internal_init(),
@@ -339,6 +344,10 @@ tem_free_buf(struct tem_vt_state *tem)
 	if (tem->tvs_screen_rows != NULL) {
 		kmem_free(tem->tvs_screen_rows, tem->tvs_screen_history_size *
 		    sizeof (term_char_t *));
+	}
+	if (tem->tvs_tabs != NULL) {
+		kmem_free(tem->tvs_tabs, tem->tvs_maxtab *
+		    sizeof (*tem->tvs_tabs));
 	}
 }
 
@@ -956,16 +965,20 @@ tems_get_initial_color(tem_color_t *pcolor)
 {
 	boolean_t inverse, inverse_screen;
 	unsigned short  flags = 0;
+	uint8_t fg, bg;
 
-	pcolor->fg_color = DEFAULT_ANSI_FOREGROUND;
-	pcolor->bg_color = DEFAULT_ANSI_BACKGROUND;
+	fg = DEFAULT_ANSI_FOREGROUND;
+	bg = DEFAULT_ANSI_BACKGROUND;
 #ifndef _HAVE_TEM_FIRMWARE
 	/*
 	 * _HAVE_TEM_FIRMWARE is defined on SPARC, at this time, the
 	 * plat_tem_get_colors() is implemented only on x86.
 	 */
-	plat_tem_get_colors(&pcolor->fg_color, &pcolor->bg_color);
+
+	plat_tem_get_colors(&fg, &bg);
 #endif
+	pcolor->fg_color.n = fg;
+	pcolor->bg_color.n = bg;
 
 	tems_get_inverses(&inverse, &inverse_screen);
 	if (inverse)
@@ -988,21 +1001,21 @@ tems_get_initial_color(tem_color_t *pcolor)
 		 * uses the bright white background colour so we
 		 * match it here.
 		 */
-		if (pcolor->bg_color == ANSI_COLOR_WHITE)
+		if (pcolor->bg_color.n == ANSI_COLOR_WHITE)
 			flags |= TEM_ATTR_BRIGHT_BG;
 	}
 #else
 	if (flags != 0) {
-		if (pcolor->fg_color == ANSI_COLOR_WHITE)
+		if (pcolor->fg_color.n == ANSI_COLOR_WHITE)
 			flags |= TEM_ATTR_BRIGHT_BG;
 
-		if (pcolor->fg_color == ANSI_COLOR_BLACK)
+		if (pcolor->fg_color.n == ANSI_COLOR_BLACK)
 			flags &= ~TEM_ATTR_BRIGHT_BG;
 	} else {
 		/*
 		 * In case of black on white we want bright white for BG.
 		 */
-		if (pcolor->bg_color == ANSI_COLOR_WHITE)
+		if (pcolor->bg_color.n == ANSI_COLOR_WHITE)
 			flags |= TEM_ATTR_BRIGHT_BG;
 	}
 #endif

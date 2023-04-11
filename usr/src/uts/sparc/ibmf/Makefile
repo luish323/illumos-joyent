@@ -40,7 +40,7 @@ UTSBASE	= ../..
 MODULE		= ibmf
 OBJECTS		= $(IBMF_OBJS:%=$(OBJS_DIR)/%)
 ROOTMODULE	= $(ROOT_MISC_DIR)/$(MODULE)
-LDFLAGS		+= -dy -Nmisc/ibtl
+LDFLAGS		+= -Nmisc/ibtl
 
 #
 #	Include common rules.
@@ -57,7 +57,6 @@ INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 #	Overrides
 #
 
-#DEBUG_DEFS_DBG64 += -DTNF_DEBUG
 ALL_BUILDS	= $(ALL_BUILDSONLY64)
 DEF_BUILDS	= $(DEF_BUILDSONLY64)
 

@@ -27,6 +27,7 @@
 include		../Makefile.com
 include		../../Makefile.tools
 include		$(SGSHOME)/liblddbg/Makefile.com
+include		$(SRC)/Makefile.master.64
 
 .KEEP_STATE:
 
@@ -37,16 +38,19 @@ SGSMSGTARG +=	$(SGSMSG32)
 NATIVE_LIBS +=	libc.so
 CW_LINKER =
 
+# A bootstrapping problem means we can't use the regular mapfile just yet
+MAPFILES =
+
 all:		$(DYNLIB) $(LIBLINKS)
 
-install:	all $(ROOTONBLDLIBMACH)/$(DYNLIB) $(ROOTONBLDLIBMACH)/$(LIBLINKS)
+install:	all $(ROOTONBLDLIBMACH64)/$(DYNLIB) $(ROOTONBLDLIBMACH64)/$(LIBLINKS)
 
-$(ROOTONBLDLIBMACH)/$(DYNLIB): $(PICS) $(ROOTONBLDLIBMACH)
+$(ROOTONBLDLIBMACH64)/$(DYNLIB): $(PICS) $(ROOTONBLDLIBMACH64)
 		$(BUILD.SO)
 		$(POST_PROCESS_SO)
 
-$(ROOTONBLDLIBMACH)/$(LIBLINKS): $(ROOTONBLDLIBMACH)/$(DYNLIB)
-		@$(RM) $(ROOTONBLDLIBMACH)/$(LIBLINKS)
-		$(SYMLINK) $(DYNLIB) $(ROOTONBLDLIBMACH)/$(LIBLINKS)
+$(ROOTONBLDLIBMACH64)/$(LIBLINKS): $(ROOTONBLDLIBMACH64)/$(DYNLIB)
+		@$(RM) $(ROOTONBLDLIBMACH64)/$(LIBLINKS)
+		$(SYMLINK) $(DYNLIB) $(ROOTONBLDLIBMACH64)/$(LIBLINKS)
 
 include		$(SGSHOME)/liblddbg/Makefile.targ

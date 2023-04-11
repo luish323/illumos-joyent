@@ -1,4 +1,4 @@
-#!@TOOLS_PYTHON@
+#!@TOOLS_PYTHON@ -Es
 #
 # CDDL HEADER START
 #
@@ -822,11 +822,12 @@ diff_ctf.genunix2 = None
 
 def diff_elf_section(f1, f2, section, sh_type) :
 
-	t = threading.currentThread()
-	tmpFile1 = tmpDir1 + os.path.basename(f1) + t.getName()
-	tmpFile2 = tmpDir2 + os.path.basename(f2) + t.getName()
+	t = threading.current_thread()
+	tmpFile1 = tmpDir1 + os.path.basename(f1) + t.name
+	tmpFile2 = tmpDir2 + os.path.basename(f2) + t.name
 
-	if (sh_type == "SHT_RELA") : # sh_type == SHT_RELA
+	if ((sh_type == "SHT_RELA") or
+	    (sh_type == "SHT_REL")): # relocation section
 		cmd1 = elfdump_cmd + " -r " + f1 + " > " + tmpFile1
 		cmd2 = elfdump_cmd + " -r " + f2 + " > " + tmpFile2
 	elif (section == ".group") :
@@ -1063,9 +1064,9 @@ def clearTmpDirs(dir1, dir2) :
 def compareArchives(base, ptch, fileType) :
 
 	fileName = fnFormat(base)
-	t = threading.currentThread()
-	ArchTmpDir1 = tmpDir1 + os.path.basename(base) + t.getName()
-	ArchTmpDir2 = tmpDir2 + os.path.basename(base) + t.getName()
+	t = threading.current_thread()
+	ArchTmpDir1 = tmpDir1 + os.path.basename(base) + t.name
+	ArchTmpDir2 = tmpDir2 + os.path.basename(base) + t.name
 
 	#
 	# Be optimistic and first try a straight file compare
@@ -1205,9 +1206,9 @@ def compareBasic(base, ptch, quiet, fileType) :
 def compareByDumping(base, ptch, quiet, fileType) :
 
 	fileName = fnFormat(base);
-	t = threading.currentThread()
-	tmpFile1 = tmpDir1 + os.path.basename(base) + t.getName()
-	tmpFile2 = tmpDir2 + os.path.basename(ptch) + t.getName()
+	t = threading.current_thread()
+	tmpFile1 = tmpDir1 + os.path.basename(base) + t.name
+	tmpFile2 = tmpDir2 + os.path.basename(ptch) + t.name
 
 	if fileType == "Lint Library" :
 		baseCmd = (lintdump_cmd + " -ir " + base +
@@ -1606,4 +1607,3 @@ if __name__ == '__main__' :
 		main()
 	except KeyboardInterrupt :
 		cleanup(1);
-

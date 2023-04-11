@@ -54,9 +54,6 @@ include $(UTSBASE)/sun4u/Makefile.sun4u
 ALL_TARGET	= $(BINARY)
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 
-# Turn this on once compiler understands v9 in it's backend
-#INLINES		+= $(UTSBASE)/sun4u/io/pci.il
-
 #
 # Turn on doubleword alignment for 64 bit registers
 #
@@ -70,7 +67,7 @@ CFLAGS += -DPCI_HOTPLUG
 #
 # Driver depends on pci hotplug.
 #
-LDFLAGS += -dy -Nmisc/pcihp
+LDFLAGS += -Nmisc/pcihp
 
 CERRWARN	+= -_gcc=-Wno-parentheses
 CERRWARN	+= $(CNOWARN_UNINIT)

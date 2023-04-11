@@ -21,7 +21,7 @@
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2020 Tintri by DDN, Inc. All rights reserved.
- * Copyright 2020 RackTop Systems, Inc.
+ * Copyright 2022 RackTop Systems, Inc.
  */
 
 #ifndef	_SMBSRV_SMBINFO_H
@@ -32,6 +32,7 @@
 #include <smbsrv/netbios.h>
 #include <netinet/in.h>
 #include <smbsrv/smb_inet.h>
+#include <smbsrv/smb2.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -157,10 +158,11 @@ typedef struct smb_kmod_cfg {
 	int32_t skc_ipv6_enable;
 	int32_t skc_print_enable;
 	int32_t skc_traverse_mounts;
+	int32_t skc_short_names;
 	uint32_t skc_max_protocol;	/* SMB_VERS_... */
 	uint32_t skc_min_protocol;	/* SMB_VERS_... */
 	smb_cfg_val_t skc_encrypt; /* EncryptData and RejectUnencryptedAccess */
-	uint16_t skc_encrypt_cipher;	/* 3.1.1 encryption cipher */
+	uint32_t skc_encrypt_ciphers;	/* 3.1.1 encryption ciphers */
 	uint32_t skc_execflags;
 	uint32_t skc_negtok_len;
 	smb_version_t skc_version;
@@ -237,11 +239,21 @@ const char *smbnative_lm_str(smb_version_t *);
 #define	SMB_VERS_3_02		0x302	/* "3.02" */
 #define	SMB_VERS_3_11		0x311	/* "3.11" */
 
-#define	SMB3_HASH_SHA512	1
+/*
+ * Maxiumum currently supported encryption cipher.
+ */
+#define	SMB3_CIPHER_MAX		SMB3_CIPHER_AES256_GCM
 
-#define	SMB3_CIPHER_NONE	0
-#define	SMB3_CIPHER_AES128_CCM	1
-#define	SMB3_CIPHER_AES128_GCM	2
+/*
+ * SMB 3.x encryption ciphers bits.
+ */
+#define	SMB3_CIPHER_BIT(c)	(1 << ((c) - 1))
+#define	SMB3_CIPHER_FLAGS_ALL	((1 << (SMB3_CIPHER_MAX)) - 1)
+
+#define	SMB3_CIPHER_FLAG_AES128_CCM	SMB3_CIPHER_BIT(SMB3_CIPHER_AES128_CCM)
+#define	SMB3_CIPHER_FLAG_AES128_GCM	SMB3_CIPHER_BIT(SMB3_CIPHER_AES128_GCM)
+#define	SMB3_CIPHER_FLAG_AES256_CCM	SMB3_CIPHER_BIT(SMB3_CIPHER_AES256_CCM)
+#define	SMB3_CIPHER_FLAG_AES256_GCM	SMB3_CIPHER_BIT(SMB3_CIPHER_AES256_GCM)
 
 #ifdef __cplusplus
 }

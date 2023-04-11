@@ -21,12 +21,13 @@
 
 #
 # Copyright (c) 1991, 2010, Oracle and/or its affiliates. All rights reserved.
-# Copyright 2016 Garrett D'Amore <garrett@damore.org>
+# Copyright 2022 Garrett D'Amore <garrett@damore.org>
 # Copyright 2013 Saso Kiselkov. All rights reserved.
-# Copyright 2020 Joyent, Inc.
+# Copyright 2021 Joyent, Inc.
 # Copyright 2018 Nexenta Systems, Inc.
 # Copyright (c) 2017 by Delphix. All rights reserved.
-# Copyright 2020 Oxide Computer Company
+# Copyright 2022 Oxide Computer Company
+# Copyright 2022 RackTop Systems, Inc.
 #
 
 #
@@ -51,6 +52,10 @@ $(OBJS_DIR)/decompress.o := CPPFLAGS += -I$(SRC)/contrib/zlib
 $(OBJS_DIR)/zmod.o := CPPFLAGS += -I$(SRC)/contrib/zlib
 $(OBJS_DIR)/zmod_subr.o := CPPFLAGS += -I$(SRC)/contrib/zlib
 $(OBJS_DIR)/lz4.o := CPPFLAGS += -I$(COMMONBASE)/lz4
+
+$(OBJS_DIR)/%.o:		$(COMMONBASE)/core/%.c
+	$(COMPILE.c) -o $@ $<
+	$(CTFCONVERT_O)
 
 $(OBJS_DIR)/%.o:		$(COMMONBASE)/crypto/aes/%.c
 	$(COMPILE.c) -o $@ $<
@@ -89,6 +94,10 @@ $(OBJS_DIR)/%.o:		$(COMMONBASE)/bignum/%.c
 	$(CTFCONVERT_O)
 
 $(OBJS_DIR)/%.o:		$(UTSBASE)/common/bignum/%.c
+	$(COMPILE.c) -o $@ $<
+	$(CTFCONVERT_O)
+
+$(OBJS_DIR)/%.o:		$(COMMONBASE)/bitext/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
@@ -398,6 +407,10 @@ $(OBJS_DIR)/%.o:	$(UTSBASE)/common/io/scsi/adapters/pmcs/%.c
 $(OBJS_DIR)/%.o:	$(UTSBASE)/common/io/scsi/adapters/pmcs/%.bin
 	$(COMPILE.b) -o $@ $<
 
+$(OBJS_DIR)/%.o:	$(UTSBASE)/common/io/scsi/adapters/pvscsi/%.c
+	$(COMPILE.c) -o $@ $<
+	$(CTFCONVERT_O)
+
 $(OBJS_DIR)/%.o:		$(COMMONBASE)/fsreparse/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
@@ -501,10 +514,6 @@ $(OBJS_DIR)/%.o:                $(UTSBASE)/common/inet/iptun/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
-$(OBJS_DIR)/%.o:		$(UTSBASE)/common/inet/kssl/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
 $(OBJS_DIR)/%.o:		$(UTSBASE)/common/inet/sctp/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
@@ -530,10 +539,6 @@ $(OBJS_DIR)/%.o:		$(COMMONBASE)/net/patricia/%.c
 	$(CTFCONVERT_O)
 
 $(OBJS_DIR)/%.o:		$(UTSBASE)/common/inet/udp/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
-$(OBJS_DIR)/%.o:		$(UTSBASE)/common/inet/nca/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
@@ -777,15 +782,15 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/dmfe/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
-$(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/dr_sas/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
 $(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/efe/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
 $(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/elxl/%.c
+	$(COMPILE.c) -o $@ $<
+	$(CTFCONVERT_O)
+
+$(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/ena/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
@@ -1009,7 +1014,7 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/nxge/npi/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
-$(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/nxge/%.s
+$(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/nxge/%.S
 	$(COMPILE.s) -o $@ $<
 
 $(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/overlay/%.c
@@ -1548,6 +1553,18 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/vioif/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
+$(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/vioscsi/%.c
+	$(COMPILE.c) -o $@ $<
+	$(CTFCONVERT_O)
+
+$(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/vio9p/%.c
+	$(COMPILE.c) -o $@ $<
+	$(CTFCONVERT_O)
+
+$(OBJS_DIR)/%.o:		$(COMMONBASE)/idspace/%.c
+	$(COMPILE.c) -o $@ $<
+	$(CTFCONVERT_O)
+
 #
 # krtld must refer to its own bzero/bcopy until the kernel is fully linked
 #
@@ -1627,6 +1644,10 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/common/pcmcia/pcs/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
+$(OBJS_DIR)/%.o:		$(UTSBASE)/common/refhash/%.c
+	$(COMPILE.c) -o $@ $<
+	$(CTFCONVERT_O)
+
 $(OBJS_DIR)/%.o:		$(UTSBASE)/common/rpc/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
@@ -1660,10 +1681,6 @@ $(OBJS_DIR)/%.o:		$(COMMONBASE)/crypto/skein/%.c
 	$(CTFCONVERT_O)
 
 $(OBJS_DIR)/%.o:		$(UTSBASE)/common/syscall/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
-$(OBJS_DIR)/%.o:		$(UTSBASE)/common/tnf/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
@@ -1704,7 +1721,7 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/tpm/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
-$(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/tpm/%.s
+$(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/tpm/%.S
 	$(COMPILE.s) -o $@ $<
 
 $(OBJS_DIR)/bz2%.o:		$(COMMONBASE)/bzip2/%.c

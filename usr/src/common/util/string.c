@@ -26,7 +26,7 @@
 
 /*
  * Copyright (c) 2016 by Delphix. All rights reserved.
- * Copyright 2018 Nexenta Systems, Inc.
+ * Copyright 2022 Tintri by DDN, Inc. All rights reserved.
  */
 
 /*
@@ -61,7 +61,7 @@
  * described by <fmt, args> as possible.  The string will always be
  * null-terminated, so the maximum string length is 'buflen - 1'.
  * Returns the number of bytes that would be necessary to render the
- * entire string, not including null terminator (just like vsnprintf(3S)).
+ * entire string, not including null terminator (just like vsnprintf(3C)).
  * To determine buffer size in advance, use vsnprintf(NULL, 0, fmt, args) + 1.
  *
  * There is no support for floating point, and the C locale is assumed.
@@ -223,33 +223,34 @@ next_fmt:
 		if (base == 0)
 			continue;
 
-		if (h_count == 0 && l_count == 0)
+		if (h_count == 0 && l_count == 0) {
 			if (sign)
 				ul = (int64_t)va_arg(args, int);
 			else
 				ul = (int64_t)va_arg(args, unsigned int);
-		else if (l_count > 1)
+		} else if (l_count > 1) {
 			if (sign)
 				ul = (int64_t)va_arg(args, int64_t);
 			else
 				ul = (int64_t)va_arg(args, uint64_t);
-		else if (l_count > 0)
+		} else if (l_count > 0) {
 			if (sign)
 				ul = (int64_t)va_arg(args, long);
 			else
 				ul = (int64_t)va_arg(args, unsigned long);
-		else if (h_count > 1)
+		} else if (h_count > 1) {
 			if (sign)
 				ul = (int64_t)((char)va_arg(args, int));
 			else
 				ul = (int64_t)((unsigned char)va_arg(args,
 				    int));
-		else if (h_count > 0)
+		} else if (h_count > 0) {
 			if (sign)
 				ul = (int64_t)((short)va_arg(args, int));
 			else
 				ul = (int64_t)((unsigned short)va_arg(args,
 				    int));
+		}
 
 		if (sign && (int64_t)ul < 0)
 			ul = -ul;
@@ -705,6 +706,40 @@ strsep(char **stringp, const char *delim)
 		} while (sc != 0);
 	}
 	/* NOTREACHED */
+}
+
+/*
+ * strtok_r
+ *
+ * uses strpbrk and strspn to break string into tokens on
+ * sequentially subsequent calls.  returns NULL when no
+ * non-separator characters remain.
+ * `subsequent' calls are calls with first argument NULL.
+ */
+char *
+strtok_r(char *string, const char *sepset, char **lasts)
+{
+	char	*q, *r;
+
+	/* first or subsequent call */
+	if (string == NULL)
+		string = *lasts;
+
+	if (string == NULL)		/* return if no tokens remaining */
+		return (NULL);
+
+	q = string + strspn(string, sepset);	/* skip leading separators */
+
+	if (*q == '\0')		/* return if no tokens remaining */
+		return (NULL);
+
+	if ((r = strpbrk(q, sepset)) == NULL) {	/* move past token */
+		*lasts = NULL;	/* indicate this is last token */
+	} else {
+		*r = '\0';
+		*lasts = r + 1;
+	}
+	return (q);
 }
 
 /*

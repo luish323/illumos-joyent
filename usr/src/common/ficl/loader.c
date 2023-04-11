@@ -430,6 +430,35 @@ ficlFindfile(ficlVm *pVM)
 	ficlStackPushPointer(ficlVmGetDataStack(pVM), fp);
 }
 
+/*
+ *	isvirtualized? - Return whether the loader runs under a
+ *			hypervisor.
+ *
+ * isvirtualized? ( -- addr len flag | flag )
+ */
+static void
+ficlIsvirtualizedQ(ficlVm *pVM)
+{
+	const char *hv;
+
+	FICL_STACK_CHECK(ficlVmGetDataStack(pVM), 0, 3);
+
+#ifdef _STANDALONE
+	hv = (archsw.arch_hypervisor != NULL)
+	    ? (*archsw.arch_hypervisor)()
+	    : NULL;
+#else
+	hv = NULL;
+#endif
+	if (hv != NULL) {
+		ficlStackPushPointer(ficlVmGetDataStack(pVM), (void *)hv);
+		ficlStackPushInteger(ficlVmGetDataStack(pVM), strlen(hv));
+		ficlStackPushInteger(ficlVmGetDataStack(pVM), FICL_TRUE);
+	} else {
+		ficlStackPushInteger(ficlVmGetDataStack(pVM), FICL_FALSE);
+	}
+}
+
 void
 ficlCcall(ficlVm *pVM)
 {
@@ -1087,6 +1116,8 @@ ficlSystemCompilePlatform(ficlSystem *pSys)
 	    FICL_WORD_DEFAULT);
 	(void) ficlDictionarySetPrimitive(dp, "findfile", ficlFindfile,
 	    FICL_WORD_DEFAULT);
+	(void) ficlDictionarySetPrimitive(dp, "isvirtualized?",
+	    ficlIsvirtualizedQ, FICL_WORD_DEFAULT);
 	(void) ficlDictionarySetPrimitive(dp, "ccall", ficlCcall,
 	    FICL_WORD_DEFAULT);
 	(void) ficlDictionarySetPrimitive(dp, "uuid-from-string",
@@ -1111,14 +1142,5 @@ ficlSystemCompilePlatform(ficlSystem *pSys)
 	/* Register words from linker set. */
 	SET_FOREACH(fnpp, Xficl_compile_set)
 		(*fnpp)(pSys);
-#endif
-
-#if defined(__i386__) || defined(__amd64__)
-	(void) ficlDictionarySetConstant(env, "arch-i386", FICL_TRUE);
-	(void) ficlDictionarySetConstant(env, "arch-sparc", FICL_FALSE);
-#endif
-#ifdef __sparc
-	(void) ficlDictionarySetConstant(env, "arch-i386", FICL_FALSE);
-	(void) ficlDictionarySetConstant(env, "arch-sparc", FICL_TRUE);
 #endif
 }

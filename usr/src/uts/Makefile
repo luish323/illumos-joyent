@@ -22,6 +22,7 @@
 #
 # Copyright (c) 1989, 2010, Oracle and/or its affiliates. All rights reserved.
 # Copyright 2018 Nexenta Systems, Inc.
+# Copyright 2022 Garrett D'Amore
 #
 
 include ../Makefile.master
@@ -138,8 +139,6 @@ COMMON_HDRDIRS= common/c2 \
 		common/klm \
 		common/inet \
 		common/inet/ipf/netinet \
-		common/inet/kssl \
-		common/inet/nca \
 		common/inet/sockmods/netpacket \
 		common/io/bpf/net \
 		common/io/fibre-channel/fca/qlc \
@@ -191,6 +190,8 @@ all_h: FRC
 	@cd common/idmap; pwd; $(MAKE) $@
 	@cd common/klm; pwd; $(MAKE) $@
 
+FRC:
+
 clean clobber: $($(MACH)_ARCHITECTURES) $(DYNHDRDIRS)
 	@if [ '$(PATCH_BUILD)' != '#' ] ; then \
 		echo $(RM) $(PMTMO_FILE) ; \
@@ -214,7 +215,4 @@ XRDIRS = $(sparc_ARCHITECTURES) $(i386_ARCHITECTURES) sun4 sfmmu	\
 
 XRINCDIRS = $(XRDIRS)
 
-cscope.out tags: FRC
-	$(XREF) -x $@
-
-FRC:
+include ../Makefile.xref

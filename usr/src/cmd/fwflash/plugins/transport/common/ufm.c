@@ -10,11 +10,11 @@
  */
 
 /*
- * Copyright 2020 Oxide Computer Company
+ * Copyright 2022 Oxide Computer Company
  */
 
 /*
- * fwflash(1M) backend for UFMs.
+ * fwflash(8) backend for UFMs.
  */
 
 #include <libdevinfo.h>
@@ -299,7 +299,7 @@ ufmfw_fill_vpd(struct devicelist *flashdev, di_node_t node)
 	}
 	flashdev->ident->vid = vstr;
 
-	if (dstr != NULL) {
+	if (dev != NULL) {
 		dstr = strdup(pcidb_device_name(dev));
 	} else {
 		(void) asprintf(&dstr, "pci:%x", did[0]);

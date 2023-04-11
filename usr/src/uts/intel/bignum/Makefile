@@ -56,7 +56,7 @@ INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 #
 # Linkage dependencies
 #
-LDFLAGS += -dy -Nmisc/kcf
+LDFLAGS += -Nmisc/kcf
 
 CPPFLAGS	+= -I$(BIGNUMDIR) -I$(CRYPTODIR)
 
@@ -106,6 +106,6 @@ $(OBJS_DIR)/bignum_amd64.o: $(BIGNUMDIR)/amd64/bignum_amd64.c
 	$(COMPILE.c) -o $@ $(BIGNUM_CFG) $(BIGNUMDIR)/amd64/bignum_amd64.c
 	$(CTFCONVERT_O)
 
-$(OBJS_DIR)/bignum_amd64_asm.o: $(BIGNUMDIR)/amd64/bignum_amd64_asm.s
-	$(COMPILE.s) -P -o $@ $(BIGNUM_CFG) \
-		$(BIGNUMDIR)/amd64/bignum_amd64_asm.s
+$(OBJS_DIR)/bignum_amd64_asm.o: $(BIGNUMDIR)/amd64/bignum_amd64_asm.S
+	$(COMPILE.s) -c -o $@ $(BIGNUM_CFG) \
+		$(BIGNUMDIR)/amd64/bignum_amd64_asm.S

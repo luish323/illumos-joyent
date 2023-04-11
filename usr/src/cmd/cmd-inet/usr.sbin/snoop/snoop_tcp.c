@@ -24,9 +24,6 @@
  * Use is subject to license terms.
  */
 
-
-#pragma ident	"%Z%%M%	%I%	%E% SMI"
-
 #include <stdio.h>
 #include <string.h>
 #include <fcntl.h>
@@ -206,6 +203,10 @@ interpret_tcp(int flags, struct tcphdr *tcp, int iplen, int fraglen)
 
 	show_space();
 	}
+
+	/* is there any data? */
+	if (tcplen == 0)
+		return (tcplen);
 
 	/* go to the next protocol layer */
 

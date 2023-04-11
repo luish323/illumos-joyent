@@ -22,8 +22,10 @@
 /*
  * Copyright (c) 1988, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2020 Joyent, Inc.
+ * Copyright 2022 Spencer Evans-Cole.
  * Copyright 2016 Nexenta Systems, Inc.  All rights reserved.
  * Copyright (c) 2011, 2017 by Delphix. All rights reserved.
+ * Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
  */
 
 /*	Copyright (c) 1983, 1984, 1985, 1986, 1987, 1988, 1989 AT&T	*/
@@ -842,13 +844,13 @@ done:
 void
 vn_rele(vnode_t *vp)
 {
-	VERIFY(vp->v_count > 0);
 	mutex_enter(&vp->v_lock);
 	if (vp->v_count == 1) {
 		mutex_exit(&vp->v_lock);
 		VOP_INACTIVE(vp, CRED(), NULL);
 		return;
 	}
+	VERIFY(vp->v_count > 0);
 	VN_RELE_LOCKED(vp);
 	mutex_exit(&vp->v_lock);
 }
@@ -856,8 +858,6 @@ vn_rele(vnode_t *vp)
 void
 vn_phantom_rele(vnode_t *vp)
 {
-	VERIFY(vp->v_count > 0);
-
 	mutex_enter(&vp->v_lock);
 	VERIFY3U(vp->v_count, >=, vp->v_phantom_count);
 	vp->v_phantom_count--;
@@ -868,6 +868,7 @@ vn_phantom_rele(vnode_t *vp)
 		VOP_INACTIVE(vp, CRED(), NULL);
 		return;
 	}
+	VERIFY(vp->v_count > 0);
 	VN_RELE_LOCKED(vp);
 	mutex_exit(&vp->v_lock);
 }
@@ -893,8 +894,8 @@ vn_count(vnode_t *vp)
 void
 vn_rele_dnlc(vnode_t *vp)
 {
-	VERIFY((vp->v_count > 0) && (vp->v_count_dnlc > 0));
 	mutex_enter(&vp->v_lock);
+	VERIFY((vp->v_count > 0) && (vp->v_count_dnlc > 0));
 	if (--vp->v_count_dnlc == 0) {
 		if (vp->v_count == 1) {
 			mutex_exit(&vp->v_lock);
@@ -916,7 +917,6 @@ vn_rele_dnlc(vnode_t *vp)
 void
 vn_rele_stream(vnode_t *vp)
 {
-	VERIFY(vp->v_count > 0);
 	mutex_enter(&vp->v_lock);
 	vp->v_stream = NULL;
 	if (vp->v_count == 1) {
@@ -924,6 +924,7 @@ vn_rele_stream(vnode_t *vp)
 		VOP_INACTIVE(vp, CRED(), NULL);
 		return;
 	}
+	VERIFY(vp->v_count > 0);
 	VN_RELE_LOCKED(vp);
 	mutex_exit(&vp->v_lock);
 }
@@ -947,7 +948,6 @@ vn_rele_inactive(vnode_t *vp)
 void
 vn_rele_async(vnode_t *vp, taskq_t *taskq)
 {
-	VERIFY(vp->v_count > 0);
 	mutex_enter(&vp->v_lock);
 	if (vp->v_count == 1) {
 		mutex_exit(&vp->v_lock);
@@ -955,6 +955,7 @@ vn_rele_async(vnode_t *vp, taskq_t *taskq)
 		    vp, TQ_SLEEP) != TASKQID_INVALID);
 		return;
 	}
+	VERIFY(vp->v_count > 0);
 	VN_RELE_LOCKED(vp);
 	mutex_exit(&vp->v_lock);
 }
@@ -1165,7 +1166,20 @@ top:
 	 * Do remaining checks for FNOFOLLOW and FNOLINKS.
 	 */
 	if ((filemode & FNOFOLLOW) && vp->v_type == VLNK) {
-		error = ELOOP;
+		/*
+		 * The __FLXPATH flag is a private interface for use by the lx
+		 * brand in order to emulate open(O_NOFOLLOW|O_PATH) which,
+		 * when a symbolic link is encountered, returns a file
+		 * descriptor which references it.
+		 * See uts/common/brand/lx/syscall/lx_open.c
+		 *
+		 * When this flag is set, VOP_OPEN() is not called (for a
+		 * symlink, most filesystems will return ENOSYS anyway)
+		 * and the link's vnode is returned to be linked to the
+		 * file descriptor.
+		 */
+		if ((filemode & __FLXPATH) == 0)
+			error = ELOOP;
 		goto out;
 	}
 	if (filemode & FNOLINKS) {

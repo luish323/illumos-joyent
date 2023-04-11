@@ -67,7 +67,7 @@ PARALLEL_HEADERS = sysheaders userheaders libheaders ucbheaders cmdheaders
 #
 PARALLEL_DIRS = data uts lib man
 
-# The check target also causes smf(5) service manifests to be validated.
+# The check target also causes smf(7) service manifests to be validated.
 CHKMFSTSUBDIRS=	cmd
 
 # And man page formats
@@ -156,6 +156,7 @@ closedbins: bldtools $(ROOTDIRS) FRC
 	(cd $$CLOSED_ROOT; \
 	    $(TAR) cfX - $(CODEMGR_WS)/exception_lists/closed-bins .) | \
 	    (cd $(ROOT); $(TAR) xBpf -); \
+	$(CHMOD) 0400 $(ROOT)/etc/security/tsol/label_encodings; \
 	$(ECHO) "Stripping CTF from closed-bins in $$ROOT"; \
 	( cd $(ROOT); $(CTFSTRIP) $$(cd $$CLOSED_ROOT; $(FIND) \
 	    ./kernel ./usr/kernel ./platform/*/kernel -type f -a -perm -u+x | \
@@ -230,6 +231,8 @@ cmdheaders: FRC
 	@cd cmd/fm; pwd; $(MAKE) install_h
 	@cd cmd/mdb; pwd; $(MAKE) install_h
 
+FRC:
+
 check:	$(CHKHDRSUBDIRS) $(CHKMFSTSUBDIRS) $(CHKMANSUBDIRS)
 
 #
@@ -239,10 +242,9 @@ check:	$(CHKHDRSUBDIRS) $(CHKMFSTSUBDIRS) $(CHKMANSUBDIRS)
 XRPRUNE = pkg prototypes
 XRINCDIRS = uts/common head ucbhead
 
-cscope.out tags: FRC
-	$(XREF) -f -x $@
+include Makefile.xref
 
-FRC:
+XREFFLAGS = -f -x
 
 # used by nightly
 cc-version:

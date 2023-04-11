@@ -47,8 +47,6 @@ include $(UTSBASE)/intel/Makefile.intel
 ALL_TARGET	= $(BINARY) $(CONFMOD)
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE) $(ROOT_CONFFILE)
 
-C99LMODE=       -Xc99=%all
-
 #
 #	Driver-specific flags
 #	XXX inline bits were originally set to inline
@@ -82,7 +80,7 @@ CPPFLAGS	+= -DLM_RXPKT_NON_CONTIGUOUS \
 		   -I$(SRCDIR)/577xx/hsi/mcp \
 		   -I$(SRCDIR)
 
-LDFLAGS		+= -dy -r -Ndrv/ip -Nmisc/mac
+LDFLAGS		+= -Ndrv/ip -Nmisc/mac
 CERRWARN	+= -_gcc=-Wno-switch
 CERRWARN	+= $(CNOWARN_UNINIT)
 CERRWARN	+= -_gcc=-Wno-parentheses

@@ -13,7 +13,8 @@
 # Copyright (c) 2012 by Delphix. All rights reserved.
 # Copyright 2014 Garrett D'Amore <garrett@damore.org>
 # Copyright 2019 Joyent, Inc.
-# Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2022 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2023 Bill Sommerfeld <sommerfeld@alum.mit.edu>
 #
 
 [DEFAULT]
@@ -95,27 +96,36 @@ timeout = 600
 
 [/opt/libc-tests/tests/aligned_alloc.32]
 [/opt/libc-tests/tests/aligned_alloc.64]
+[/opt/libc-tests/tests/asprintf-14933.32]
+[/opt/libc-tests/tests/asprintf-14933.64]
 [/opt/libc-tests/tests/c11_threads.32]
 [/opt/libc-tests/tests/c11_threads.64]
 [/opt/libc-tests/tests/c11_tss.32]
 [/opt/libc-tests/tests/c11_tss.64]
 [/opt/libc-tests/tests/call_once.32]
 [/opt/libc-tests/tests/call_once.64]
+[/opt/libc-tests/tests/closefrom.32]
+[/opt/libc-tests/tests/closefrom.64]
 [/opt/libc-tests/tests/catopen]
+[/opt/libc-tests/tests/endian.32]
+[/opt/libc-tests/tests/endian.64]
 [/opt/libc-tests/tests/env-OS-4089.32]
 [/opt/libc-tests/tests/env-OS-4089.64]
 [/opt/libc-tests/tests/env-7076.32]
 [/opt/libc-tests/tests/env-7076.64]
-[/opt/libc-tests/tests/endian.32]
-[/opt/libc-tests/tests/endian.64]
-[/opt/libc-tests/tests/env-7076.32]
-[/opt/libc-tests/tests/env-7076.64]
+[/opt/libc-tests/tests/err/err.ksh]
 [/opt/libc-tests/tests/fnmatch.32]
 [/opt/libc-tests/tests/fnmatch.64]
+[/opt/libc-tests/tests/isatty.32]
+[/opt/libc-tests/tests/isatty.64]
+[/opt/libc-tests/tests/memchr.32]
+[/opt/libc-tests/tests/memchr.64]
 [/opt/libc-tests/tests/memset_s.32]
 [/opt/libc-tests/tests/memset_s.64]
 [/opt/libc-tests/tests/posix_memalign.32]
 [/opt/libc-tests/tests/posix_memalign.64]
+[/opt/libc-tests/tests/printf-15294.32]
+[/opt/libc-tests/tests/printf-15294.64]
 [/opt/libc-tests/tests/printf-6961.64]
 [/opt/libc-tests/tests/printf-9511.32]
 [/opt/libc-tests/tests/printf-9511.64]
@@ -158,6 +168,8 @@ tests = [
 	'stdnoreturn_h',
 	'string_h',
 	'strings_h',
+	'sys_atomic_h',
+	'sys_mman_h',
 	'sys_stat_h',
 	'sys_time_h',
 	'sys_timeb_h',
@@ -168,3 +180,4 @@ tests = [
 	'wchar_h',
 	'wctype_h'
 	 ]
+timeout = 180

@@ -24,12 +24,11 @@
 # Copyright (c) 2012 by Delphix. All rights reserved.
 # Copyright (c) 2012, Igor Kozhukhov <ikozhukhov@gmail.com>
 # Copyright 2012 OmniTI Computer Consulting, Inc.  All rights reserved.
-# Copyright 2014 Garrett D'Amore <garrett@damore.org>
+# Copyright 2022 Garrett D'Amore <garrett@damore.org>
 # Copyright 2016 Hans Rosenfeld <rosenfeld@grumpf.hope-2000.org>
 # Copyright 2017 Nexenta Systems, Inc.
 # Copyright 2017 RackTop Systems.
-# Copyright 2019 Joyent, Inc.
-# Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2022 OmniOS Community Edition (OmniOSce) Association.
 # Copyright 2020 Joyent, Inc.
 #
 
@@ -63,7 +62,7 @@ i386_DIRS= \
 	/usr/lib/xen/bin \
 	/usr/share/bhyve
 
-sparc_DIRS= \
+sparc_DIRS=			\
 	/usr/lib/ldoms
 
 sparc_64ONLY= $(POUND_SIGN)
@@ -71,28 +70,21 @@ sparc_64ONLY= $(POUND_SIGN)
 
 $(64ONLY) MACH32_DIRS=/usr/ucb/$(MACH32)
 
-PYTHON2_DIRS=
-PYTHON2_64DIRS=
-PYTHON3_DIRS=
-
-$(BUILDPY2)PYTHON2_DIRS += \
-	/usr/lib/python$(PYTHON_VERSION) \
-	/usr/lib/python$(PYTHON_VERSION)/vendor-packages \
-	/usr/lib/python$(PYTHON_VERSION)/vendor-packages/solaris \
-	/usr/lib/python$(PYTHON_VERSION)/vendor-packages/zfs
-
-$(BUILDPY2)PYTHON2_64DIRS += \
-	/usr/lib/python$(PYTHON_VERSION)/vendor-packages/64 \
-	/usr/lib/python$(PYTHON_VERSION)/vendor-packages/solaris/64 \
-	/usr/lib/python$(PYTHON_VERSION)/vendor-packages/zfs/64
-
-$(BUILDPY3)PYTHON3_DIRS += \
+PYTHON3_DIRS = \
 	/usr/lib/python$(PYTHON3_VERSION) \
 	/usr/lib/python$(PYTHON3_VERSION)/vendor-packages \
 	/usr/lib/python$(PYTHON3_VERSION)/vendor-packages/solaris \
 	/usr/lib/python$(PYTHON3_VERSION)/vendor-packages/solaris/__pycache__ \
 	/usr/lib/python$(PYTHON3_VERSION)/vendor-packages/zfs \
 	/usr/lib/python$(PYTHON3_VERSION)/vendor-packages/zfs/__pycache__
+
+$(BUILDPY3b)PYTHON3_DIRS += \
+	/usr/lib/python$(PYTHON3b_VERSION) \
+	/usr/lib/python$(PYTHON3b_VERSION)/vendor-packages \
+	/usr/lib/python$(PYTHON3b_VERSION)/vendor-packages/solaris \
+	/usr/lib/python$(PYTHON3b_VERSION)/vendor-packages/solaris/__pycache__ \
+	/usr/lib/python$(PYTHON3b_VERSION)/vendor-packages/zfs \
+	/usr/lib/python$(PYTHON3b_VERSION)/vendor-packages/zfs/__pycache__
 
 DIRS= \
 	/boot \
@@ -220,7 +212,6 @@ DIRS= \
 	/lib/svc/manifest/network/rpc \
 	/lib/svc/manifest/network/security \
 	/lib/svc/manifest/network/shares \
-	/lib/svc/manifest/network/ssl \
 	/lib/svc/manifest/application \
 	/lib/svc/manifest/application/management \
 	/lib/svc/manifest/application/security \
@@ -320,7 +311,6 @@ DIRS= \
 	/usr/net \
 	/usr/net/servers \
 	/usr/lib/pool \
-	$(PYTHON2_DIRS) \
 	/usr/lib/rcap \
 	/usr/lib/rcap/$(MACH32) \
 	/usr/lib/sa  \
@@ -434,7 +424,6 @@ DIRS= \
 	/var/svc/manifest/network/routing \
 	/var/svc/manifest/network/security \
 	/var/svc/manifest/network/shares \
-	/var/svc/manifest/network/ssl \
 	/var/svc/manifest/application \
 	/var/svc/manifest/application/management \
 	/var/svc/manifest/application/print \
@@ -489,7 +478,6 @@ DIRS64= \
 	/usr/lib/lwp/$(MACH64) \
 	/usr/lib/mdb/kvm/$(MACH64) \
 	/usr/lib/mdb/proc/$(MACH64) \
-	$(PYTHON2_64DIRS) \
 	$(PYTHON3_DIRS) \
 	/usr/lib/rcap/$(MACH64) \
 	/usr/lib/sasl/$(MACH64) \

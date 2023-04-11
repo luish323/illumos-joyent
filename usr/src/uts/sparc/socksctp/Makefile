@@ -23,9 +23,6 @@
 # Use is subject to license terms.
 
 #
-#	This makefile drives the production of the nca driver
-#	kernel module.
-#
 #	sparc architecture dependent
 #
 
@@ -54,7 +51,7 @@ INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 
 
 
-LDFLAGS += -dy -Nfs/sockfs -Ndrv/ip
+LDFLAGS += -Nfs/sockfs -Ndrv/ip
 
 #
 # For now, disable these warnings; maintainers should endeavor

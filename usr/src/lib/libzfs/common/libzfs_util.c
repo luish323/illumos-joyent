@@ -142,9 +142,9 @@ libzfs_error_description(libzfs_handle_t *hdl)
 	case EZFS_UMOUNTFAILED:
 		return (dgettext(TEXT_DOMAIN, "umount failed"));
 	case EZFS_UNSHARENFSFAILED:
-		return (dgettext(TEXT_DOMAIN, "unshare(1M) failed"));
+		return (dgettext(TEXT_DOMAIN, "unshare(8) failed"));
 	case EZFS_SHARENFSFAILED:
-		return (dgettext(TEXT_DOMAIN, "share(1M) failed"));
+		return (dgettext(TEXT_DOMAIN, "share(8) failed"));
 	case EZFS_UNSHARESMBFAILED:
 		return (dgettext(TEXT_DOMAIN, "smb remove share failed"));
 	case EZFS_SHARESMBFAILED:
@@ -1195,8 +1195,9 @@ str2shift(libzfs_handle_t *hdl, const char *buf)
 			break;
 	}
 	if (i == strlen(ends)) {
-		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
-		    "invalid numeric suffix '%s'"), buf);
+		if (hdl != NULL)
+			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+			    "invalid numeric suffix '%s'"), buf);
 		return (-1);
 	}
 
@@ -1206,10 +1207,11 @@ str2shift(libzfs_handle_t *hdl, const char *buf)
 	 */
 	if (buf[1] == '\0' || (toupper(buf[1]) == 'B' && buf[2] == '\0' &&
 	    toupper(buf[0]) != 'B'))
-		return (10*i);
+		return (10 * i);
 
-	zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
-	    "invalid numeric suffix '%s'"), buf);
+	if (hdl != NULL)
+		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+		    "invalid numeric suffix '%s'"), buf);
 	return (-1);
 }
 

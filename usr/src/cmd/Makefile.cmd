@@ -28,12 +28,6 @@
 
 include $(SRC)/Makefile.master
 
-LN=		ln
-SH=		sh
-ECHO=		echo
-MKDIR=		mkdir
-TOUCH=		touch
-
 FILEMODE=	0555
 LIBFILEMODE=	0444
 XPG4=		$(XPG4PROG:%=%.xpg4)
@@ -164,10 +158,7 @@ ROOTUSRSBINPROG32=	$(PROG:%=$(ROOTUSRSBIN32)/%)
 ROOTUSRSBINPROG64=	$(PROG:%=$(ROOTUSRSBIN64)/%)
 ROOTLIBSVCBINPROG=	$(PROG:%=$(ROOTLIBSVCBIN)/%)
 
-# Symlink rules for /usr/ccs/bin commands. Note, those commands under
-# the rule of the linker area, are controlled by a different set of
-# rules defined in $(SRC)/cmd/sgs/Makefile.var.
-
+# Note that commands in usr/src/cmd/sgs have separate targets for this
 INS.ccsbinlink= \
 	$(RM) $(ROOTCCSBINPROG); \
 	$(SYMLINK) ../../bin/$(PROG) $(ROOTCCSBINPROG)
@@ -198,7 +189,7 @@ ROOTADMIN_SRC_FILE= $(ADMINFILE:%=$(ROOTADMIN_SRC_DIR)/%)
 $(ROOTADMIN_SRC_FILE) := FILEMODE = 0444
 
 #
-# Directories for smf(5) service manifests and profiles.
+# Directories for smf(7) service manifests and profiles.
 #
 ROOTSVC=			$(ROOT)/lib/svc
 ROOTETCSVC=			$(ROOT)/etc/svc
@@ -270,10 +261,6 @@ ROOTSVCBINDIR=		$(ROOTLIBSVCBIN)/__nonexistent_directory__
 ROOTSVCBIN=		$(SVCBIN:%=$(ROOTSVCBINDIR)/%)
 
 #
-
-# For programs that are installed in the root filesystem,
-# build $(ROOTFS_PROG) rather than $(PROG)
-$(ROOTFS_PROG) := LDFLAGS += -Wl,-I/lib/ld.so.1
 
 $(KRB5BIN)/%: %
 	$(INS.file)
@@ -492,3 +479,7 @@ CLOBBERFILES += $(XPG4) $(XPG6) $(DCFILE)
 # This flag is for programs which should not build a 32-bit binary
 sparc_64ONLY= $(POUND_SIGN)
 64ONLY=	 $($(MACH)_64ONLY)
+
+# For programs that are installed in the root filesystem,
+# build $(ROOTFS_PROG) rather than $(PROG)
+$(64ONLY)$(ROOTFS_PROG) := LDFLAGS += -Wl,-I/lib/ld.so.1

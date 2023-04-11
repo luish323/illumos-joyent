@@ -2251,7 +2251,7 @@ kmem_dumppr(char **pp, char *e, const char *format, ...)
 }
 
 /*
- * Called when dumpadm(1M) configures dump parameters.
+ * Called when dumpadm(8) configures dump parameters.
  */
 void
 kmem_dump_init(size_t size)
@@ -4463,8 +4463,7 @@ kmem_init(void)
 	if (((kmem_flags & ~(KMF_AUDIT | KMF_DEADBEEF | KMF_REDZONE |
 	    KMF_CONTENTS | KMF_LITE)) != 0) ||
 	    ((kmem_flags & KMF_LITE) && kmem_flags != KMF_LITE))
-		cmn_err(CE_WARN, "kmem_flags set to unsupported value 0x%x. "
-		    "See the Solaris Tunable Parameters Reference Manual.",
+		cmn_err(CE_WARN, "kmem_flags set to unsupported value 0x%x.",
 		    kmem_flags);
 
 #ifdef DEBUG
@@ -4482,8 +4481,7 @@ kmem_init(void)
 	    (kmem_flags & (KMF_AUDIT | KMF_DEADBEEF)) != 0)
 		cmn_err(CE_WARN, "High-overhead kmem debugging features "
 		    "enabled (kmem_flags = 0x%x).  Performance degradation "
-		    "and large memory overhead possible. See the Solaris "
-		    "Tunable Parameters Reference Manual.", kmem_flags);
+		    "and large memory overhead possible.", kmem_flags);
 #endif /* not DEBUG */
 
 	kmem_cache_applyall(kmem_cache_magazine_enable, NULL, TQ_SLEEP);
@@ -5365,7 +5363,7 @@ kmem_cache_scan(kmem_cache_t *cp)
 	}
 
 	if (kmem_cache_is_fragmented(cp, &reap)) {
-		size_t slabs_found;
+		int slabs_found;
 
 		/*
 		 * Consolidate reclaimable slabs from the end of the partial

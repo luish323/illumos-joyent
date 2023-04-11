@@ -56,9 +56,7 @@ INSTALL_TARGET	= $(BINARY) $(ROOTMODULE) $(ROOT_CONFFILE)
 #	Overrides and depends_on
 #
 MODSTUBS_DIR	 = $(OBJS_DIR)
-LDFLAGS		+= -dy -Ndrv/stmf -Nmisc/idm -Nfs/sockfs -Nmisc/md5 -Nmisc/ksocket
-
-C99LMODE=	-Xc99=%all
+LDFLAGS		+= -Ndrv/stmf -Nmisc/idm -Nfs/sockfs -Nmisc/md5 -Nmisc/ksocket
 
 CERRWARN	+= -_gcc=-Wno-switch
 CERRWARN	+= $(CNOWARN_UNINIT)

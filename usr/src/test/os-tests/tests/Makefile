@@ -12,22 +12,31 @@
 #
 # Copyright (c) 2012, 2016 by Delphix. All rights reserved.
 # Copyright 2020 Joyent, Inc.
+# Copyright 2021 Tintri by DDN, Inc. All rights reserved.
+# Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2023 Oxide Computer Company
 #
 
-SUBDIRS_i386 = i386 imc
+SUBDIRS_i386 = i386 imc zen_umc
 
 SUBDIRS =       \
+		cores \
 		ddi_ufm \
+		definit \
 		file-locking \
 		ksensor \
 		libtopo \
 		pf_key \
 		poll \
+		portfs \
+		regression \
 		sdevfs \
 		secflags \
+		signalfd \
 		sigqueue \
 		sockfs \
 		spoof-ras \
+		stackalign \
 		stress \
 		syscall \
 		timer \
@@ -36,8 +45,11 @@ SUBDIRS =       \
 		$(SUBDIRS_$(MACH))
 
 PROGS = \
+	clock_gettime \
+	eventfd \
 	odirectory \
 	OS-6097 \
+	ucontext \
 	writev
 
 CPPFLAGS += -D_REENTRANT
@@ -54,6 +66,14 @@ odirectory.64 :=	LDLIBS64 += -lsocket
 
 OS-6097.32 :=	LDLIBS += -ldlpi
 OS-6097.64 :=	LDLIBS64 += -ldlpi
+
+clock_gettime.32 :=	LDLIBS += -lproc
+clock_gettime.32 :=	CSTD = $(CSTD_GNU99)
+clock_gettime.64 :=	LDLIBS64 += -lproc
+clock_gettime.64 :=	CSTD = $(CSTD_GNU99)
+
+ucontext.32 :=		SMOFF += unreachable
+ucontext.64 :=		SMOFF += unreachable
 
 writev.32 :=		CPPFLAGS += -D_FILE_OFFSET_BITS=64
 writev.32 :=		CSTD = $(CSTD_GNU99)

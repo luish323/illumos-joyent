@@ -33,7 +33,6 @@ LIBCDIR=	$(SRC)/lib/libc
 LIBRARY=	libc.a
 LIB_PIC=	libc_pic.a
 VERS=		.1
-CPP=		/usr/lib/cpp
 TARGET_ARCH=	amd64
 
 # include comm page definitions
@@ -470,6 +469,7 @@ PORTGEN=			\
 	madvise.o		\
 	malloc.o		\
 	memalign.o		\
+	memrchr.o		\
 	memset_s.o		\
 	mkdev.o			\
 	mkdtemp.o		\
@@ -1071,8 +1071,13 @@ MAPFILES =	$(LIBCDIR)/port/mapfile-vers
 
 CPPFLAGS=	-D_REENTRANT -D$(MACH64) -D__$(MACH64) $(THREAD_DEBUG) \
 		-I. -I$(LIBCBASE)/inc -I$(LIBCDIR)/inc $(CPPFLAGS.master)
-ASFLAGS=	$(AS_PICFLAGS) -P -D__STDC__ -D_ASM $(CPPFLAGS) \
-		$(amd64_AS_XARCH)
+
+# __XOPEN_OR_POSIX is necessary to avoid implicit _LARGEFILE_SOURCE which
+# breaks the libc compilation environment.
+ASFLAGS=	$(AS_PICFLAGS) -D_ASM \
+		$(CPPFLAGS) $(amd64_XARCH) -D__XOPEN_OR_POSIX=1
+ASFLAGS64=	$(AS_PICFLAGS) -D_ASM \
+		$(CPPFLAGS) $(amd64_XARCH) -D__XOPEN_OR_POSIX=1
 
 # As a favor to the dtrace syscall provider, libc still calls the
 # old syscall traps that have been obsoleted by the *at() interfaces.
@@ -1091,7 +1096,7 @@ DYNFLAGS +=	$(RTLDINFO)
 # are marked 'protected' in the mapfiles, this is a minimal set (15 to 20).
 DYNFLAGS +=	-znow
 
-BUILD.s=	$(AS) $(ASFLAGS) $< -o $@
+BUILD.s=	$(AS) $(ASFLAGS) $< -c -o $@
 
 # Override this top level flag so the compiler builds in its native
 # C99 mode.  This has been enabled to support the complex arithmetic
@@ -1121,50 +1126,6 @@ CLOBBERFILES +=	$(LIB_PIC)
 # $(DYNLIB) $(LIB_PIC) := DYNOBJS = _rtbootld.o
 $(DYNLIB) := CRTI = crti.o
 $(DYNLIB) := CRTN = crtn.o
-
-# Files which need the threads .il inline template
-TIL=				\
-	aio.o			\
-	alloc.o			\
-	assfail.o		\
-	atexit.o		\
-	atfork.o		\
-	cancel.o		\
-	door_calls.o		\
-	err.o			\
-	errno.o			\
-	lwp.o			\
-	ma.o			\
-	machdep.o		\
-	posix_aio.o		\
-	pthr_attr.o		\
-	pthr_barrier.o		\
-	pthr_cond.o		\
-	pthr_mutex.o		\
-	pthr_rwlock.o		\
-	pthread.o		\
-	rand.o			\
-	rwlock.o		\
-	scalls.o		\
-	sched.o			\
-	sema.o			\
-	sigaction.o		\
-	sigev_thread.o		\
-	spawn.o			\
-	stack.o			\
-	synch.o			\
-	tdb_agent.o		\
-	thr.o			\
-	thread_interface.o	\
-	thread_pool.o		\
-	thrp_unwind.o		\
-	tls.o			\
-	tmem.o			\
-	tsd.o
-
-$(TIL:%=pics/%) := CFLAGS64 += $(LIBCBASE)/threads/amd64.il
-
-# pics/mul64.o := CFLAGS64 += crt/mul64.il
 
 # large-file-aware components that should be built large
 
@@ -1212,10 +1173,6 @@ STACKPROTECT = none
 .KEEP_STATE:
 
 all: $(LIBS) $(LIB_PIC)
-
-# object files that depend on inline template
-$(TIL:%=pics/%): $(LIBCBASE)/threads/amd64.il
-# pics/mul64.o: crt/mul64.il
 
 # include common libc targets
 include ../Makefile.targ

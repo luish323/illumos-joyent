@@ -26,7 +26,8 @@
 /*
  * Copyright 2012 DEY Storage Systems, Inc.  All rights reserved.
  * Copyright (c) 2018 Joyent, Inc.
- * Copyright 2020 Oxide Computer Company
+ * Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2022 Oxide Computer Company
  */
 
 /*
@@ -108,7 +109,7 @@ conv_cnote_auxv_type(Word type, Conv_fmt_flags_t fmt_flags,
 	static const conv_ds_msg_t ds_types_2000_2011 = {
 	    CONV_DS_MSG_INIT(2000, types_2000_2011) };
 
-	static const Msg	types_2014_2028[] = {
+	static const Msg	types_2014_2029[] = {
 		MSG_AUXV_AT_SUN_EXECNAME,	MSG_AUXV_AT_SUN_MMU,
 		MSG_AUXV_AT_SUN_LDDATA,		MSG_AUXV_AT_SUN_AUXFLAGS,
 		MSG_AUXV_AT_SUN_EMULATOR,	MSG_AUXV_AT_SUN_BRANDNAME,
@@ -116,14 +117,14 @@ conv_cnote_auxv_type(Word type, Conv_fmt_flags_t fmt_flags,
 		MSG_AUXV_AT_SUN_BRAND_AUX3,	MSG_AUXV_AT_SUN_HWCAP2,
 		MSG_AUXV_AT_SUN_BRAND_NROOT,	MSG_AUXV_AT_SUN_BRAND_AUX4,
 		MSG_AUXV_AT_SUN_COMMPAGE,	MSG_AUXV_AT_SUN_FPTYPE,
-		MSG_AUXV_AT_SUN_FPSIZE
+		MSG_AUXV_AT_SUN_FPSIZE,		MSG_AUXV_AT_SUN_HWCAP3
 	};
-	static const conv_ds_msg_t ds_types_2014_2028 = {
-	    CONV_DS_MSG_INIT(2014, types_2014_2028) };
+	static const conv_ds_msg_t ds_types_2014_2029 = {
+	    CONV_DS_MSG_INIT(2014, types_2014_2029) };
 
 	static const conv_ds_t	*ds[] = {
 		CONV_DS_ADDR(ds_types_0_25), CONV_DS_ADDR(ds_types_2000_2011),
-		CONV_DS_ADDR(ds_types_2014_2028), NULL };
+		CONV_DS_ADDR(ds_types_2014_2029), NULL };
 
 	return (conv_map_ds(ELFOSABI_NONE, EM_NONE, type, ds, fmt_flags,
 	    inv_buf));
@@ -518,7 +519,7 @@ conv_cnote_pr_what(short why, short what, Conv_fmt_flags_t fmt_flags,
 {
 	/*
 	 * The meaning of pr_what depends on the corresponding
-	 * value of pr_why, as discussed in the proc(4) manpage.
+	 * value of pr_why, as discussed in the proc(5) manpage.
 	 */
 	switch (why) {
 	case PR_SIGNALLED:
@@ -1063,6 +1064,7 @@ conv_cnote_auxv_af(Word flags, Conv_fmt_flags_t fmt_flags,
 	MSG_CC_CONTENT_DISM_SIZE	+ CONV_EXPN_FIELD_DEF_SEP_SIZE + \
 	MSG_CC_CONTENT_CTF_SIZE		+ CONV_EXPN_FIELD_DEF_SEP_SIZE + \
 	MSG_CC_CONTENT_SYMTAB_SIZE	+ CONV_EXPN_FIELD_DEF_SEP_SIZE + \
+	MSG_CC_CONTENT_DEBUG_SIZE	+ CONV_EXPN_FIELD_DEF_SEP_SIZE + \
 	CONV_INV_BUFSIZE		+ CONV_EXPN_FIELD_DEF_SUFFIX_SIZE
 
 /*
@@ -1079,6 +1081,15 @@ conv_cnote_auxv_af(Word flags, Conv_fmt_flags_t fmt_flags,
 #define	REPORT_BUFSIZE CCFLGSZ
 #include "report_bufsize.h"
 #error "CONV_CNOTE_CC_CONTENT_BUFSIZE does not match CCFLGSZ"
+#endif
+
+/*
+ * This is required to work around tools ld bootstrapping issues where
+ * CC_CONTENT_DEBUG is not present. When an illumos sysroot has this present it
+ * will probably be safe to remove this.
+ */
+#ifndef	CC_CONTENT_DEBUG
+#define	CC_CONTENT_DEBUG	0x2000ULL
 #endif
 
 const char *
@@ -1113,6 +1124,7 @@ conv_cnote_cc_content(Lword flags, Conv_fmt_flags_t fmt_flags,
 		{ (Word) CC_CONTENT_DISM,	MSG_CC_CONTENT_DISM },
 		{ (Word) CC_CONTENT_CTF,	MSG_CC_CONTENT_CTF },
 		{ (Word) CC_CONTENT_SYMTAB,	MSG_CC_CONTENT_SYMTAB },
+		{ (Word) CC_CONTENT_DEBUG,	MSG_CC_CONTENT_DEBUG },
 		{ 0,			0 }
 	};
 	static CONV_EXPN_FIELD_ARG conv_arg = {
@@ -2480,6 +2492,7 @@ conv_cnote_fileflags(uint32_t fileflags, Conv_fmt_flags_t fmt_flags,
 		{ 0x2000,	MSG_PR_O_LARGEFILE },
 		{ 0x20000,	MSG_PR_O_NOFOLLOW },
 		{ 0x40000,	MSG_PR_O_NOLINKS },
+		{ 0x80000000,	MSG_PR___FLXPATH },
 		{ 0, 0 },
 	};
 

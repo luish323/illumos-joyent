@@ -25,6 +25,7 @@
  *
  *
  * Copyright (c) 1989, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright 2022 Oxide Computer Company
  *
  * Global include file for all sgs.
  */
@@ -195,27 +196,11 @@ typedef struct {
 #define	SGS_REJ_HWCAP_2		17	/* hardware capabilities mismatch */
 #define	SGS_REJ_ARCHIVE		18	/* archive used in invalid context */
 #define	SGS_REJ_KMOD		19	/* object is a kernel module */
-#define	SGS_REJ_NUM		20
+#define	SGS_REJ_HWCAP_3		20	/* hardware capabilities mismatch */
+#define	SGS_REJ_NUM		21
+
 
 #define	FLG_REJ_ALTER		0x01	/* object name is an alternative */
-
-/*
- * For those source files used both inside and outside of the
- * libld source base (tools/common/string_table.c) we can
- * automatically switch between the allocation models
- * based off of the 'cc -DUSE_LIBLD_MALLOC' flag.
- */
-#ifdef	USE_LIBLD_MALLOC
-#define	calloc(x, a)		libld_malloc(((size_t)x) * ((size_t)a))
-#define	free			libld_free
-#define	malloc			libld_malloc
-#define	realloc			libld_realloc
-
-#define	libld_calloc(x, a)	libld_malloc(((size_t)x) * ((size_t)a))
-extern void			libld_free(void *);
-extern void			*libld_malloc(size_t);
-extern void			*libld_realloc(void *, size_t);
-#endif
 
 /*
  * Data structures (defined in libld.h).

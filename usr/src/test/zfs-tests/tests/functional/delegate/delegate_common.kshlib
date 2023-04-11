@@ -27,6 +27,7 @@
 #
 # Copyright (c) 2013, 2016 by Delphix. All rights reserved.
 # Copyright 2016 Nexenta Systems, Inc.
+# Copyright 2023 Bill Sommerfeld <sommerfeld@alum.mit.edu>
 #
 
 . $STF_SUITE/include/libtest.shlib
@@ -480,12 +481,14 @@ function verify_userprop
 	typeset perm=$2
 	typeset dtst=$3
 
-	typeset stamp=${perm}.${user}.$(date +'%F-%H%M%S')
+	typeset guid=$(get_prop guid $dtst)
+	typeset stamp=${perm}.${user}.$(date +'%F-%H%M%S').${guid}
 
 	user_run $user zfs set "$user:ts=$stamp" $dtst
 	if [[ $stamp != $(get_prop "$user:ts" $dtst) ]]; then
 		return 1
 	fi
+	user_run $user zfs inherit "$user:ts" $dtst
 
 	return 0
 }
@@ -1695,4 +1698,39 @@ function verify_allow
 
 	return 0
 
+}
+
+function verify_allow_output
+{
+	typeset dtst=$1
+
+	shift
+	cat >>/tmp/allow_template.$$ <<EOF
+---- Permissions on $dtst
+EOF
+
+	while (( $# > 0 )); do
+		typeset section=$1
+		typeset content=$2
+
+		cat >>/tmp/allow_template.$$ <<EOF
+${section}:
+	$content
+EOF
+		shift 2
+	done
+
+	# chop variable-length trailing dashes
+	zfs allow $dtst | sed 's/ --*$//' >/tmp/allow_output.$$
+
+	typeset -i ret
+	log_must diff -u /tmp/allow_template.$$ /tmp/allow_output.$$
+	ret=$?
+	rm -f  /tmp/allow_template.$$ /tmp/allow_output.$$
+
+	if [[ $ret -eq 0 ]]; then
+		return 0
+	fi
+
+	return 1
 }

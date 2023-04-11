@@ -22,9 +22,6 @@
 # Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
 #
-#	This makefile drives the production of the nca driver
-#	kernel module.
-#
 #	intel architecture dependent
 #
 
@@ -60,7 +57,7 @@ CFLAGS		+= $(CCVERBOSE)
 CERRWARN	+= -_gcc=-Wno-unused-label
 CERRWARN	+= $(CNOWARN_UNINIT)
 
-LDFLAGS += -dy -Nfs/sockfs -Ndrv/ip -Ndrv/sdpib
+LDFLAGS += -Nfs/sockfs -Ndrv/ip -Ndrv/sdpib
 
 #
 #	Default build targets.

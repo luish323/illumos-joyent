@@ -21,8 +21,6 @@
 # Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
 #
-# psm/stand/bootlst/common/Makefile.com
-#
 
 TOPDIR	=	../../../../..
 
@@ -58,7 +56,7 @@ CPPFLAGS	+= $(CCYFLAG)$(STANDDIR)
 CSTD =	$(CSTD_GNU99)
 CFLAGS =	$(CCVERBOSE) -O $(CSTD)
 
-ASFLAGS =	-P -D_ASM $(CPPDEFS) -DLOCORE -D_LOCORE -D__STDC__
+ASFLAGS =	-D_ASM $(CPPDEFS) -DLOCORE -D_LOCORE -D__STDC__
 AS_CPPFLAGS =	$(CPPINCS) $(CPPFLAGS.master)
 
 # install values
@@ -88,7 +86,7 @@ bootlst: $(MAPFILE) $(BOOTLSTOBJ) $(SALIBS)
 	$(POST_PROCESS)
 
 $(SALIBS): FRC
-	@cd $(@D); $(MAKE) $(MFLAGS)
+	@cd $(@D); $(MAKE)
 
 $(ROOTDIR):
 	$(INS.dir)

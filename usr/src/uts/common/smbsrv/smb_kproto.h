@@ -22,7 +22,8 @@
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2016 Syneto S.R.L.  All rights reserved.
- * Copyright 2019 Nexenta by DDN, Inc. All rights reserved.
+ * Copyright 2011-2022 Tintri by DDN, Inc. All rights reserved.
+ * Copyright 2022 RackTop Systems, Inc.
  */
 
 /*
@@ -266,6 +267,7 @@ int smb_net_id(uint32_t);
  * Common oplock functions
  */
 uint32_t smb_oplock_request(smb_request_t *, smb_ofile_t *, uint32_t *);
+uint32_t smb_oplock_request_LH(smb_request_t *, smb_ofile_t *, uint32_t *);
 uint32_t smb_oplock_ack_break(smb_request_t *, smb_ofile_t *, uint32_t *);
 uint32_t smb_oplock_break_PARENT(smb_node_t *, smb_ofile_t *);
 uint32_t smb_oplock_break_OPEN(smb_node_t *, smb_ofile_t *,
@@ -279,6 +281,16 @@ uint32_t smb_oplock_break_WRITE(smb_node_t *, smb_ofile_t *);
 uint32_t smb_oplock_break_SETINFO(smb_node_t *,
     smb_ofile_t *ofile, uint32_t InfoClass);
 uint32_t smb_oplock_break_DELETE(smb_node_t *, smb_ofile_t *);
+void smb_oplock_close(smb_ofile_t *);
+
+void smb_oplock_ind_break(smb_ofile_t *, uint32_t, boolean_t, uint32_t);
+void smb_oplock_ind_break_in_ack(smb_request_t *, smb_ofile_t *,
+    uint32_t, boolean_t);
+void smb_oplock_send_break(smb_request_t *);
+
+uint32_t smb_oplock_wait_ack(smb_request_t *, uint32_t);
+uint32_t smb_oplock_wait_break(smb_request_t *, smb_node_t *, int);
+uint32_t smb_oplock_wait_break_fem(smb_node_t *, int);
 
 void smb_oplock_move(smb_node_t *, smb_ofile_t *, smb_ofile_t *);
 
@@ -286,15 +298,12 @@ void smb_oplock_move(smb_node_t *, smb_ofile_t *, smb_ofile_t *);
  * Protocol-specific oplock functions
  * (and "server-level" functions)
  */
+void smb1_oplock_ack_break(smb_request_t *, uchar_t);
 void smb1_oplock_acquire(smb_request_t *, boolean_t);
-void smb1_oplock_break_notification(smb_request_t *, uint32_t);
-void smb2_oplock_break_notification(smb_request_t *, uint32_t);
-void smb2_lease_break_notification(smb_request_t *, uint32_t, boolean_t);
-void smb_oplock_ind_break(smb_ofile_t *, uint32_t, boolean_t, uint32_t);
-void smb_oplock_ind_break_in_ack(smb_request_t *, smb_ofile_t *,
-    uint32_t, boolean_t);
-void smb_oplock_send_brk(smb_request_t *);
-uint32_t smb_oplock_wait_break(smb_node_t *, int);
+void smb1_oplock_send_break(smb_request_t *);
+void smb2_oplock_send_break(smb_request_t *);
+void smb2_lease_ofile_close(smb_ofile_t *);
+void smb2_lease_send_break(smb_request_t *);
 
 /*
  * range lock functions - node operations
@@ -536,6 +545,7 @@ boolean_t smb_node_share_check(smb_node_t *);
 void smb_node_fcn_subscribe(smb_node_t *);
 void smb_node_fcn_unsubscribe(smb_node_t *);
 void smb_node_notify_change(smb_node_t *, uint_t, const char *);
+void smb_node_notify_modified(smb_node_t *);
 
 int smb_node_getattr(smb_request_t *, smb_node_t *, cred_t *,
     smb_ofile_t *, smb_attr_t *);
@@ -570,7 +580,7 @@ void smb_nt_transact_notify_finish(void *);
 void smb2_change_notify_finish(void *);
 
 int smb_fem_fcn_install(smb_node_t *);
-void smb_fem_fcn_uninstall(smb_node_t *);
+int smb_fem_fcn_uninstall(smb_node_t *);
 int smb_fem_oplock_install(smb_node_t *);
 void smb_fem_oplock_uninstall(smb_node_t *);
 
@@ -664,6 +674,7 @@ void smb_ofile_flush(smb_request_t *, smb_ofile_t *);
 boolean_t smb_ofile_hold(smb_ofile_t *);
 boolean_t smb_ofile_hold_olbrk(smb_ofile_t *);
 void smb_ofile_release(smb_ofile_t *);
+void smb_ofile_release_LL(void *);
 void smb_ofile_close_all(smb_tree_t *, uint32_t);
 void smb_ofile_set_flags(smb_ofile_t *, uint32_t);
 boolean_t smb_ofile_is_open(smb_ofile_t *);
@@ -696,7 +707,8 @@ uint32_t smb_odir_openpath(smb_request_t *, char *, uint16_t, uint32_t,
     smb_odir_t **);
 uint32_t smb_odir_openfh(smb_request_t *, const char *, uint16_t,
     smb_odir_t **);
-uint32_t smb_odir_openat(smb_request_t *, smb_node_t *, smb_odir_t **);
+uint32_t smb_odir_openat(smb_request_t *, smb_node_t *, smb_odir_t **,
+    boolean_t);
 void smb_odir_reopen(smb_odir_t *, const char *, uint16_t);
 void smb_odir_close(smb_odir_t *);
 boolean_t smb_odir_hold(smb_odir_t *);
@@ -740,6 +752,9 @@ cred_t *smb_kcred_create(void);
 void smb_user_setcred(smb_user_t *, cred_t *, uint32_t);
 boolean_t smb_is_same_user(cred_t *, cred_t *);
 boolean_t smb_user_has_security_priv(smb_user_t *, cred_t *);
+void smb_user_inc_trees(smb_user_t *);
+void smb_user_dec_trees(smb_user_t *);
+void smb_user_wait_trees(smb_user_t *);
 
 /*
  * SMB tree functions (file smb_tree.c)

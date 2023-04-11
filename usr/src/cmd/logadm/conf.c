@@ -195,7 +195,7 @@ conf_scan(const char *fname, char *buf, int buflen, int timescan)
 	for (line = buf; line < ebuf; line = eline) {
 		char *ap;
 		struct opts *opts = NULL;
-		struct confinfo *cp;
+		struct confinfo *cp = NULL;
 
 		lineno++;
 		err_fileline(fname, lineno);
@@ -300,7 +300,7 @@ conf_scan(const char *fname, char *buf, int buflen, int timescan)
 				 * the log file name.
 				 */
 				flags = 0;
-				if (cp == NULL)
+				if (timescan && cp == NULL)
 					flags = CONFF_TSONLY;
 				fillconflist(lineno, entry, opts, comment,
 				    flags);
@@ -652,7 +652,7 @@ conf_print(FILE *cstream, FILE *tstream)
 		exclude_opts++;		/* -P option goes to config file */
 	} else {
 		(void) fprintf(tstream, gettext(
-		    "# This file holds internal data for logadm(1M).\n"
+		    "# This file holds internal data for logadm(8).\n"
 		    "# Do not edit.\n"));
 	}
 	for (cp = Confinfo; cp; cp = cp->cf_next) {

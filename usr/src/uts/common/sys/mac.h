@@ -43,7 +43,7 @@ extern "C" {
 #endif
 
 /*
- * MAC Information (text emitted by modinfo(1m))
+ * MAC Information (text emitted by modinfo(8))
  */
 #define	MAC_INFO	"MAC Services"
 
@@ -113,7 +113,7 @@ typedef struct mac_propval_uint32_range_s {
  */
 typedef struct mac_propval_str_range_s {
 	uint32_t mpur_nextbyte;
-	char mpur_data[1];
+	char mpur_data[];
 } mac_propval_str_range_t;
 
 /*
@@ -249,7 +249,8 @@ typedef enum {
 	MAC_PROP_ADV_50GFDX_CAP,
 	MAC_PROP_EN_50GFDX_CAP,
 	MAC_PROP_EN_FEC_CAP,
-	MAC_PROP_ADV_FEC_CAP
+	MAC_PROP_ADV_FEC_CAP,
+	MAC_PROP_MEDIA
 } mac_prop_id_t;
 
 /*
@@ -593,7 +594,7 @@ typedef struct mactype_ops_s {
  * Note that the ndd ioctls are obsolete, and may be removed in a future
  * release of Solaris. The ndd ioctls are not typically used in legacy
  * ethernet drivers. New datalink drivers of all link-types should use
- * dladm(1m) interfaces for administering tunables and not have to provide
+ * dladm(8) interfaces for administering tunables and not have to provide
  * a mapping.
  */
 typedef struct mac_ndd_mapping_s {

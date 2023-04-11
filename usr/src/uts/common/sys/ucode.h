@@ -21,6 +21,10 @@
 /*
  * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ *
+ * Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2022 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Company
  */
 
 #ifndef	_SYS_UCODE_H
@@ -111,12 +115,17 @@ typedef struct ucode_header_amd {
 
 typedef struct ucode_file_amd {
 #ifndef __xpv
+	/*
+	 * The combined size of these fields adds up to 8KiB (8192 bytes).
+	 * If support is needed for larger update files, increase the size of
+	 * the uf_encr element.
+	 */
 	ucode_header_amd_t uf_header;
 	uint8_t uf_data[896];
 	uint8_t uf_resv[896];
 	uint8_t uf_code_present;
 	uint8_t uf_code[191];
-	uint8_t uf_encr[2048];
+	uint8_t uf_encr[6144];
 #else
 	uint8_t *ucodep;
 	uint32_t usize;
@@ -197,16 +206,16 @@ typedef union ucode_file {
 #define	UCODE_DEFAULT_BODY_SIZE		(UCODE_KB(2) - UCODE_HEADER_SIZE_INTEL)
 
 /*
- * For a single microcode file, the minimum size is 1K, maximum size is 128K.
- * Such limitations, while somewhat artificial, are not only to provide better
- * sanity checks, but also avoid wasting precious memory at startup time as the
- * microcode buffer for the first processor has to be statically allocated.
+ * For a single microcode file, the following minimum and maximum sizes are
+ * defined. Such limitations, while somewhat artificial, are not only to
+ * provide better sanity checks, but also avoid wasting precious memory at
+ * startup time as the microcode buffer for the first processor has to be
+ * statically allocated.
  *
- * For the concatenation of all the microcode binary files, the maximum size
- * is 16M.
+ * The last limit is for the concatenation of all the microcode binary files.
  */
 #define	UCODE_MIN_SIZE			UCODE_KB(1)
-#define	UCODE_MAX_SIZE			UCODE_KB(128)
+#define	UCODE_MAX_SIZE			UCODE_MB(2)
 #define	UCODE_MAX_COMBINED_SIZE		UCODE_MB(16)
 
 #define	UCODE_SIZE_CONVERT(size, default_size) \
@@ -224,6 +233,8 @@ typedef union ucode_file {
 
 extern ucode_errno_t ucode_header_validate_intel(ucode_header_intel_t *);
 extern uint32_t ucode_checksum_intel(uint32_t, uint32_t, uint8_t *);
+extern uint32_t ucode_checksum_intel_extsig(ucode_header_intel_t *,
+    ucode_ext_sig_intel_t *);
 
 extern ucode_errno_t ucode_validate_amd(uint8_t *, int);
 extern ucode_errno_t ucode_validate_intel(uint8_t *, int);
@@ -288,6 +299,7 @@ struct ucode_ops {
 	int		(*convert)(const char *, uint8_t *, size_t);
 	ucode_errno_t	(*gen_files)(uint8_t *, int, char *);
 	ucode_errno_t	(*validate)(uint8_t *, int);
+	void		(*list)(uint8_t *, int);
 };
 #endif
 

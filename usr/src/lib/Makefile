@@ -24,8 +24,8 @@
 # Copyright (c) 2012 by Delphix. All rights reserved.
 # Copyright 2020 Joyent, Inc.
 # Copyright (c) 2013 Gary Mills
-# Copyright 2014 Garrett D'Amore <garrett@damore.org>
 # Copyright (c) 2015 Gary Mills
+# Copyright 2022 Garrett D'Amore
 # Copyright 2016 Toomas Soome <tsoome@me.com>
 # Copyright 2018 Nexenta Systems, Inc.
 # Copyright (c) 2016, Chris Fraire <cfraire@me.com>.
@@ -226,9 +226,6 @@ SUBDIRS +=				\
 	libtecla	\
 	libtermcap	\
 	libthread	\
-	libtnf		\
-	libtnfctl	\
-	libtnfprobe	\
 	libtsnet	\
 	libtsol		\
 	libumem		\
@@ -258,7 +255,6 @@ SUBDIRS +=				\
 	mpapi		\
 	mpss		\
 	nametoaddr	\
-	ncad_addr	\
 	nsswitch	\
 	pam_modules	\
 	passwdutil	\
@@ -280,6 +276,7 @@ SUBDIRS +=				\
 	$($(MACH)_SUBDIRS)
 
 i386_SUBDIRS=		\
+	lib9p		\
 	libfdisk	\
 	libppt		\
 	libsaveargs	\
@@ -470,9 +467,6 @@ HDRSUBDIRS=				\
 	libsysevent	\
 	libtecla	\
 	libtermcap	\
-	libtnf		\
-	libtnfctl	\
-	libtnfprobe	\
 	libtsnet	\
 	libtsol		\
 	libumem		\
@@ -501,6 +495,7 @@ HDRSUBDIRS=				\
 	$($(MACH)_HDRSUBDIRS)
 
 i386_HDRSUBDIRS=	\
+	lib9p		\
 	libfdisk	\
 	libppt		\
 	libsaveargs	\
@@ -593,6 +588,7 @@ gss_mechs/mech_krb5: libgss libresolv2 pkcs11 libkstat
 gss_mechs/mech_spnego: gss_mechs/mech_krb5
 hal:		dbusdeps
 krb5:		gss_mechs/mech_krb5 libtecla libldap5
+lib9p:		libsec libcustr
 libads:		libnsl
 libadt_jni:	libbsm
 libadutils:	libldap5 libresolv2
@@ -605,7 +601,7 @@ libcontract:	libnvpair
 libcmdutils:	libavl libnvpair
 libcpc:		libpctx
 libcrypt:	libgen
-libctf:		libdwarf
+libctf:		libavl libdwarf
 libdemangle:	libcustr
 libdevice:	libnvpair
 libdevid:	libdevinfo
@@ -637,7 +633,8 @@ libidspace:	libumem
 libinetsvc:	libscf
 libinetutil:	libsocket
 libinstzones:	libzonecfg libcontract
-libipadm:	libinetutil libdlpi libdhcpagent libdladm libsecdb libdhcputil
+libipadm:	libinetutil libdlpi libdhcpagent libdladm libsecdb libdhcputil \
+		libcmdutils libipmp
 libipmi:	libm libnvpair libsocket libnsl
 libipmp:	libinetutil
 libipsecutil:	libtecla libtsol libkmf
@@ -684,7 +681,6 @@ libsun_ima:	libdevinfo libsysevent
 libsysevent:	libsecdb
 libtecla:	libcurses
 libtermcap:	libcurses
-libtnfctl:	../cmd/sgs/libelf
 libtsalarm:	libpcp
 libtsnet:	libtsol libsecdb
 libtsol:	libsecdb

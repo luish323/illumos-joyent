@@ -819,20 +819,12 @@ zvol_update_live_volsize(zvol_state_t *zv, uint64_t volsize)
 	 * Generate a LUN expansion event.
 	 */
 	if (error == 0) {
-		sysevent_id_t eid;
-		nvlist_t *attr;
 		char *physpath = kmem_zalloc(MAXPATHLEN, KM_SLEEP);
 
 		(void) snprintf(physpath, MAXPATHLEN, "%s%u", ZVOL_PSEUDO_DEV,
 		    zv->zv_minor);
 
-		VERIFY(nvlist_alloc(&attr, NV_UNIQUE_NAME, KM_SLEEP) == 0);
-		VERIFY(nvlist_add_string(attr, DEV_PHYS_PATH, physpath) == 0);
-
-		(void) ddi_log_sysevent(zfs_dip, SUNW_VENDOR, EC_DEV_STATUS,
-		    ESC_DEV_DLE, attr, &eid, DDI_SLEEP);
-
-		nvlist_free(attr);
+		zfs_post_dle_sysevent(physpath);
 		kmem_free(physpath, MAXPATHLEN);
 	}
 	return (error);
@@ -1158,7 +1150,7 @@ zvol_dumpio(zvol_state_t *zv, void *addr, uint64_t offset, uint64_t size,
 	    P2BOUNDARY(offset, size, zv->zv_volblocksize)) {
 		return (SET_ERROR(EINVAL));
 	}
-	ASSERT(size <= zv->zv_volblocksize);
+	VERIFY3U(size, <=, zv->zv_volblocksize);
 
 	/* Locate the extent this belongs to */
 	for (ze = list_head(&zv->zv_extents);
@@ -1709,7 +1701,7 @@ zvol_log_truncate(zvol_state_t *zv, dmu_tx_t *tx, uint64_t off, uint64_t len,
 }
 
 /*
- * Dirtbag ioctls to support mkfs(1M) for UFS filesystems.  See dkio(7I).
+ * Dirtbag ioctls to support mkfs(8) for UFS filesystems.  See dkio(4I).
  * Also a dirtbag dkio ioctl for unmap/free-block functionality.
  */
 /*ARGSUSED*/

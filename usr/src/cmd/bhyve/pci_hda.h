@@ -28,7 +28,7 @@
  * $FreeBSD$
  */
 
-#ifndef _HDA_EMUL_H_ 
+#ifndef _HDA_EMUL_H_
 #define _HDA_EMUL_H_
 
 #include <stdio.h>
@@ -65,14 +65,14 @@ struct hda_codec_inst {
 	uint8_t cad;
 	struct hda_codec_class *codec;
 	struct hda_softc *hda;
-	struct hda_ops *hops;
+	const struct hda_ops *hops;
 	void *priv;
 };
 
 struct hda_codec_class {
-	char *name;
+	const char *name;
 	int (*init)(struct hda_codec_inst *hci, const char *play,
-		const char *rec, const char *opts);
+		const char *rec);
 	int (*reset)(struct hda_codec_inst *hci);
 	int (*command)(struct hda_codec_inst *hci, uint32_t cmd_data);
 	int (*notify)(struct hda_codec_inst *hci, uint8_t run, uint8_t stream,
@@ -84,7 +84,7 @@ struct hda_ops {
 	int (*response)(struct hda_codec_inst *hci, uint32_t response,
 		uint8_t unsol);
 	int (*transfer)(struct hda_codec_inst *hci, uint8_t stream,
-		uint8_t dir, void *buf, size_t count);
+		uint8_t dir, uint8_t *buf, size_t count);
 };
 
 #define HDA_EMUL_SET(x)		DATA_SET(hda_codec_class_set, x);

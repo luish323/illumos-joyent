@@ -66,7 +66,7 @@ INSTALL_TARGET	= $(BINARY) $(ROOTMODULE) $(ROOTLINK) $(ROOT_CONFFILE)
 #	we can no longer load modules through OBP.
 #
 MODSTUBS_DIR	 = $(OBJS_DIR)
-LDFLAGS		+= -dy -Nfs/specfs -Ncrypto/swrand -Nmisc/idmap \
+LDFLAGS		+= -Nfs/specfs -Ncrypto/swrand -Nmisc/idmap \
 	-Nsched/SDC -Nmisc/sha2 -Nmisc/skein -Nmisc/edonr
 
 INC_PATH	+= -I$(UTSBASE)/common/fs/zfs
@@ -74,8 +74,6 @@ INC_PATH	+= -I$(UTSBASE)/common/fs/zfs/lua
 INC_PATH	+= -I$(SRC)/common
 INC_PATH	+= -I$(COMMONBASE)/zfs
 INC_PATH	+= -I$(UTSBASE)/sun4
-
-C99LMODE=	-Xc99=%all
 
 #
 # For now, disable these warnings; maintainers should endeavor

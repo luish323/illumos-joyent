@@ -125,25 +125,15 @@ CFLAGS += -DDIS_MEM
 # to investigate and remove these for maximum coverage.
 # Please do not carry these forward to new Makefiles.
 #
-CERRWARN	+= -_gcc=-Wno-parentheses
-CERRWARN	+= $(CNOWARN_UNINIT)
 CERRWARN	+= -_gcc=-Wno-char-subscripts
-CERRWARN	+= -_gcc=-Wno-unused-variable
 CERRWARN	+= -_gcc=-Wno-unused-function
-CERRWARN	+= -_gcc=-Wno-unused-label
-CERRWARN	+= -_gcc=-Wno-type-limits
-CERRWARN	+= -_gcc=-Wno-clobbered
-CERRWARN	+= -_gcc=-Wno-empty-body
-CERRWARN	+= -_gcc=-Wno-unused-value
 
 # false positives
 SMOFF += index_overflow
 
 # needs work
-SMOFF += all_func_returns,deref_check,signed
+SMOFF += all_func_returns
 
-$(OBJS_DIR)/fmsmb.o := SMOFF += indenting
-$(OBJS_DIR)/zutil.o := SMOFF += indenting
 $(OBJS_DIR)/bootrd_cpio.o := SMOFF += allocating_enough_data
 
 # too hairy
@@ -195,8 +185,8 @@ $(DBOOT_O):	$(DBOOT_BIN)
 $(DBOOT_OBJS_DIR):
 	-@mkdir -p $@ 2> /dev/null
 
-$(COMMP_CTF_SRC):	$(UTSBASE)/i86pc/ml/comm_page.s
-	$(COMPILE.cpp) -D_GENCTF -o $@ $(UTSBASE)/i86pc/ml/comm_page.s
+$(COMMP_CTF_SRC):	$(UTSBASE)/i86pc/ml/comm_page.S
+	$(COMPILE.cpp) -D_GENCTF -o $@ $(UTSBASE)/i86pc/ml/comm_page.S
 
 $(OBJS_DIR)/comm_page_ctf.o:	$(COMMP_CTF_SRC)
 	$(COMPILE.c) -o $@ $<

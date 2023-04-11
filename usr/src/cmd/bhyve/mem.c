@@ -72,14 +72,15 @@ struct mmio_rb_range {
 struct mmio_rb_tree;
 RB_PROTOTYPE(mmio_rb_tree, mmio_rb_range, mr_link, mmio_rb_range_compare);
 
-RB_HEAD(mmio_rb_tree, mmio_rb_range) mmio_rb_root, mmio_rb_fallback;
+static RB_HEAD(mmio_rb_tree, mmio_rb_range) mmio_rb_root, mmio_rb_fallback;
 
 /*
  * Per-vCPU cache. Since most accesses from a vCPU will be to
  * consecutive addresses in a range, it makes sense to cache the
  * result of a lookup.
  */
-static struct mmio_rb_range	*mmio_hint[VM_MAXCPU];
+static struct mmio_rb_range	**mmio_hint;
+static int mmio_ncpu;
 
 static pthread_rwlock_t mmio_rwlock;
 
@@ -120,9 +121,11 @@ mmio_rb_add(struct mmio_rb_tree *rbt, struct mmio_rb_range *new)
 
 	if (overlap != NULL) {
 #ifdef RB_DEBUG
-		printf("overlap detected: new %lx:%lx, tree %lx:%lx\n",
+		printf("overlap detected: new %lx:%lx, tree %lx:%lx, '%s' "
+		       "claims region already claimed for '%s'\n",
 		       new->mr_base, new->mr_end,
-		       overlap->mr_base, overlap->mr_end);
+		       overlap->mr_base, overlap->mr_end,
+		       new->mr_param.name, overlap->mr_param.name);
 #endif
 
 		return (EEXIST);
@@ -317,6 +320,10 @@ register_mem_int(struct mmio_rb_tree *rbt, struct mem_range *memp)
 		pthread_rwlock_wrlock(&mmio_rwlock);
 		if (mmio_rb_lookup(rbt, memp->base, &entry) != 0)
 			err = mmio_rb_add(rbt, mrp);
+#ifndef	__FreeBSD__
+		else /* smatch warn: possible memory leak of 'mrp' */
+			free(mrp);
+#endif
 		perror = pthread_rwlock_unlock(&mmio_rwlock);
 		assert(perror == 0);
 		if (err)
@@ -357,7 +364,7 @@ unregister_mem(struct mem_range *memp)
 		RB_REMOVE(mmio_rb_tree, &mmio_rb_root, entry);
 
 		/* flush Per-vCPU cache */
-		for (i=0; i < VM_MAXCPU; i++) {
+		for (i = 0; i < mmio_ncpu; i++) {
 			if (mmio_hint[i] == entry)
 				mmio_hint[i] = NULL;
 		}
@@ -372,9 +379,11 @@ unregister_mem(struct mem_range *memp)
 }
 
 void
-init_mem(void)
+init_mem(int ncpu)
 {
 
+	mmio_ncpu = ncpu;
+	mmio_hint = calloc(ncpu, sizeof(*mmio_hint));
 	RB_INIT(&mmio_rb_root);
 	RB_INIT(&mmio_rb_fallback);
 	pthread_rwlock_init(&mmio_rwlock, NULL);

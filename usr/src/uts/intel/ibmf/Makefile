@@ -35,7 +35,7 @@ UTSBASE	= ../..
 MODULE		= ibmf
 OBJECTS		= $(IBMF_OBJS:%=$(OBJS_DIR)/%)
 ROOTMODULE	= $(ROOT_MISC_DIR)/$(MODULE)
-LDFLAGS		+= -dy -Nmisc/ibtl
+LDFLAGS		+= -Nmisc/ibtl
 
 #
 #	Include common rules.
@@ -51,8 +51,6 @@ INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 #
 #	Overrides
 #
-
-#DEBUG_DEFS_DBG32 += -DTNF_DEBUG
 
 #
 # For now, disable these warnings; maintainers should endeavor

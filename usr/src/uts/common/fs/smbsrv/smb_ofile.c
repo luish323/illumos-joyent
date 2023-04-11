@@ -20,9 +20,10 @@
  */
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright 2011-2020 Tintri by DDN, Inc. All rights reserved.
  * Copyright 2016 Syneto S.R.L. All rights reserved.
  * Copyright (c) 2016 by Delphix. All rights reserved.
- * Copyright 2020 Tintri by DDN, Inc. All rights reserved.
+ * Copyright 2022 RackTop Systems, Inc.
  */
 
 /*
@@ -226,7 +227,7 @@
  * Transition T7
  *
  *    This transition occurs in smb_session_durable_timers() and
- *    smb_oplock_send_brk(). The ofile will soon be closed.
+ *    smb_oplock_send_break(). The ofile will soon be closed.
  *    In the former case, f_timeout_offset nanoseconds have passed since
  *    the ofile was orphaned. In the latter, an oplock break occured
  *    on the ofile while it was orphaned.
@@ -404,6 +405,8 @@ smb_ofile_open(
 	smb_node_t	*node = of->f_node;
 
 	ASSERT(of->f_state == SMB_OFILE_STATE_ALLOC);
+	ASSERT(of->f_fid != 0);
+
 	of->f_state = SMB_OFILE_STATE_OPEN;
 
 	switch (of->f_ftype) {
@@ -441,6 +444,10 @@ smb_ofile_open(
  *   SMB_OFILE_STATE_OPEN  protocol close, smb_ofile_drop
  *   SMB_OFILE_STATE_EXPIRED  called via smb2_dh_expire
  *   SMB_OFILE_STATE_ORPHANED  smb2_dh_shutdown
+ *
+ * Not that this enters the of->node->n_ofile_list rwlock as reader,
+ * (via smb_oplock_close) so this must not be called while holding
+ * that rwlock.
  */
 void
 smb_ofile_close(smb_ofile_t *of, int32_t mtime_sec)
@@ -450,17 +457,7 @@ smb_ofile_close(smb_ofile_t *of, int32_t mtime_sec)
 	SMB_OFILE_VALID(of);
 
 	if (of->f_ftype == SMB_FTYPE_DISK) {
-		smb_node_t *node = of->f_node;
-
-		smb_llist_enter(&node->n_ofile_list, RW_READER);
-		mutex_enter(&node->n_oplock.ol_mutex);
-
-		if (of->f_lease != NULL)
-			smb2_lease_ofile_close(of);
-		smb_oplock_break_CLOSE(node, of);
-
-		mutex_exit(&node->n_oplock.ol_mutex);
-		smb_llist_exit(&node->n_ofile_list);
+		smb_oplock_close(of);
 	}
 
 	mutex_enter(&of->f_mutex);
@@ -573,6 +570,16 @@ smb_ofile_close(smb_ofile_t *of, int32_t mtime_sec)
 			 */
 			(void) smb_node_setattr(NULL, of->f_node,
 			    of->f_cr, NULL, pa);
+		}
+		/*
+		 * Don't want the performance cost of generating
+		 * change notify events on every write.  Instead:
+		 * Keep track of the fact that we have written
+		 * data via this handle, and do change notify
+		 * work on the first write, and during close.
+		 */
+		if (of->f_written) {
+			smb_node_notify_modified(of->f_node);
 		}
 
 		smb_server_dec_files(of->f_server);
@@ -726,7 +733,7 @@ smb_ofile_enum(smb_ofile_t *of, smb_svcenum_t *svcenum)
 
 /*
  * Take a reference on an open file, in any of the states:
- *   RECONNECT, SAVE_DH, OPEN, ORPHANED.
+ *   RECONNECT, SAVE_DH, OPEN, ORPHANED, EXPIRED.
  * Return TRUE if ref taken.  Used for oplock breaks.
  *
  * Note: When the oplock break code calls this, it holds the
@@ -757,13 +764,20 @@ again:
 		goto again;
 
 	case SMB_OFILE_STATE_OPEN:
-	case SMB_OFILE_STATE_ORPHANED:
 	case SMB_OFILE_STATE_SAVE_DH:
+	case SMB_OFILE_STATE_ORPHANED:
+	case SMB_OFILE_STATE_EXPIRED:
 		of->f_refcnt++;
 		ret = B_TRUE;
 		break;
 
+	/*
+	 * This is called only when an ofile has an oplock,
+	 * so if we come across states that should not have
+	 * an oplock, let's debug how that happened.
+	 */
 	default:
+		ASSERT(0);
 		break;
 	}
 	mutex_exit(&of->f_mutex);
@@ -790,6 +804,22 @@ smb_ofile_hold(smb_ofile_t *of)
 
 	mutex_exit(&of->f_mutex);
 	return (B_TRUE);
+}
+
+/*
+ * Void arg variant of smb_ofile_release for use with smb_llist_post.
+ * This is needed because smb_ofile_release may need to enter the
+ * smb_llist as writer when it drops the last reference, so when
+ * we're in the llist as reader, use smb_llist_post with this
+ * function to arrange for the release call at llist_exit.
+ */
+void
+smb_ofile_release_LL(void *arg)
+{
+	smb_ofile_t	*of = arg;
+
+	SMB_OFILE_VALID(of);
+	smb_ofile_release(of);
 }
 
 /*
@@ -1382,7 +1412,7 @@ smb_ofile_save_dh(void *arg)
 	 * flushes the delete queue before we do).  Synchronize.
 	 */
 	mutex_enter(&of->f_mutex);
-	DTRACE_PROBE1(ofile__exit, smb_ofile_t, of);
+	DTRACE_PROBE1(ofile__exit, smb_ofile_t *, of);
 	mutex_exit(&of->f_mutex);
 
 	/*
@@ -1476,7 +1506,7 @@ smb_ofile_delete(void *arg)
 	 */
 	mutex_enter(&of->f_mutex);
 	of->f_state = SMB_OFILE_STATE_ALLOC;
-	DTRACE_PROBE1(ofile__exit, smb_ofile_t, of);
+	DTRACE_PROBE1(ofile__exit, smb_ofile_t *, of);
 	mutex_exit(&of->f_mutex);
 
 	switch (of->f_ftype) {
@@ -1767,7 +1797,7 @@ smb_ofile_set_delete_on_close(smb_request_t *sr, smb_ofile_t *of)
 	if (status == NT_STATUS_OPLOCK_BREAK_IN_PROGRESS) {
 		if (sr->session->dialect >= SMB_VERS_2_BASE)
 			(void) smb2sr_go_async(sr);
-		(void) smb_oplock_wait_break(of->f_node, 0);
+		(void) smb_oplock_wait_break(sr, of->f_node, 0);
 	}
 
 	mutex_enter(&of->f_mutex);

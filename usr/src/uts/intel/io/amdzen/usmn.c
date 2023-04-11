@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright 2020 Oxide Computer Company
+ * Copyright 2022 Oxide Computer Company
  */
 
 /*
@@ -94,10 +94,32 @@ usmn_ioctl(dev_t dev, int cmd, intptr_t arg, int mode, cred_t *credp,
 		return (EFAULT);
 	}
 
+	/*
+	 * We don't need to check size and alignment here; the client access
+	 * routines do so for us and return EINVAL if violated.  The same goes
+	 * for the value to be written in the USMN_WRITE case below.
+	 */
+	const smn_reg_t reg = SMN_MAKE_REG_SIZED(usr.usr_addr, usr.usr_size);
+
 	if (cmd == USMN_READ) {
 		int ret;
 
-		ret = amdzen_c_smn_read32(dfno, usr.usr_addr, &usr.usr_data);
+		if ((mode & FREAD) == 0) {
+			return (EINVAL);
+		}
+
+		ret = amdzen_c_smn_read(dfno, reg, &usr.usr_data);
+		if (ret != 0) {
+			return (ret);
+		}
+	} else if (cmd == USMN_WRITE) {
+		int ret;
+
+		if ((mode & FWRITE) == 0) {
+			return (EINVAL);
+		}
+
+		ret = amdzen_c_smn_write(dfno, reg, usr.usr_data);
 		if (ret != 0) {
 			return (ret);
 		}
@@ -105,7 +127,8 @@ usmn_ioctl(dev_t dev, int cmd, intptr_t arg, int mode, cred_t *credp,
 		return (ENOTSUP);
 	}
 
-	if (ddi_copyout(&usr, (void *)arg, sizeof (usr), mode & FKIOCTL) != 0) {
+	if (cmd == USMN_READ &&
+	    ddi_copyout(&usr, (void *)arg, sizeof (usr), mode & FKIOCTL) != 0) {
 		return (EFAULT);
 	}
 

@@ -10,7 +10,7 @@
 #
 
 #
-# Copyright 2018 Joyent, Inc.
+# Copyright 2021 Joyent, Inc.
 #
 
 LIBRARY =	libvarpd.a
@@ -28,16 +28,15 @@ OBJECTS =	libvarpd.o \
 
 include ../../../Makefile.lib
 
-LIBS =		$(DYNLIB) $(LINTLIB)
-LDLIBS +=	-lc -lavl -lumem -lidspace -lnvpair -lmd5 -lrename \
+# install this library in the root filesystem
+include ../../../Makefile.rootfs
+
+LIBS =		$(DYNLIB)
+LDLIBS +=	-lc -lavl -lumem -lidspace -lnvpair -lmd -lrename \
 		-lbunyan
 CPPFLAGS +=	-I../common
 
 CERRWARN +=	-erroff=E_STRUCT_DERIVED_FROM_FLEX_MBR
-LINTFLAGS +=	-erroff=E_STRUCT_DERIVED_FROM_FLEX_MBR \
-		-erroff=E_BAD_PTR_CAST_ALIGN
-LINTFLAGS64  +=	-erroff=E_STRUCT_DERIVED_FROM_FLEX_MBR \
-		-erroff=E_BAD_PTR_CAST_ALIGN
 
 CSTD=		$(CSTD_GNU99)
 
@@ -46,7 +45,5 @@ SRCDIR =	../common
 .KEEP_STATE:
 
 all:	$(LIBS)
-
-lint:	lintcheck
 
 include ../../../Makefile.targ

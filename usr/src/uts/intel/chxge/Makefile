@@ -71,7 +71,7 @@ CFLAGS		+= -DSUN_KSTATS -DHOST_PAUSE -DTX_CKSUM_FIX -DTX_THREAD_RECLAIM
 #
 #	Driver depends on GLD, IP, and MAC
 #
-LDFLAGS		+= -dy -N misc/gld -N drv/ip -N misc/mac
+LDFLAGS		+= -N misc/gld -N drv/ip -N misc/mac
 
 
 #
@@ -83,6 +83,7 @@ CERRWARN	+= -_gcc=-Wno-unused-label
 CERRWARN	+= -_gcc=-Wno-unused-function
 CERRWARN	+= -_gcc=-Wno-unused-variable
 CERRWARN	+= -_gcc=-Wno-parentheses
+CCWARNINLINE	=
 
 SMOFF += indenting,all_func_returns,no_if_block
 

@@ -10,15 +10,16 @@
  */
 
 /*
- * Copyright 2016 Nexenta Systems, Inc.
- * Copyright 2019 Western Digital Corporation
- * Copyright 2021 Oxide Computer Company
+ * Copyright 2023 Oxide Computer Company
+ * Copyright 2022 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2022 Tintri by DDN, Inc. All rights reserved.
  */
 
 /*
  * functions for printing of NVMe data structures and their members
  */
 
+#include <sys/sysmacros.h>
 #include <sys/byteorder.h>
 #include <sys/types.h>
 #include <inttypes.h>
@@ -28,10 +29,9 @@
 #include <stdarg.h>
 #include <err.h>
 #include <assert.h>
+#include <libcmdutils.h>
 
 #include "nvmeadm.h"
-
-static int nvme_strlen(const char *, int);
 
 static void nvme_print_str(int, const char *, int, const char *, int);
 static void nvme_print_double(int, const char *, double, int, const char *);
@@ -43,8 +43,10 @@ static void nvme_print_uint128(int, const char *, nvme_uint128_t, const char *,
     int, int);
 static void nvme_print_bit(int, const char *, boolean_t, uint_t, const char *,
     const char *);
-
-#define	ARRAYSIZE(x)		(sizeof (x) / sizeof (*(x)))
+static void nvme_print_hexbuf(int, const char *, const uint8_t *, size_t);
+static void nvme_print_eui64(int, const char *, const uint8_t *);
+static void nvme_print_guid(int, const char *, const uint8_t *);
+static void nvme_print_uuid(int, const char *, const uint8_t *);
 
 static const char *generic_status_codes[] = {
 	"Successful Completion",
@@ -198,6 +200,10 @@ static const char *lba_range_types[] = {
 	"Reserved", "Filesystem", "RAID", "Cache", "Page/Swap File"
 };
 
+static const char *ns_identifier_type[] = {
+	"Reserved", "IEEE Extended Unique Identifier", "Namespace GUID", "UUID"
+};
+
 /*
  * nvme_print
  *
@@ -216,8 +222,11 @@ static const char *lba_range_types[] = {
 void
 nvme_print(int indent, const char *name, int index, const char *fmt, ...)
 {
-	int align = NVME_PRINT_ALIGN - (indent + strlen(name) + 1);
+	int align = NVME_PRINT_ALIGN - (indent + 1);
 	va_list ap;
+
+	if (name != NULL)
+		align -= strlen(name);
 
 	if (index >= 0)
 		align -= snprintf(NULL, 0, " %d", index);
@@ -227,13 +236,17 @@ nvme_print(int indent, const char *name, int index, const char *fmt, ...)
 
 	va_start(ap, fmt);
 
-	(void) printf("%*s%s", indent, "", name);
+	(void) printf("%*s%s", indent, "", name != NULL ? name : "");
 
 	if (index >= 0)
 		(void) printf(" %d", index);
 
 	if (fmt != NULL) {
-		(void) printf(": %*s", align, "");
+		if (name != NULL || index >= 0)
+			(void) printf(": ");
+		else
+			(void) printf("  ");
+		(void) printf("%*s", align, "");
 		(void) vprintf(fmt, ap);
 	}
 
@@ -244,10 +257,10 @@ nvme_print(int indent, const char *name, int index, const char *fmt, ...)
 /*
  * nvme_strlen -- return length of string without trailing whitespace
  */
-static int
+int
 nvme_strlen(const char *str, int len)
 {
-	if (len < 0)
+	if (len <= 0)
 		return (0);
 
 	while (str[--len] == ' ')
@@ -345,12 +358,12 @@ nvme_print_uint64(int indent, const char *name, uint64_t value, const char *fmt,
 }
 
 /*
- * nvme_print_uint128 -- print a 128bit uint with optional unit, after applying
- * binary and/or decimal shifting
+ * nvme_snprint_uint128 -- format a 128bit uint with optional unit, after
+ * applying binary and/or decimal shifting
  */
-static void
-nvme_print_uint128(int indent, const char *name, nvme_uint128_t value,
-    const char *unit, int scale_bits, int scale_tens)
+int
+nvme_snprint_uint128(char *buf, size_t buflen, nvme_uint128_t value,
+    int scale_bits, int scale_tens)
 {
 	const char hex[] = "0123456789abcdef";
 	uint8_t o[(128 + scale_bits) / 3];
@@ -358,9 +371,6 @@ nvme_print_uint128(int indent, const char *name, nvme_uint128_t value,
 	char *pp = &p[0];
 	int i, x;
 	uint64_t rem = 0;
-
-	if (unit == NULL)
-		unit = "";
 
 	/*
 	 * Don't allow binary shifting by more than 64 bits to keep the
@@ -421,8 +431,7 @@ nvme_print_uint128(int indent, const char *name, nvme_uint128_t value,
 		 * The converted number is 0. Just print the calculated
 		 * remainder and return.
 		 */
-		nvme_print(indent, name, -1, "%"PRId64"%s", rem, unit);
-		return;
+		return (snprintf(buf, buflen, "%"PRId64, rem));
 	} else {
 		if (o[i] > 0xf)
 			*pp++ = hex[o[i] >> 4];
@@ -436,14 +445,32 @@ nvme_print_uint128(int indent, const char *name, nvme_uint128_t value,
 	}
 
 	/*
-	 * For negative decimal scaling, use the printf precision specifier to
+	 * For negative decimal scaling, use the snprintf precision specifier to
 	 * truncate the results according to the requested decimal scaling. For
 	 * positive decimal scaling we print the remainder padded with 0.
 	 */
-	nvme_print(indent, name, -1, "%.*s%0.*"PRId64"%s",
+	return (snprintf(buf, buflen, "%.*s%0.*"PRId64,
 	    strlen(p) + scale_tens, p,
-	    scale_tens > 0 ? scale_tens : 0, rem,
-	    unit);
+	    scale_tens > 0 ? scale_tens : 0, rem));
+}
+
+/*
+ * nvme_print_uint128 -- print a 128bit uint with optional unit, after applying
+ * binary and/or decimal shifting
+ */
+static void
+nvme_print_uint128(int indent, const char *name, nvme_uint128_t value,
+    const char *unit, int scale_bits, int scale_tens)
+{
+	char buf[64];
+
+	if (unit == NULL)
+		unit = "";
+
+	(void) nvme_snprint_uint128(buf, sizeof (buf), value, scale_bits,
+	    scale_tens);
+
+	nvme_print(indent, name, -1, "%s%s", buf, unit);
 }
 
 /*
@@ -465,6 +492,78 @@ nvme_print_bit(int indent, const char *name, boolean_t valid_vers, uint_t value,
 }
 
 /*
+ * nvme_print_hexbuf -- print a buffer of bytes as a hex dump
+ */
+static void
+nvme_print_hexbuf(int indent, const char *name, const uint8_t *buf, size_t len)
+{
+	/*
+	 * The format string is kept in this variable so it can be cut
+	 * short to print the remainder after the loop.
+	 */
+	char fmt[] = { "%02x %02x %02x %02x %02x %02x %02x %02x" };
+	size_t lines = len / 8;
+	size_t rem = len % 8;
+	size_t i;
+
+	for (i = 0; i < lines; i++) {
+		nvme_print(indent, name, -1, fmt,
+		    buf[i*8 + 0], buf[i*8 + 1], buf[i*8 + 2], buf[i*8 + 3],
+		    buf[i*8 + 4], buf[i*8 + 5], buf[i*8 + 6], buf[i*8 + 7]);
+		name = NULL;
+	}
+
+	if (rem > 0) {
+		fmt[rem * 5] = '\0';
+
+		nvme_print(indent, name, -1, fmt,
+		    buf[i*8 + 0], buf[i*8 + 1], buf[i*8 + 2], buf[i*8 + 3],
+		    buf[i*8 + 4], buf[i*8 + 5], buf[i*8 + 6], buf[i*8 + 7]);
+	}
+}
+
+/*
+ * nvme_print_uuid -- print a UUID in canonical form
+ */
+static void
+nvme_print_uuid(int indent, const char *name, const uint8_t *uuid)
+{
+	nvme_print(indent, name, -1,
+	    "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-"
+	    "%02x%02x%02x%02x%02x%02x",
+	    uuid[0], uuid[1], uuid[2], uuid[3],
+	    uuid[4], uuid[5], uuid[6], uuid[7],
+	    uuid[8], uuid[9], uuid[10], uuid[11],
+	    uuid[12], uuid[13], uuid[14], uuid[15]);
+}
+
+/*
+ * nvme_print_guid -- print a namespace GUID
+ */
+static void
+nvme_print_guid(int indent, const char *name, const uint8_t *guid)
+{
+	nvme_print(indent, name, -1,
+	    "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
+	    guid[0], guid[1], guid[2], guid[3],
+	    guid[4], guid[5], guid[6], guid[7],
+	    guid[8], guid[9], guid[10], guid[11],
+	    guid[12], guid[13], guid[14], guid[15]);
+}
+
+/*
+ * nvme_print_eui64 -- print a namespace EUI64
+ */
+static void
+nvme_print_eui64(int indent, const char *name, const uint8_t *eui64)
+{
+	nvme_print(indent, name, -1,
+	    "%02X%02X%02X%02X%02X%02X%02X%02X",
+	    eui64[0], eui64[1], eui64[2], eui64[3],
+	    eui64[4], eui64[5], eui64[6], eui64[7]);
+}
+
+/*
  * nvme_print_version -- print a uint32_t encoded nvme version
  */
 static void
@@ -483,7 +582,7 @@ nvme_print_version(int indent, const char *name, uint32_t value)
 void
 nvme_print_ctrl_summary(nvme_identify_ctrl_t *idctl, nvme_version_t *version)
 {
-	(void) printf("model: %.*s, serial: %.*s, FW rev: %.*s, NVMe v%d.%d\n",
+	(void) printf("model: %.*s, serial: %.*s, FW rev: %.*s, NVMe v%u.%u",
 	    nvme_strlen(idctl->id_model, sizeof (idctl->id_model)),
 	    idctl->id_model,
 	    nvme_strlen(idctl->id_serial, sizeof (idctl->id_serial)),
@@ -491,6 +590,21 @@ nvme_print_ctrl_summary(nvme_identify_ctrl_t *idctl, nvme_version_t *version)
 	    nvme_strlen(idctl->id_fwrev, sizeof (idctl->id_fwrev)),
 	    idctl->id_fwrev,
 	    version->v_major, version->v_minor);
+
+	if (idctl->id_oacs.oa_nsmgmt != 0) {
+		char buf[64];
+
+		(void) nvme_snprint_uint128(buf, sizeof (buf),
+		    idctl->ap_tnvmcap, 20, 0);
+		(void) printf(", Capacity = %s MB", buf);
+		if (idctl->ap_unvmcap.lo != 0 || idctl->ap_unvmcap.hi != 0) {
+			(void) nvme_snprint_uint128(buf, sizeof (buf),
+			    idctl->ap_unvmcap, 20, 0);
+			(void) printf(", Unallocated = %s MB", buf);
+		}
+	}
+
+	(void) printf("\n");
 }
 
 /*
@@ -501,14 +615,19 @@ void
 nvme_print_nsid_summary(nvme_identify_nsid_t *idns)
 {
 	int bsize = 1 << idns->id_lbaf[idns->id_flbas.lba_format].lbaf_lbads;
+	char numbuf[40];
 
-	(void) printf("Size = %"PRId64" MB, "
-	    "Capacity = %"PRId64" MB, "
-	    "Used = %"PRId64" MB\n",
-	    idns->id_nsize * bsize / 1024 / 1024,
-	    idns->id_ncap * bsize / 1024 / 1024,
-	    idns->id_nuse * bsize / 1024 / 1024);
+	nicenum_scale(idns->id_nsize, bsize, numbuf, sizeof (numbuf),
+	    NN_UNIT_SPACE);
+	(void) printf("Size = %sB, ", numbuf);
 
+	nicenum_scale(idns->id_ncap, bsize, numbuf, sizeof (numbuf),
+	    NN_UNIT_SPACE);
+	(void) printf("Capacity = %sB, ", numbuf);
+
+	nicenum_scale(idns->id_nuse, bsize, numbuf, sizeof (numbuf),
+	    NN_UNIT_SPACE);
+	(void) printf("Used = %sB\n", numbuf);
 }
 
 /*
@@ -564,7 +683,7 @@ nvme_print_identify_ctrl(nvme_identify_ctrl_t *idctl,
 
 	if (nvme_version_check(version, 1, 1)) {
 		nvme_print_uint64(4, "Unique Controller Identifier",
-		    idctl->id_cntlid, "0x%0.4"PRIx64, NULL);
+		    idctl->id_cntlid, NULL, NULL);
 	}
 
 	if (nvme_version_check(version, 1, 2)) {
@@ -721,16 +840,7 @@ nvme_print_identify_ctrl(nvme_identify_ctrl_t *idctl,
 		uint8_t zguid[16] = { 0 };
 
 		if (memcmp(zguid, idctl->id_frguid, sizeof (zguid)) != 0) {
-			nvme_print(4, "FRU GUID", -1, "%02x%02x%02x%02x%02x%02x"
-			    "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
-			    idctl->id_frguid[0], idctl->id_frguid[1],
-			    idctl->id_frguid[2], idctl->id_frguid[3],
-			    idctl->id_frguid[4], idctl->id_frguid[5],
-			    idctl->id_frguid[6], idctl->id_frguid[7],
-			    idctl->id_frguid[8], idctl->id_frguid[9],
-			    idctl->id_frguid[10], idctl->id_frguid[11],
-			    idctl->id_frguid[12], idctl->id_frguid[13],
-			    idctl->id_frguid[14], idctl->id_frguid[15]);
+			nvme_print_guid(4, "FRU GUID", idctl->id_frguid);
 		} else {
 			nvme_print_str(4, "FRU GUID", -1, "unsupported", 0);
 		}
@@ -914,19 +1024,21 @@ nvme_print_identify_ctrl(nvme_identify_ctrl_t *idctl,
 			nvme_print_str(4, "Host Memory Buffer Minimum Size",
 			    -1, "unsupported", 0);
 		}
+	}
 
-		if (idctl->id_oacs.oa_nsmgmt != 0) {
-			nvme_print_uint128(4, "Total NVM Capacity",
-			    idctl->ap_tnvmcap, "B", 0, 0);
-			nvme_print_uint128(4, "Unallocated NVM Capacity",
-			    idctl->ap_unvmcap, "B", 0, 0);
-		} else {
-			nvme_print_str(4, "Total NVM Capacity", -1,
-			    "unsupported", 0);
-			nvme_print_str(4, "Unallocated NVM Capacity", -1,
-			    "unsupported", 0);
-		}
+	if (idctl->id_oacs.oa_nsmgmt != 0) {
+		nvme_print_uint128(4, "Total NVM Capacity",
+		    idctl->ap_tnvmcap, "B", 0, 0);
+		nvme_print_uint128(4, "Unallocated NVM Capacity",
+		    idctl->ap_unvmcap, "B", 0, 0);
+	} else if (verbose) {
+		nvme_print_str(4, "Total NVM Capacity", -1,
+		    "unsupported", 0);
+		nvme_print_str(4, "Unallocated NVM Capacity", -1,
+		    "unsupported", 0);
+	}
 
+	if (verbose) {
 		if (idctl->ap_rpmbs.rpmbs_units != 0) {
 			nvme_print(4, "Replay Protected Memory Block", -1,
 			    NULL);
@@ -1292,9 +1404,9 @@ nvme_print_identify_ctrl(nvme_identify_ctrl_t *idctl,
 	    nvme_version_check(version, 1, 4),
 	    idctl->id_sgls.sgl_tport, NULL, NULL);
 	if (verbose) {
-		if (idctl->id_mnam != 0) {
+		if (idctl->id_mnan != 0) {
 			nvme_print_uint64(4, "Maximum Number of Allowed "
-			    "Namespaces", idctl->id_mnam, NULL, NULL);
+			    "Namespaces", idctl->id_mnan, NULL, NULL);
 		} else {
 			nvme_print(4, "Maximum Number of Allowed "
 			    "Namespaces", -1, "at most %u", idctl->id_nn);
@@ -1611,16 +1723,7 @@ nvme_print_identify_nsid(nvme_identify_nsid_t *idns, nvme_version_t *version)
 	if (nvme_version_check(version, 1, 2)) {
 		uint8_t guid[16] = { 0 };
 		if (memcmp(guid, idns->id_nguid, sizeof (guid) != 0)) {
-			nvme_print(4, "Namespace GUID", -1, "%02x%02x%02x"
-			    "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x"
-			    "%02x%02x", idns->id_nguid[0], idns->id_nguid[1],
-			    idns->id_nguid[2], idns->id_nguid[3],
-			    idns->id_nguid[4], idns->id_nguid[5],
-			    idns->id_nguid[6], idns->id_nguid[7],
-			    idns->id_nguid[8], idns->id_nguid[9],
-			    idns->id_nguid[10], idns->id_nguid[11],
-			    idns->id_nguid[12], idns->id_nguid[13],
-			    idns->id_nguid[14], idns->id_nguid[15]);
+			nvme_print_guid(4, "Namespace GUID", idns->id_nguid);
 		} else {
 			nvme_print_str(4, "Namespace GUID",
 			    -1, "unsupported", 0);
@@ -1633,12 +1736,8 @@ nvme_print_identify_nsid(nvme_identify_nsid_t *idns, nvme_version_t *version)
 	if (nvme_version_check(version, 1, 1)) {
 		uint8_t oui[8] = { 0 };
 		if (memcmp(oui, idns->id_eui64, sizeof (oui)) != 0) {
-			nvme_print(4, "IEEE Extended Unique Identifier", -1,
-			    "%0.2X%0.2X%0.2X%0.2X%0.2X%0.2X%0.2X%0.2X",
-			    idns->id_eui64[0], idns->id_eui64[1],
-			    idns->id_eui64[2], idns->id_eui64[3],
-			    idns->id_eui64[4], idns->id_eui64[5],
-			    idns->id_eui64[6], idns->id_eui64[7]);
+			nvme_print_eui64(4, "IEEE Extended Unique Identifier",
+			    idns->id_eui64);
 		} else {
 			nvme_print_str(4, "IEEE Extended Unique Identifier",
 			    -1, "unsupported", 0);
@@ -1659,6 +1758,99 @@ nvme_print_identify_nsid(nvme_identify_nsid_t *idns, nvme_version_t *version)
 		    1 << idns->id_lbaf[i].lbaf_lbads, NULL, " bytes");
 		nvme_print_str(6, "Relative Performance", -1,
 		    lbaf_relative_performance[idns->id_lbaf[i].lbaf_rp], 0);
+	}
+}
+
+/*
+ * nvme_print_identify_nsid_list
+ *
+ * Print a NVMe Namespace List.
+ */
+void
+nvme_print_identify_nsid_list(const char *header,
+    nvme_identify_nsid_list_t *nslist)
+{
+	uint32_t i;
+
+	nvme_print(0, header, -1, NULL);
+
+	/*
+	 * The namespace ID list is ordered, unused entries are 0.
+	 */
+	for (i = 0;
+	    i < ARRAY_SIZE(nslist->nl_nsid) && nslist->nl_nsid[i] != 0;
+	    i++) {
+		nvme_print_uint64(2, "Namespace Identifier", nslist->nl_nsid[i],
+		    NULL, NULL);
+	}
+}
+
+/*
+ * nvme_print_identify_nsid_desc
+ *
+ * Print a NVMe Namespace Identifier Descriptor list.
+ */
+void
+nvme_print_identify_nsid_desc(void *nsdesc)
+{
+	nvme_identify_nsid_desc_t *desc = nsdesc;
+	int i = 0;
+	uintptr_t ptr, end;
+
+	nvme_print(0, "Namespace Identification Descriptors", -1, NULL);
+
+	for (ptr = (uintptr_t)desc, end = ptr + NVME_IDENTIFY_BUFSIZE;
+	    desc->nd_nidl != 0 && ptr + desc->nd_nidl + 4 <= end;
+	    desc = (nvme_identify_nsid_desc_t *)(ptr += desc->nd_nidl + 4)) {
+		const char *nidt;
+
+		if (desc->nd_nidt >= ARRAY_SIZE(ns_identifier_type))
+			nidt = "Reserved";
+		else
+			nidt = ns_identifier_type[desc->nd_nidt];
+
+		nvme_print(2, "Namespace Identifier Descriptor", i++, NULL);
+		nvme_print_str(4, "Namespace Identifier Type", -1, nidt, 0);
+		nvme_print_uint64(4, "Namespace Identifier Length",
+		    desc->nd_nidl, NULL, NULL);
+
+		if (desc->nd_nidt == NVME_NSID_DESC_EUI64 &&
+		    desc->nd_nidl == NVME_NSID_DESC_LEN_EUI64) {
+			nvme_print_eui64(4, "IEEE Extended Unique Identifier",
+			    desc->nd_nid);
+		} else if (desc->nd_nidt == NVME_NSID_DESC_NGUID &&
+		    desc->nd_nidl == NVME_NSID_DESC_LEN_NGUID) {
+			nvme_print_guid(4, "Namespace GUID", desc->nd_nid);
+		} else if (desc->nd_nidt == NVME_NSID_DESC_NUUID &&
+		    desc->nd_nidl == NVME_NSID_DESC_LEN_NUUID) {
+			nvme_print_uuid(4, "Namespace UUID", desc->nd_nid);
+		} else if (desc->nd_nidt < NVME_NSID_DESC_MIN ||
+		    desc->nd_nidt > NVME_NSID_DESC_MAX) {
+			nvme_print_hexbuf(4, "Raw Bytes", desc->nd_nid,
+			    desc->nd_nidl);
+		} else {
+			nvme_print_hexbuf(4,
+			    "Raw Bytes (Invalid Descriptor Length)",
+			    desc->nd_nid, desc->nd_nidl);
+		}
+	}
+}
+
+/*
+ * nvme_print_identify_ctrl_list
+ *
+ * Print a NVMe Controller List.
+ */
+void
+nvme_print_identify_ctrl_list(const char *header,
+    nvme_identify_ctrl_list_t *ctlist)
+{
+	int i;
+
+	nvme_print(0, header, -1, NULL);
+	for (i = 0; i != ctlist->cl_nid; i++) {
+		nvme_print_uint64(2, "Controller Identifier",
+		    ctlist->cl_ctlid[i], NULL, NULL);
 	}
 }
 
@@ -1689,35 +1881,35 @@ nvme_print_error_log(int nlog, nvme_error_log_entry_t *elog,
 
 		switch (elog[i].el_sf.sf_sct) {
 		case 0: /* Generic Command Status */
-			if (sc < ARRAYSIZE(generic_status_codes)) {
+			if (sc < ARRAY_SIZE(generic_status_codes)) {
 				sc_str = generic_status_codes[sc];
 			} else if (sc >= 0x80 &&
-			    sc - 0x80 < ARRAYSIZE(generic_nvm_status_codes)) {
+			    sc - 0x80 < ARRAY_SIZE(generic_nvm_status_codes)) {
 				sc_str = generic_nvm_status_codes[sc - 0x80];
 			}
 			break;
 		case 1: /* Specific Command Status */
-			if (sc < ARRAYSIZE(specific_status_codes)) {
+			if (sc < ARRAY_SIZE(specific_status_codes)) {
 				sc_str = specific_status_codes[sc];
 			} else if (sc >= 0x80 &&
-			    sc - 0x80 < ARRAYSIZE(specific_nvm_status_codes)) {
+			    sc - 0x80 < ARRAY_SIZE(specific_nvm_status_codes)) {
 				sc_str = specific_nvm_status_codes[sc - 0x80];
 			}
 			break;
 		case 2: /* Media Errors */
 			if (sc >= 0x80 &&
-			    sc - 0x80 < ARRAYSIZE(media_nvm_status_codes)) {
+			    sc - 0x80 < ARRAY_SIZE(media_nvm_status_codes)) {
 				sc_str = media_nvm_status_codes[sc - 0x80];
 			}
 			break;
 		case 3:	/* Path Related Status */
-			if (sc < ARRAYSIZE(path_status_codes)) {
+			if (sc < ARRAY_SIZE(path_status_codes)) {
 				sc_str = path_status_codes[sc];
 			} else if (sc >= 0x60 &&
-			    sc - 0x60 < ARRAYSIZE(path_controller_codes)) {
+			    sc - 0x60 < ARRAY_SIZE(path_controller_codes)) {
 				sc_str = path_controller_codes[sc - 0x60];
 			} else if (sc >= 0x70 &&
-			    sc - 0x70 < ARRAYSIZE(path_host_codes)) {
+			    sc - 0x70 < ARRAY_SIZE(path_host_codes)) {
 				sc_str = path_host_codes[sc - 0x70];
 			}
 			break;
@@ -1911,9 +2103,11 @@ nvme_print_health_log(nvme_health_log_t *hlog, nvme_identify_ctrl_t *idctl,
  * This function pretty-prints the firmware slot information.
  */
 void
-nvme_print_fwslot_log(nvme_fwslot_log_t *fwlog)
+nvme_print_fwslot_log(nvme_fwslot_log_t *fwlog, nvme_identify_ctrl_t *idctl)
 {
 	int i;
+
+	char str[NVME_FWVER_SZ + sizeof (" (read-only)")];
 
 	nvme_print(0, "Firmware Slot Information", -1, NULL);
 	nvme_print_uint64(2, "Active Firmware Slot", fwlog->fw_afi, NULL, NULL);
@@ -1921,7 +2115,13 @@ nvme_print_fwslot_log(nvme_fwslot_log_t *fwlog)
 		nvme_print_uint64(2, "Next Firmware Slot", fwlog->fw_next,
 		    NULL, NULL);
 
-	for (i = 0; i != ARRAYSIZE(fwlog->fw_frs); i++) {
+
+	(void) snprintf(str, sizeof (str), "%.*s%s",
+	    nvme_strlen(fwlog->fw_frs[0], sizeof (fwlog->fw_frs[0])),
+	    fwlog->fw_frs[0], idctl->id_frmw.fw_readonly ? " (read-only)" : "");
+	nvme_print_str(2, "Firmware Revision for Slot", 1, str, sizeof (str));
+
+	for (i = 1; i < idctl->id_frmw.fw_nslot; i++) {
 		nvme_print_str(2, "Firmware Revision for Slot", i + 1,
 		    fwlog->fw_frs[i][0] == '\0' ? "<Unused>" :
 		    fwlog->fw_frs[i], sizeof (fwlog->fw_frs[i]));
@@ -2000,7 +2200,7 @@ nvme_print_feat_lba_range(uint64_t res, void *buf, size_t bufsize,
 			continue;
 
 		nvme_print(4, "LBA Range", i, NULL);
-		if (lr[i].lr_type < ARRAYSIZE(lba_range_types))
+		if (lr[i].lr_type < ARRAY_SIZE(lba_range_types))
 			nvme_print_str(6, "Type", -1,
 			    lba_range_types[lr[i].lr_type], 0);
 		else
@@ -2168,6 +2368,34 @@ nvme_print_feat_async_event(uint64_t res, void *b, size_t s,
 		    nvme_version_check(version, 1, 0),
 		    aec.b.aec_volatile, "enabled", "disabled");
 	}
+
+	/* NVMe 1.2 */
+	nvme_print_bit(4, "Namespace attribute notices",
+	    nvme_version_check(version, 1, 2),
+	    aec.b.aec_nsan, "enabled", "disabled");
+	nvme_print_bit(4, "Firmware activation notices",
+	    nvme_version_check(version, 1, 2),
+	    aec.b.aec_fwact, "enabled", "disabled");
+
+	/* NVMe 1.3 */
+	nvme_print_bit(4, "Telemetry log notices",
+	    nvme_version_check(version, 1, 3),
+	    aec.b.aec_telln, "enabled", "disabled");
+
+	/* NVMe 1.4 */
+	nvme_print_bit(4, "ANA change notices",
+	    nvme_version_check(version, 1, 4),
+	    aec.b.aec_ansacn, "enabled", "disabled");
+	nvme_print_bit(4,
+	    "Predictable latency event aggr. LCNs",
+	    nvme_version_check(version, 1, 4),
+	    aec.b.aec_plat, "enabled", "disabled");
+	nvme_print_bit(4, "LBA status information notices",
+	    nvme_version_check(version, 1, 4),
+	    aec.b.aec_lbasi, "enabled", "disabled");
+	nvme_print_bit(4, "Endurance group event aggregate LCNs",
+	    nvme_version_check(version, 1, 4),
+	    aec.b.aec_egeal, "enabled", "disabled");
 }
 
 void
@@ -2216,21 +2444,12 @@ nvme_print_feat_progress(uint64_t res, void *b, size_t s,
 	    spm.b.spm_pbslc, NULL, NULL);
 }
 
-static const char *
-nvme_str_generic_error(int sc)
+const char *
+nvme_fw_error(int err, int sc)
 {
-	switch (sc) {
-	case NVME_CQE_SC_GEN_SUCCESS:
-		return ("Success");
-	default:
-		return ("See message log (usually /var/adm/messages) "
-		    "for details");
-	}
-}
+	if (sc == 0)
+		return (strerror(err));
 
-static const char *
-nvme_str_specific_error(int sc)
-{
 	switch (sc) {
 	case NVME_CQE_SC_SPC_INV_FW_SLOT:
 		return ("Invalid firmware slot");
@@ -2252,20 +2471,5 @@ nvme_str_specific_error(int sc)
 		return ("See message log (usually /var/adm/messages) "
 		    "for details");
 	}
-}
 
-const char *
-nvme_str_error(int sct, int sc)
-{
-	switch (sct) {
-	case NVME_CQE_SCT_GENERIC:
-		return (nvme_str_generic_error(sc));
-
-	case NVME_CQE_SCT_SPECIFIC:
-		return (nvme_str_specific_error(sc));
-
-	default:
-		return ("See message log (usually /var/adm/messages) "
-		    "for details");
-	}
 }

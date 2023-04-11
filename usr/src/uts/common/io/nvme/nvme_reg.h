@@ -10,9 +10,9 @@
  */
 
 /*
- * Copyright 2016 Nexenta Systems, Inc. All rights reserved.
  * Copyright 2020 Joyent, Inc.
- * Copyright 2019 Western Digital Corporation
+ * Copyright 2022 Tintri by DDN, Inc. All rights reserved.
+ * Copyright 2022 OmniOS Community Edition (OmniOSce) Association.
  */
 
 /*
@@ -327,7 +327,8 @@ typedef struct {
  */
 #define	NVME_ASYNC_TYPE_ERROR		0x0	/* Error Status */
 #define	NVME_ASYNC_TYPE_HEALTH		0x1	/* SMART/Health Status */
-#define	NVME_ASYNC_TYPE_VENDOR		0x7	/* vendor specific */
+#define	NVME_ASYNC_TYPE_NOTICE		0x2	/* Notice (1.2) */
+#define	NVME_ASYNC_TYPE_VENDOR		0x7	/* Vendor specific */
 
 #define	NVME_ASYNC_ERROR_INV_SQ		0x0	/* Invalid Submission Queue */
 #define	NVME_ASYNC_ERROR_INV_DBL	0x1	/* Invalid Doorbell Write */
@@ -339,6 +340,17 @@ typedef struct {
 #define	NVME_ASYNC_HEALTH_RELIABILITY	0x0	/* Device Reliability */
 #define	NVME_ASYNC_HEALTH_TEMPERATURE	0x1	/* Temp. Above Threshold */
 #define	NVME_ASYNC_HEALTH_SPARE		0x2	/* Spare Below Threshold */
+
+/* NVMe 1.2 */
+#define	NVME_ASYNC_NOTICE_NS_CHANGE	0x0	/* Namespace attribute change */
+#define	NVME_ASYNC_NOTICE_FW_ACTIVATE	0x1	/* Firmware activation start */
+/* NVMe 1.3 */
+#define	NVME_ASYNC_NOTICE_TELEMETRY	0x2	/* Telemetry log changed */
+/* NVMe 1.4 */
+#define	NVME_ASYNC_NOTICE_NS_ASYMM	0x3	/* Asymm. NS access change */
+#define	NVME_ASYNC_NOTICE_LATENCYLOG	0x4	/* Pred. Latency log change */
+#define	NVME_ASYNC_NOTICE_LBASTATUS	0x5	/* LBA status alert */
+#define	NVME_ASYNC_NOTICE_ENDURANCELOG	0x6	/* Endurance log change */
 
 typedef union {
 	struct {
@@ -383,21 +395,6 @@ typedef union {
 } nvme_create_sq_dw11_t;
 
 /*
- * NVMe Identify
- */
-
-/* NVMe Identify parameters (cdw10) */
-#define	NVME_IDENTIFY_NSID	0x0	/* Identify Namespace */
-#define	NVME_IDENTIFY_CTRL	0x1	/* Identify Controller */
-#define	NVME_IDENTIFY_LIST	0x2	/* Identify List Namespaces */
-
-#define	NVME_IDENTIFY_NSID_ALLOC_LIST	0x10	/* List Allocated NSID */
-#define	NVME_IDENTIFY_NSID_ALLOC	0x11	/* Identify Allocated NSID */
-#define	NVME_IDENTIFY_NSID_CTRL_LIST	0x12	/* List Controllers on NSID */
-#define	NVME_IDENTIFY_CTRL_LIST		0x13	/* Controller List */
-#define	NVME_IDENTIFY_PRIMARY_CAPS	0x14	/* Primary Controller Caps */
-
-/*
  * NVMe Abort Command
  */
 typedef union {
@@ -407,7 +404,6 @@ typedef union {
 	} b;
 	uint32_t r;
 } nvme_abort_cmd_t;
-
 
 /*
  * NVMe Get Log Page

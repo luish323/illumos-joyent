@@ -30,7 +30,7 @@
  * drivers that participate in the DDI UFM subsystem on a per-instance basis
  * via ddi_ufm_handle_t structures (see ddi_ufm_impl.h).  This is known as the
  * UFM handle.  The UFM handle contains a pointer to the driver's UFM ops,
- * which the ufm(7D) pseudo driver uses to invoke the UFM entry points in
+ * which the ufm(4D) pseudo driver uses to invoke the UFM entry points in
  * response to DDI UFM ioctls.  Additionally, the DDI UFM subsystem uses the
  * handle to maintain cached UFM image and slot data.
  *
@@ -181,7 +181,7 @@ ufm_cache_fill(ddi_ufm_handle_t *ufmh)
 	 */
 	ufmh->ufmh_images =
 	    kmem_zalloc((sizeof (ddi_ufm_image_t) * ufmh->ufmh_nimages),
-	    KM_NOSLEEP | KM_NORMALPRI);
+	    KM_NOSLEEP_LAZY);
 	if (ufmh->ufmh_images == NULL)
 		return (ENOMEM);
 
@@ -201,7 +201,7 @@ ufm_cache_fill(ddi_ufm_handle_t *ufmh)
 
 		img->ufmi_slots =
 		    kmem_zalloc((sizeof (ddi_ufm_slot_t) * img->ufmi_nslots),
-		    KM_NOSLEEP | KM_NORMALPRI);
+		    KM_NOSLEEP_LAZY);
 		if (img->ufmi_slots == NULL) {
 			ret = ENOMEM;
 			goto cache_fail;

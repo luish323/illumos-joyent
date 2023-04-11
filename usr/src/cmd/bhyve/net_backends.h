@@ -37,8 +37,9 @@ typedef struct net_backend net_backend_t;
 
 /* Interface between network frontends and the network backends. */
 typedef void (*net_be_rxeof_t)(int, enum ev_type, void *param);
-int	netbe_init(net_backend_t **be, const char *opts, net_be_rxeof_t cb,
+int	netbe_init(net_backend_t **be, nvlist_t *nvl, net_be_rxeof_t cb,
             void *param);
+int	netbe_legacy_config(nvlist_t *nvl, const char *opts);
 void	netbe_cleanup(net_backend_t *be);
 uint64_t netbe_get_cap(net_backend_t *be);
 int	 netbe_set_cap(net_backend_t *be, uint64_t cap,
@@ -50,7 +51,9 @@ ssize_t	netbe_recv(net_backend_t *be, const struct iovec *iov, int iovcnt);
 ssize_t	netbe_rx_discard(net_backend_t *be);
 void	netbe_rx_disable(net_backend_t *be);
 void	netbe_rx_enable(net_backend_t *be);
-
+#ifndef __FreeBSD__
+int	netbe_get_mac(net_backend_t *, void *, size_t *);
+#endif
 
 /*
  * Network device capabilities taken from the VirtIO standard.

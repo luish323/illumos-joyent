@@ -21,7 +21,7 @@
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2020 Tintri by DDN, Inc. All rights reserved.
- * Copyright 2020 RackTop Systems, Inc.
+ * Copyright 2022 RackTop Systems, Inc.
  */
 
 #include <sys/types.h>
@@ -157,11 +157,13 @@ smb_load_kconfig(smb_kmod_cfg_t *kcfg)
 	kcfg->skc_oplock_enable = smb_config_getbool(SMB_CI_OPLOCK_ENABLE);
 	kcfg->skc_sync_enable = smb_config_getbool(SMB_CI_SYNC_ENABLE);
 	kcfg->skc_traverse_mounts = smb_config_getbool(SMB_CI_TRAVERSE_MOUNTS);
+	kcfg->skc_short_names = smb_config_getbool(SMB_CI_SHORT_NAMES);
+
 	kcfg->skc_max_protocol = smb_config_get_max_protocol();
 	kcfg->skc_min_protocol = smb_config_get_min_protocol();
 	kcfg->skc_secmode = smb_config_get_secmode();
 	kcfg->skc_encrypt = smb_config_get_require(SMB_CI_ENCRYPT);
-	kcfg->skc_encrypt_cipher = smb31_config_get_encrypt_cipher();
+	kcfg->skc_encrypt_ciphers = smb_config_get_encrypt_ciphers();
 
 	(void) smb_getdomainname(kcfg->skc_nbdomain,
 	    sizeof (kcfg->skc_nbdomain));
@@ -602,9 +604,8 @@ smb_tracef(const char *fmt, ...)
  * Outside of dtrace, the messages passed to this function usually
  * lack sufficient context to be useful, so we don't log them.
  */
-/* ARGSUSED */
 void
-smb_trace(const char *s)
+smb_trace(const char *s __unused)
 {
 }
 

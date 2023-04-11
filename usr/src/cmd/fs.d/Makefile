@@ -53,7 +53,6 @@ all:=		TARGET= all
 install:=	TARGET= install
 clean:=		TARGET= clean
 clobber:=	TARGET= clobber
-lint:=		TARGET= lint
 _msg:=          TARGET= catalog
 
 USRSBINF=	df clri fsck volcopy ff
@@ -66,6 +65,7 @@ USRBIN2USRSBIN=	df
 USRXPG4BIN2USRSBIN= df
 
 FSLIB=		fslib.o
+CLEANFILES +=	$(FSLIB)
 
 ROOTSBINPROG = $(ROOTFS_PROG:%=$(ROOTSBIN)/%)
 ROOTUSRSBINLINKS = $(ROOTFS_PROG:%=$(ROOTUSRSBIN)/%)
@@ -200,9 +200,7 @@ clobber_local:	clean_local
 	$(RM) $(PROG) $(ROOTFS_PROG) $(SPPROG) $(MNTTAB) $(DEFAULTFILES) \
 	$(CLOBBERFILES)
 
-lint:
-
 $(SUBDIRS): FRC
-	@cd $@; pwd; $(MAKE) $(MFLAGS) $(TARGET)
+	@cd $@; pwd; $(MAKE) $(TARGET)
 
 FRC:

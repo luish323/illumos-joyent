@@ -27,11 +27,12 @@
 # Copyright 2015 Gary Mills
 # Copyright 2015 Igor Kozhukhov <ikozhukhov@gmail.com>
 # Copyright 2016 Toomas Soome <tsoome@me.com>
-# Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
-# Copyright 2020 Joyent, Inc.
+# Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2021 Joyent, Inc.
 # Copyright 2019 RackTop Systems.
 # Copyright 2020 Oxide Computer Company
 # Copyright 2020 Peter Tribble
+# Copyright 2023 MNX Cloud, Inc.
 #
 
 #
@@ -160,6 +161,7 @@ VTFONTCVT=	$(ONBLD_TOOLS)/bin/$(MACH)/vtfontcvt
 ECHO=		echo
 TRUE=		true
 INS=		$(ONBLD_TOOLS)/bin/$(MACH)/install
+ED=		/usr/bin/ed
 SYMLINK=	/usr/bin/ln -s
 LN=		/usr/bin/ln
 MKDIR=		/usr/bin/mkdir
@@ -167,7 +169,7 @@ CHMOD=		/usr/bin/chmod
 MV=		/usr/bin/mv -f
 RM=		/usr/bin/rm -f
 CUT=		/usr/bin/cut
-NM=		/usr/ccs/bin/nm
+NM=		/usr/bin/nm
 DIFF=		/usr/bin/diff
 GREP=		/usr/bin/grep
 EGREP=		/usr/bin/egrep
@@ -176,17 +178,18 @@ KSH93=		/usr/bin/ksh93
 SED=		/usr/bin/sed
 AWK=		/usr/bin/nawk
 CP=		/usr/bin/cp -f
-MCS=		/usr/ccs/bin/mcs
+MCS=		/usr/bin/mcs
 CAT=            /usr/bin/cat
-ELFDUMP=	/usr/ccs/bin/elfdump
+ELFDUMP=	/usr/bin/elfdump
 M4=		/usr/bin/m4
 GM4=		/usr/bin/gm4
-STRIP=		/usr/ccs/bin/strip
-LEX=		/usr/ccs/bin/lex
+STRIP=		/usr/bin/strip
+LEX=		/usr/bin/lex
 FLEX=		/usr/bin/flex
-YACC=		/usr/ccs/bin/yacc
+YACC=		/usr/bin/yacc
 BISON=		/usr/bin/bison
 CPP=		/usr/lib/cpp
+SH=		/usr/bin/sh
 ANSI_CPP=	$(GNUC_ROOT)/bin/cpp
 JAVAC=		$(JAVA_ROOT)/bin/javac
 JAVADOC=	$(JAVA_ROOT)/bin/javadoc
@@ -208,16 +211,19 @@ $(SPARC_BLD)PERL_MACH=	sun4
 PERL_VARIANT=
 PERL_ARCH=	$(PERL_MACH)-solaris$(PERL_VARIANT)-64int
 PERL_ARCH64=	$(PERL_MACH)-solaris$(PERL_VARIANT)-64
-PYTHON_VERSION=	2.7
-PYTHON_PKGVERS=	-27
-PYTHON_SUFFIX=
-PYTHON=		/usr/bin/python$(PYTHON_VERSION)
-PYTHON3_VERSION=	3.5
-PYTHON3_PKGVERS=	-35
-PYTHON3_SUFFIX=		m
+PYTHON3_VERSION=	3.9
+PYTHON3_PKGVERS=	-39
+PYTHON3_SUFFIX=
 PYTHON3=		/usr/bin/python$(PYTHON3_VERSION)
-$(BUILDPY3TOOLS)TOOLS_PYTHON=		$(PYTHON3)
-$(BUILDPY2TOOLS)TOOLS_PYTHON=		$(PYTHON)
+# BUILDPY3b should be overridden in the env file in order to build python
+# modules with a secondary python to aid migration between versions.
+BUILDPY3b=		$(POUND_SIGN)
+PYTHON3b_VERSION=	3.5
+PYTHON3b_PKGVERS=	-35
+PYTHON3b_SUFFIX=	m
+#
+$(BUILDPY3b)PYTHON3b=	/usr/bin/python$(PYTHON3b_VERSION)
+TOOLS_PYTHON=		$(PYTHON3)
 SORT=		/usr/bin/sort
 TR=		/usr/bin/tr
 TOUCH=		/usr/bin/touch
@@ -235,6 +241,7 @@ TIC=		$(ONBLD_TOOLS)/bin/$(MACH)/tic
 ZIC=		$(ONBLD_TOOLS)/bin/$(MACH)/zic
 OPENSSL=	/usr/bin/openssl
 CPCGEN=		$(ONBLD_TOOLS)/bin/$(MACH)/cpcgen
+GENICONVTBL=	$(ONBLD_TOOLS)/bin/$(MACH)/geniconvtbl
 
 DEFAULT_CONSOLE_COLOR=					\
 	-DDEFAULT_ANSI_FOREGROUND=ANSI_COLOR_WHITE	\
@@ -290,9 +297,7 @@ INS.symlink=	$(RM) $@; $(SYMLINK) $(INSLINKTARGET) $@
 # The path to python that will be used for the shebang line when installing
 # python scripts to the proto area. This is overridden by makefiles to
 # select to the correct version.
-PYSHEBANG=	$(PYTHON)
-$(BUILDPY3)PYSHEBANG=	$(PYTHON3)
-$(BUILDPY2)PYSHEBANG=	$(PYTHON)
+PYSHEBANG=	$(PYTHON3)
 
 #
 # Python bakes the mtime of the .py file into the compiled .pyc and
@@ -377,12 +382,8 @@ CCNOAUTOINLINE= \
 	-_gcc=-fno-inline-small-functions \
 	-_gcc=-fno-inline-functions-called-once \
 	-_gcc=-fno-ipa-cp \
-	-_gcc7=-fno-ipa-icf \
-	-_gcc8=-fno-ipa-icf \
-	-_gcc9=-fno-ipa-icf \
-	-_gcc7=-fno-clone-functions \
-	-_gcc8=-fno-clone-functions \
-	-_gcc9=-fno-clone-functions
+	-_gcc=-fno-ipa-icf \
+	-_gcc=-fno-clone-functions
 
 # GCC may put functions in different named sub-sections of .text based on
 # their presumed calling frequency.  At least in the kernel, where we actually
@@ -390,10 +391,8 @@ CCNOAUTOINLINE= \
 #
 # Since at present we don't benefit from this even in userland, we disable it globally,
 # but the application of this may move into usr/src/uts/ in future.
-CCNOREORDER=	\
-	-_gcc7=-fno-reorder-functions \
-	-_gcc8=-fno-reorder-functions \
-	-_gcc9=-fno-reorder-functions
+CCNOREORDER=	-_gcc=-fno-reorder-functions \
+		-_gcc=-fno-reorder-blocks-and-partition
 
 #
 # gcc has a rather aggressive optimization on by default that infers loop
@@ -402,10 +401,16 @@ CCNOREORDER=	\
 # strictest sense but also result in incorrect program behavior.  We turn
 # this optimization off, with extreme prejudice.
 #
-CCNOAGGRESSIVELOOPS= \
-	-_gcc7=-fno-aggressive-loop-optimizations \
-	-_gcc8=-fno-aggressive-loop-optimizations \
-	-_gcc9=-fno-aggressive-loop-optimizations
+CCNOAGGRESSIVELOOPS= -_gcc=-fno-aggressive-loop-optimizations
+
+#
+# gcc has a limit on the maximum size of a function which will be inlined
+# in the presence of the 'inline' keyword; this limit varies between versions
+# of gcc. For consistent output and to ensure that some of the slightly larger
+# functions are inlined as intended, we specify the limit explicitly.
+#
+CCINLINESIZE= -_gcc=--param=max-inline-insns-single=450
+CCWARNINLINE= -_gcc=-Winline
 
 #
 # Options to control which version of stack-protector we enable. This
@@ -428,10 +433,7 @@ CCNOAGGRESSIVELOOPS= \
 # global CFLAGS at this time as it's being incrementally enabled
 # throughout the build.
 #
-STACKPROTECT_           = -_gcc4=-fstack-protector
-STACKPROTECT_           += -_gcc7=-fstack-protector-strong
-STACKPROTECT_           += -_gcc8=-fstack-protector-strong
-STACKPROTECT_           += -_gcc9=-fstack-protector-strong
+STACKPROTECT_           = -_gcc=-fstack-protector-strong
 
 STACKPROTECT_strong     = $(STACKPROTECT_)
 STACKPROTECT_none       =
@@ -468,12 +470,6 @@ sparc_XARCH=	-m32
 sparcv9_XARCH=	-m64
 i386_XARCH=	-m32
 amd64_XARCH=	-m64 -Ui386 -U__i386
-
-# assembler '-xarch' flag.  Different from compiler '-xarch' flag.
-sparc_AS_XARCH=		-xarch=v8plus
-sparcv9_AS_XARCH=	-xarch=v9
-i386_AS_XARCH=
-amd64_AS_XARCH=		-xarch=amd64 -P -Ui386 -U__i386
 
 #
 # These flags define what we need to be 'standalone' i.e. -not- part
@@ -519,11 +515,7 @@ CERRWARN += -_gcc=-Wno-missing-field-initializers
 # Unfortunately, this option can misfire very easily and unfixably.
 CERRWARN +=	-_gcc=-Wno-array-bounds
 
-# gcc4 lacks -Wno-maybe-uninitialized
-CNOWARN_UNINIT = -_gcc4=-Wno-uninitialized \
-    -_gcc7=-Wno-maybe-uninitialized \
-    -_gcc8=-Wno-maybe-uninitialized \
-    -_gcc9=-Wno-maybe-uninitialized
+CNOWARN_UNINIT = -_gcc=-Wno-maybe-uninitialized
 
 CERRWARN += -_smatch=-p=illumos_user
 include $(SRC)/Makefile.smatch
@@ -540,11 +532,10 @@ CCERRWARN += -_gcc=-Wno-unknown-pragmas
 CCERRWARN += -_gcc=-Wno-unused-parameter
 CCERRWARN += -_gcc=-Wno-missing-field-initializers
 
-# C standard.  Keep Studio flags until we get rid of lint.
+# C standard
 CSTD_GNU89=	-xc99=%none
 CSTD_GNU99=	-xc99=%all
 CSTD=		$(CSTD_GNU89)
-C99LMODE=	$(CSTD:-xc99%=-Xc99%)
 
 # In most places, assignments to these macros should be appended with +=
 # (CPPFLAGS.first allows values to be prepended to CPPFLAGS).
@@ -554,10 +545,11 @@ sparcv9_CFLAGS=	$(sparcv9_XARCH) -dalign $(CCVERBOSE) $(V9ABIWARN) $(CCREGSYM) \
 i386_CFLAGS=	$(i386_XARCH)
 amd64_CFLAGS=	$(amd64_XARCH)
 
-sparc_ASFLAGS=	$(sparc_AS_XARCH)
-sparcv9_ASFLAGS=$(sparcv9_AS_XARCH)
-i386_ASFLAGS=	$(i386_AS_XARCH)
-amd64_ASFLAGS=	$(amd64_AS_XARCH)
+$(MACH)_ASFLAGS=	$($(MACH)_CFLAGS)
+$(MACH64)_ASFLAGS=	$($(MACH64)_CFLAGS)
+
+ASFLAGS= 		$($(MACH)_ASFLAGS)
+ASFLAGS64=		$($(MACH64)_ASFLAGS)
 
 #
 sparc_COPTFLAG=		-xO3
@@ -590,14 +582,16 @@ CGLOBALSTATIC= -W0,-xglobalstatic
 
 # Sometimes we want all symbols and types in debugging information even
 # if they aren't used.
-CALLSYMS=	-W0,-xdbggen=no%usedonly
+CALLSYMS=	-_gcc=-fno-eliminate-unused-debug-symbols \
+		-_gcc=-fno-eliminate-unused-debug-types
 
 #
 # We force the compilers to generate the debugging information best understood
 # by the CTF tools.  With Sun Studio this is stabs due to bugs in the Studio
 # compilers.  With GCC this is DWARF v2.
 #
-DEBUGFORMAT=	-_cc=-xdebugformat=stabs -_gcc=-gdwarf-2
+DEBUGFORMAT=	-_cc=-xdebugformat=stabs -_gcc=-gdwarf-2 \
+		-_gcc10=-gstrict-dwarf -_gcc11=-gstrict-dwarf
 
 #
 # Ask the compiler to include debugging information
@@ -692,12 +686,12 @@ $(SRCDBGBLD)CCSOURCEDEBUGFLAGS	= $(CCGDEBUG) -xs
 CFLAGS=         $(COPTFLAG) $($(MACH)_CFLAGS) $(SPACEFLAG) $(CCMODE) \
 		$(ILDOFF) $(CERRWARN) $(CSTD) $(CCUNBOUND) $(IROPTFLAG) \
 		$(CGLOBALSTATIC) $(CCNOAUTOINLINE) $(CCNOREORDER) \
-		$(CCNOAGGRESSIVELOOPS) \
+		$(CCNOAGGRESSIVELOOPS) $(CCINLINESIZE) \
 		$(CSOURCEDEBUGFLAGS) $(CUSERFLAGS)
 CFLAGS64=       $(COPTFLAG64) $($(MACH64)_CFLAGS) $(SPACEFLAG64) $(CCMODE64) \
 		$(ILDOFF) $(CERRWARN) $(CSTD) $(CCUNBOUND) $(IROPTFLAG64) \
 		$(CGLOBALSTATIC) $(CCNOAUTOINLINE) $(CCNOREORDER) \
-		$(CCNOAGGRESSIVELOOPS) \
+		$(CCNOAGGRESSIVELOOPS) $(CCINLINESIZE) \
 		$(CSOURCEDEBUGFLAGS) $(CUSERFLAGS64)
 #
 # Flags that are used to build parts of the code that are subsequently
@@ -706,10 +700,20 @@ CFLAGS64=       $(COPTFLAG64) $($(MACH64)_CFLAGS) $(SPACEFLAG64) $(CCMODE64) \
 NATIVE_CFLAGS=	$(COPTFLAG) $($(NATIVE_MACH)_CFLAGS) $(CCMODE) \
 		$(ILDOFF) $(CERRWARN) $(CSTD) $($(NATIVE_MACH)_CCUNBOUND) \
 		$(IROPTFLAG) $(CGLOBALSTATIC) $(CCNOAUTOINLINE) \
-		$(CCNOREORDER) $(CSOURCEDEBUGFLAGS) $(CUSERFLAGS)
+		$(CCNOREORDER) $(CCNOAGGRESSIVELOOPS) $(CCINLINESIZE) \
+		$(CSOURCEDEBUGFLAGS) $(CUSERFLAGS)
 
 NATIVE_CCFLAGS=	$(CCOPTFLAG) $($(NATIVE_MACH)_CCFLAGS) $(CCSOURCEDEBUGFLAGS) \
 		$(CCUSERFLAGS)
+
+NATIVE_CFLAGS64=	$(COPTFLAG64) $($(NATIVE_MACH64)_CFLAGS) $(CCMODE64) \
+		$(ILDOFF) $(CERRWARN) $(CSTD) $($(NATIVE_MACH64)_CCUNBOUND) \
+		$(IROPTFLAG64) $(CGLOBALSTATIC) $(CCNOAUTOINLINE) \
+		$(CCNOREORDER) $(CCNOAGGRESSIVELOOPS) $(CCINLINESIZE) \
+		$(CSOURCEDEBUGFLAGS) $(CUSERFLAGS64)
+
+NATIVE_CCFLAGS64=	$(CCOPTFLAG64) $($(NATIVE_MACH64)_CCFLAGS) \
+		$(CCSOURCEDEBUGFLAGS) $(CCUSERFLAGS64)
 
 DTEXTDOM=-DTEXT_DOMAIN=\"$(TEXT_DOMAIN)\"	# For messaging.
 DTS_ERRNO=-D_TS_ERRNO
@@ -847,8 +851,8 @@ COMPILE.c=	$(CC) $(CFLAGS) $(CPPFLAGS) -c
 COMPILE64.c=	$(CC) $(CFLAGS64) $(CPPFLAGS) -c
 COMPILE.cc=	$(CCC) $(CCFLAGS) $(CPPFLAGS) -c
 COMPILE64.cc=	$(CCC) $(CCFLAGS64) $(CPPFLAGS) -c
-COMPILE.s=	$(AS) $(ASFLAGS) $(AS_CPPFLAGS)
-COMPILE64.s=	$(AS) $(ASFLAGS) $($(MACH64)_AS_XARCH) $(AS_CPPFLAGS)
+COMPILE.s=	$(AS) $(ASFLAGS) $(AS_CPPFLAGS) -c
+COMPILE64.s=	$(AS) $(ASFLAGS64) $(AS_CPPFLAGS) -c
 COMPILE.d=	$(DTRACE) -G -32
 COMPILE64.d=	$(DTRACE) -G -64
 COMPILE.b=	$(ELFWRAP) $(ELFWRAP_FLAGS$(CLASS))
@@ -888,41 +892,6 @@ LINK.cc=		$(CCC) $(CCFLAGS) $(CPPFLAGS) $(NORUNPATH) \
 LINK64.cc=		$(CCC) $(CCFLAGS64) $(CPPFLAGS) $(NORUNPATH) \
 			$(LDFLAGS) $(CCNEEDED64) $(LDCHECKS)
 
-#
-# lint macros
-#
-# Note that the undefine of __PRAGMA_REDEFINE_EXTNAME can be removed once
-# ON is built with a version of lint that has the fix for 4484186.
-#
-ALWAYS_LINT_DEFS =	-errtags=yes -s
-ALWAYS_LINT_DEFS +=	-erroff=E_PTRDIFF_OVERFLOW
-ALWAYS_LINT_DEFS +=	-erroff=E_ASSIGN_NARROW_CONV
-ALWAYS_LINT_DEFS +=	-U__PRAGMA_REDEFINE_EXTNAME
-ALWAYS_LINT_DEFS +=	$(C99LMODE)
-ALWAYS_LINT_DEFS +=	-errsecurity=$(SECLEVEL)
-ALWAYS_LINT_DEFS +=	-erroff=E_SEC_CREAT_WITHOUT_EXCL
-ALWAYS_LINT_DEFS +=	-erroff=E_SEC_FORBIDDEN_WARN_CREAT
-# XX64 -- really only needed for amd64 lint
-ALWAYS_LINT_DEFS +=	-erroff=E_ASSIGN_INT_TO_SMALL_INT
-ALWAYS_LINT_DEFS +=	-erroff=E_CAST_INT_CONST_TO_SMALL_INT
-ALWAYS_LINT_DEFS +=	-erroff=E_CAST_INT_TO_SMALL_INT
-ALWAYS_LINT_DEFS +=	-erroff=E_CAST_TO_PTR_FROM_INT
-ALWAYS_LINT_DEFS +=	-erroff=E_COMP_INT_WITH_LARGE_INT
-ALWAYS_LINT_DEFS +=	-erroff=E_INTEGRAL_CONST_EXP_EXPECTED
-ALWAYS_LINT_DEFS +=	-erroff=E_PASS_INT_TO_SMALL_INT
-ALWAYS_LINT_DEFS +=	-erroff=E_PTR_CONV_LOSES_BITS
-
-# This forces lint to pick up note.h and sys/note.h from Devpro rather than
-# from the proto area.  The note.h that ON delivers would disable NOTE().
-ONLY_LINT_DEFS =	-I$(SPRO_VROOT)/prod/include/lint
-
-SECLEVEL=	core
-LINT.c=		$(LINT) $(ONLY_LINT_DEFS) $(LINTFLAGS) $(CPPFLAGS) \
-		$(ALWAYS_LINT_DEFS)
-LINT64.c=	$(LINT) $(ONLY_LINT_DEFS) $(LINTFLAGS64) $(CPPFLAGS) \
-		$(ALWAYS_LINT_DEFS)
-LINT.s=		$(LINT.c)
-
 # For some future builds, NATIVE_MACH and MACH might be different.
 # Therefore, NATIVE_MACH needs to be redefined in the
 # environment as `uname -p` to override this macro.
@@ -951,13 +920,6 @@ CW_CCC_COMPILERS=	$(PRIMARY_CCC:%=--primary %) $(SHADOW_CCCS:%=--shadow %)
 
 CW_LINKER=		--linker $(LD)
 
-# Till SS12u1 formally becomes the NV CBE, LINT is hard
-# coded to be picked up from the $SPRO_ROOT/sunstudio12.1/
-# location. Impacted variables are sparc_LINT, sparcv9_LINT,
-# i386_LINT, amd64_LINT.
-# Reset them when SS12u1 is rolled out.
-#
-
 # Specify platform compiler versions for languages
 # that we use (currently only c and c++).
 #
@@ -965,41 +927,31 @@ CW=			$(ONBLD_TOOLS)/bin/$(MACH)/cw
 
 BUILD_CC=		$(CW) $(CW_LINKER) $(CW_CC_COMPILERS) --
 BUILD_CCC=		$(CW) -C $(CW_LINKER) $(CW_CCC_COMPILERS) --
-BUILD_CPP=		/usr/ccs/lib/cpp
-BUILD_LD=		$(ONBLD_TOOLS)/bin/$(MACH)/ld
-BUILD_LINT=		$(SPRO_ROOT)/sunstudio12.1/bin/lint
+BUILD_CPP=		/usr/lib/cpp
+BUILD_LD=		$(ONBLD_TOOLS)/bin/$(MACH64)/ld
 
 $(MACH)_CC=		$(BUILD_CC)
 $(MACH)_CCC=		$(BUILD_CCC)
 $(MACH)_CPP=		$(BUILD_CPP)
 $(MACH)_LD=		$(BUILD_LD)
-$(MACH)_LINT=		$(BUILD_LINT)
+$(MACH)_AS=		$(BUILD_CC)
 $(MACH64)_CC=		$(BUILD_CC)
 $(MACH64)_CCC=		$(BUILD_CCC)
 $(MACH64)_CPP=		$(BUILD_CPP)
 $(MACH64)_LD=		$(BUILD_LD)
-$(MACH64)_LINT=		$(BUILD_LINT)
-
-sparc_AS=		/usr/ccs/bin/as -xregsym=no
-sparcv9_AS=		$($(MACH)_AS)
-
-i386_AS=		/usr/ccs/bin/as
-$(__GNUC)i386_AS=	$(ONBLD_TOOLS)/bin/$(MACH)/aw
-amd64_AS=		$(ONBLD_TOOLS)/bin/$(MACH)/aw
+$(MACH64)_AS=		$(BUILD_CC)
 
 NATIVECC=		$($(NATIVE_MACH)_CC)
 NATIVECCC=		$($(NATIVE_MACH)_CCC)
 NATIVECPP=		$($(NATIVE_MACH)_CPP)
 NATIVEAS=		$($(NATIVE_MACH)_AS)
 NATIVELD=		$($(NATIVE_MACH)_LD)
-NATIVELINT=		$($(NATIVE_MACH)_LINT)
 
 NATIVECC64=		$($(NATIVE_MACH64)_CC)
 NATIVECCC64=		$($(NATIVE_MACH64)_CCC)
 NATIVECPP64=		$($(NATIVE_MACH64)_CPP)
 NATIVEAS64=		$($(NATIVE_MACH64)_AS)
 NATIVELD64=		$($(NATIVE_MACH64)_LD)
-NATIVELINT64=		$($(NATIVE_MACH64)_LINT)
 
 #
 # Makefile.master.64 overrides these settings
@@ -1009,14 +961,12 @@ CCC=			$(NATIVECCC)
 CPP=			$(NATIVECPP)
 AS=			$(NATIVEAS)
 LD=			$(NATIVELD)
-LINT=			$(NATIVELINT)
 
 CC64=			$(NATIVECC64)
 CCC64=			$(NATIVECCC64)
 CPP64=			$(NATIVECPP64)
 AS64=			$(NATIVEAS64)
 LD64=			$(NATIVELD64)
-LINT64=			$(NATIVELINT64)
 
 # Pass -Y flag to cpp (method of which is release-dependent)
 CCYFLAG=		-Y I,
@@ -1053,6 +1003,7 @@ ZVERBOSE=	-Wl,-zverbose
 ZASSERTDEFLIB=	-Wl,-zassert-deflib
 ZGUIDANCE=	-Wl,-zguidance
 ZFATALWARNINGS=	-Wl,-zfatal-warnings
+ZASLR=		-Wl,-zaslr
 
 GSHARED=	-shared
 CCMT=		-mt
@@ -1083,8 +1034,8 @@ amd64_CC_PICFLAGS =	-_cc=-Kpic -_gcc=-fpic
 CC_PICFLAGS =		$($(MACH)_CC_PICFLAGS)
 CC_PICFLAGS64 =		$($(MACH64)_CC_PICFLAGS)
 
-AS_PICFLAGS=		-K pic
-AS_BIGPICFLAGS=		-K PIC
+AS_PICFLAGS=		$(C_PICFLAGS)
+AS_BIGPICFLAGS=		$(C_BIGPICFLAGS)
 
 #
 # Default label for CTF sections
@@ -1164,8 +1115,9 @@ UTS_LABEL=	$(RELEASE)
 # bootbanner_expand_template() for more details about the template string
 # format.
 #
-BOOTBANNER1=	^o Version ^v ^w-bit
-BOOTBANNER2=
+BOOTBANNER1=	SmartOS Version ^v ^w-bit
+# XXX SmartOS: BANNER_YEAR in environment set in smartos-live's build_illumos.
+BOOTBANNER2=	Copyright 2022-$(BANNER_YEAR) MNX Cloud, Inc.
 BOOTBANNER3=
 BOOTBANNER4=
 BOOTBANNER5=
@@ -1175,6 +1127,7 @@ $(RELEASE_BUILD)PROCESS_COMMENT=   @?${MCS} -d -a $(RELEASE_CM)
 
 STRIP_STABS=			   $(STRIP) -x $@
 $(SRCDBGBLD)STRIP_STABS=	   :
+PROCESS_CTF=			   :
 
 POST_PROCESS_O=
 POST_PROCESS_S_O=
@@ -1182,8 +1135,8 @@ POST_PROCESS_CC_O=
 POST_PROCESS_A=
 POST_PROCESS_SO=	$(PROCESS_COMMENT) $@ ; $(STRIP_STABS) ; \
 			$(ELFSIGN_OBJECT)
-POST_PROCESS=		$(PROCESS_COMMENT) $@ ; $(STRIP_STABS) ; \
-			$(ELFSIGN_OBJECT)
+POST_PROCESS=		$(PROCESS_COMMENT) $@ ; $(PROCESS_CTF) ; \
+			$(STRIP_STABS) ; $(ELFSIGN_OBJECT)
 
 #
 # chk4ubin is a tool that inspects a module for a symbol table
@@ -1209,6 +1162,9 @@ PKGARCHIVE=$(SRC)/../../packages/$(MACH)/nightly$(PKGARCHIVESUFFIX)
 PKGPUBLISHER_REDIST=	on-nightly
 PKGPUBLISHER_NONREDIST=	on-extra
 
+# Allow suffix rules like the below for .S as well as .s
+.SUFFIXES: .S
+
 #	Default build rules which perform comment section post-processing.
 #
 .c:
@@ -1226,6 +1182,15 @@ PKGPUBLISHER_NONREDIST=	on-extra
 	$(COMPILE.s) -o $@ $<
 	$(POST_PROCESS_S_O)
 .s.a:
+	$(COMPILE.s) -o $% $<
+	$(PROCESS_COMMENT) $%
+	$(AR) $(ARFLAGS) $@ $%
+	$(RM) $%
+
+.S.o:
+	$(COMPILE.s) -o $@ $<
+	$(POST_PROCESS_S_O)
+.S.a:
 	$(COMPILE.s) -o $% $<
 	$(PROCESS_COMMENT) $%
 	$(AR) $(ARFLAGS) $@ $%
@@ -1300,11 +1265,6 @@ PKGPUBLISHER_NONREDIST=	on-extra
 		-e "1s:^\#!@PYTHON@:\#!$(PYSHEBANG):" \
 		-e "1s:^\#!@TOOLS_PYTHON@:\#!$(TOOLS_PYTHON):" \
 		< $< > $@; $(CHMOD) +x $@
-
-.py.pyc:
-	$(RM) $@
-	$(PYTHON) -mpy_compile $<
-	@[ $(<)c = $@ ] || $(MV) $(<)c $@
 
 .py.po:
 	$(GNUXGETTEXT) $(GNUXGETFLAGS) -d $(<F:%.py=%) $< ;

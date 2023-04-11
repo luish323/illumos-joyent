@@ -28,6 +28,7 @@
  * Copyright 2017 Jason King
  * Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
  * Copyright (c) 2018, Joyent, Inc.
+ * Copyright 2023 Bill Sommerfeld <sommerfeld@alum.mit.edu>
  */
 
 /*
@@ -169,12 +170,10 @@ main(int argc, char **argv)
 	(void) setlocale(LC_ALL, "");
 	(void) textdomain(TEXT_DOMAIN);
 
-	if (argc < 2) {
-		usage();
-		return (1);
-	}
-
-	cmdname = argv[1];
+	if (argc < 2)
+		cmdname = "list";
+	else
+		cmdname = argv[1];
 
 	/* Turn error printing off */
 	libbe_print_errors(B_FALSE);
@@ -265,7 +264,7 @@ count_widths(enum be_fmt be_fmt, struct hdr_info *hdr, be_node_list_t *be_nodes)
 		len[i] = hdr->cols[i].width;
 
 	for (cur_be = be_nodes; cur_be != NULL; cur_be = cur_be->be_next_node) {
-		char name[ZFS_MAX_DATASET_NAME_LEN + 1];
+		char name[ZFS_MAX_DATASET_NAME_LEN];
 		const char *be_name = cur_be->be_node_name;
 		const char *root_ds = cur_be->be_root_ds;
 		char *pos;
@@ -413,7 +412,7 @@ print_be_snapshots(be_node_list_t *be, struct hdr_info *hdr, boolean_t parsable)
 
 	for (snap = be->be_node_snapshots; snap != NULL;
 	    snap = snap->be_next_snapshot) {
-		char name[ZFS_MAX_DATASET_NAME_LEN + 1];
+		char name[ZFS_MAX_DATASET_NAME_LEN];
 		const char *datetime_fmt = "%F %R";
 		const char *be_name = be->be_node_name;
 		const char *root_ds = be->be_root_ds;
@@ -1107,7 +1106,7 @@ be_do_destroy(int argc, char **argv)
 	case BE_ERR_SS_EXISTS:
 		(void) fprintf(stderr, _("Unable to destroy %s: "
 		    "BE has snapshots.\nUse 'beadm destroy -s %s' or "
-		    "'zfs -r destroy <dataset>'.\n"), be_name, be_name);
+		    "'zfs destroy -r <dataset>'.\n"), be_name, be_name);
 		break;
 	default:
 		(void) fprintf(stderr, _("Unable to destroy %s.\n"), be_name);

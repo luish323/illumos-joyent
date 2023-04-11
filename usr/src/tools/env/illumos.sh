@@ -19,8 +19,8 @@
 # CDDL HEADER END
 #
 # Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
-# Copyright 2015 Nexenta Systems, Inc.  All rights reserved.
 # Copyright 2012 Joshua M. Clulow <josh@sysmgr.org>
+# Copyright 2015 Nexenta Systems, Inc.  All rights reserved.
 # Copyright 2015, OmniTI Computer Consulting, Inc. All rights reserved.
 # Copyright 2016 RackTop Systems.
 # Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
@@ -82,8 +82,8 @@ export CODEMGR_WS="`git rev-parse --show-toplevel`"
 export GNUC_ROOT=/usr/gcc/7
 export PRIMARY_CC=gcc7,$GNUC_ROOT/bin/gcc,gnu
 export PRIMARY_CCC=gcc7,$GNUC_ROOT/bin/g++,gnu
-export SHADOW_CCS=gcc4,/opt/gcc/4.4.4/bin/gcc,gnu
-export SHADOW_CCCS=gcc4,/opt/gcc/4.4.4/bin/g++,gnu
+export SHADOW_CCS=gcc10,/usr/gcc/10/bin/gcc,gnu
+export SHADOW_CCCS=gcc10,/usr/gcc/10/bin/g++,gnu
 
 # comment to disable smatch
 export ENABLE_SMATCH=1
@@ -106,22 +106,9 @@ export ENABLE_SMB_PRINTING=
 
 # If your distro uses certain versions of Python, make sure either
 # Makefile.master contains your new defaults OR your .env file sets them.
-#export PYTHON_VERSION=2.7
-#export PYTHON_PKGVERS=-27
-#export PYTHON_SUFFIX=
-#export PYTHON3_VERSION=3.5
-#export PYTHON3_PKGVERS=-35
-#export PYTHON3_SUFFIX=m
-
-# To disable building with either Python2 or Python 3 (or both), uncomment
-# these lines:
-#export BUILDPY2='#'
-#export BUILDPY3='#'
-
-# To disable building this workspace's tools in $SRC/tools with either Python2
-# or Python3 (but not both!), uncomment either of these lines:
-#export BUILDPY2TOOLS='#'
-#export BUILDPY3TOOLS='#'
+#export PYTHON3_VERSION=3.9
+#export PYTHON3_PKGVERS=-39
+#export PYTHON3_SUFFIX=
 
 # Set console color scheme either by build type:
 #
@@ -213,7 +200,7 @@ export MAILTO="${MAILTO:-$STAFFER}"
 # MAILFROM.
 #export MAILFROM="user@example.com"
 
-# The project (see project(4)) under which to run this build.  If not
+# The project (see project(5)) under which to run this build.  If not
 # specified, the build is simply run in a new task in the current project.
 export BUILD_PROJECT=''
 
@@ -227,7 +214,7 @@ export MACH="$(uname -p)"
 #  totally freed itself, we can remove this reference.
 #
 # Location of encumbered binaries.
-export ON_CLOSED_BINS="$CODEMGR_WS/closed"
+export ON_CLOSED_BINS="/opt/onbld/closed"
 
 # REF_PROTO_LIST - for comparing the list of stuff in your proto area
 # with. Generally this should be left alone, since you want to see differences
@@ -274,7 +261,7 @@ export PKGARCHIVE="${CODEMGR_WS}/packages/${MACH}/nightly"
 # export PKGPUBLISHER_REDIST='on-redist'
 
 # Package manifest format version.
-export PKGFMT_OUTPUT='v1'
+export PKGFMT_OUTPUT='v2'
 
 # we want make to do as much as it can, just in case there's more than
 # one problem.
@@ -306,7 +293,7 @@ export SPRO_VROOT="$SPRO_ROOT"
 #
 export LD_TOXIC_PATH="$ROOT/lib:$ROOT/usr/lib"
 
-if [[ "$ENABLE_SMATCH" = "1" ]]; then
+if [[ "$ENABLE_SMATCH" == "1" ]]; then
 	SMATCHBIN=$CODEMGR_WS/usr/src/tools/proto/root_$MACH-nd/opt/onbld/bin/$MACH/smatch
 	export SHADOW_CCS="$SHADOW_CCS smatch,$SMATCHBIN,smatch"
 fi

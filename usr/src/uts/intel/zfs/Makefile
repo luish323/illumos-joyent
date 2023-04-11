@@ -62,7 +62,7 @@ INSTALL_TARGET	= $(BINARY) $(ROOTMODULE) $(ROOTLINK) $(ROOT_CONFFILE)
 #	Overrides and depends_on
 #
 MODSTUBS_DIR	 = $(OBJS_DIR)
-LDFLAGS		+= -dy -Nfs/specfs -Ncrypto/swrand -Nmisc/idmap -Nmisc/sha2 \
+LDFLAGS		+= -Nfs/specfs -Ncrypto/swrand -Nmisc/idmap -Nmisc/sha2 \
 	-Nmisc/skein -Nmisc/edonr
 
 INC_PATH	+= -I$(UTSBASE)/common/fs/zfs
@@ -70,8 +70,6 @@ INC_PATH	+= -I$(UTSBASE)/common/fs/zfs/lua
 INC_PATH	+= -I$(SRC)/common
 INC_PATH	+= -I$(COMMONBASE)/zfs
 INC_PATH	+= -I$(UTSBASE)/i86pc
-
-C99LMODE=	-Xc99=%all
 
 #
 # For now, disable these warnings; maintainers should endeavor

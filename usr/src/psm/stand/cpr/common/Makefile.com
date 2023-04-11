@@ -22,10 +22,7 @@
 # Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
 #
-# psm/stand/cpr/common/Makefile.com
-#
-GREP	=	egrep
-WC	=	wc
+
 TOPDIR	=	../../../../..
 
 include $(TOPDIR)/Makefile.master
@@ -63,7 +60,7 @@ CPPFLAGS +=	$(CCYFLAG)$(SYSDIR)/common
 CSTD =	$(CSTD_GNU99)
 CFLAGS =	$(CCVERBOSE) -O $(CSTD)
 
-ASFLAGS =	-P -D_ASM $(CPPDEFS) -DLOCORE -D_LOCORE -D__STDC__
+ASFLAGS =	-D_ASM $(CPPDEFS) -DLOCORE -D_LOCORE -D__STDC__
 AS_CPPFLAGS =	$(CPPINCS) $(CPPFLAGS.master)
 
 # install values
@@ -97,7 +94,7 @@ cprboot: $(CPRBOOT_MAPFILE) $(CPRBOOTOBJ) $(SALIBS)
 	$(CHK4UBINARY)
 
 $(SALIBS): FRC
-	@cd $(@D); $(MAKE) $(MFLAGS)
+	@cd $(@D); $(MAKE)
 
 $(ROOTDIR):
 	$(INS.dir)

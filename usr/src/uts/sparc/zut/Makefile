@@ -54,13 +54,10 @@ INSTALL_TARGET	= $(BINARY) $(ROOTMODULE) $(ROOT_CONFFILE)
 #	Overrides and depends_on
 #
 MODSTUBS_DIR	 = $(OBJS_DIR)
-LDFLAGS		+= -dy
 
 INC_PATH	+= -I$(UTSBASE)/common/fs/zut
 INC_PATH	+= -I$(SRC)/common
 INC_PATH	+= -I$(COMMONBASE)/zut
-
-C99LMODE=	-Xc99=%all
 
 #
 # For now, disable these warnings; maintainers should endeavor

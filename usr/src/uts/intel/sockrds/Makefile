@@ -21,9 +21,6 @@
 #
 # Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
 #
-#	This makefile drives the production of the nca driver
-#	kernel module.
-#
 #	intel architecture dependent
 #
 
@@ -52,7 +49,7 @@ INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 
 CFLAGS += $(CCVERBOSE)
 
-LDFLAGS += -dy -Nfs/sockfs -Ndrv/ip -Ndrv/rdsv3
+LDFLAGS += -Nfs/sockfs -Ndrv/ip -Ndrv/rdsv3
 
 #
 #	Default build targets.

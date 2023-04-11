@@ -21,6 +21,7 @@
 /*
  * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2023 Oxide Computer Company
  */
 
 /*
@@ -42,7 +43,6 @@
 #include <sys/hotplug/pci/pcicfg.h>
 #include <sys/ndi_impldefs.h>
 #include <sys/pci_cfgacc.h>
-#include <sys/pcie_impl.h>
 
 /*
  * ************************************************************************
@@ -557,7 +557,7 @@ pcicfg_configure(dev_info_t *devi, uint_t device, uint_t function,
 	dev_info_t *attach_point;
 	pci_bus_range_t pci_bus_range;
 	int rv;
-	int circ;
+	int circ, pcirc;
 	uint_t highest_bus, visited = 0;
 	int ari_mode = B_FALSE;
 	int max_function = PCI_MAX_FUNCTIONS;
@@ -585,6 +585,16 @@ pcicfg_configure(dev_info_t *devi, uint_t device, uint_t function,
 
 	is_pcie = is_pcie_fabric(devi);
 
+	/*
+	 * This code may be racing against other code walking the device info
+	 * tree, such as `di_copytree` et al.  To avoid deadlock, we must ensure
+	 * a strict hierarchical ordering of `ndi_devi_enter` calls that mirrors
+	 * the structure of the tree, working from the root towards leaves.
+	 * `pcie_fabric_setup`, if called, will call `ddi_walk_devs` which
+	 * requires that the parent is locked; therefore, to obey the lock
+	 * ordering, we must lock the parent here.
+	 */
+	ndi_devi_enter(ddi_get_parent(devi), &pcirc);
 	ndi_devi_enter(devi, &circ);
 	for (func = 0; func < max_function; ) {
 
@@ -716,7 +726,20 @@ next:
 		DEBUG1("Next Function - %x\n", func);
 	}
 
+	/*
+	 * At this point we have set up the various dev_info nodes that we
+	 * expect to see in the tree and we must re-evaluate the general fabric
+	 * settings such as the overall max payload size or the tagging that is
+	 * enabled. However, as part the big theory statement in pcie.c, this
+	 * can only be performed on a root port; however, that determination
+	 * will be made by the fabric scanning logic.
+	 */
+	if (visited > 0 && is_pcie) {
+		pcie_fabric_setup(devi);
+	}
+
 	ndi_devi_exit(devi, circ);
+	ndi_devi_exit(ddi_get_parent(devi), pcirc);
 
 	if (visited == 0)
 		return (PCICFG_FAILURE);	/* probe failed */
@@ -761,6 +784,7 @@ cleanup:
 		(void) ndi_devi_offline(new_device, NDI_DEVI_REMOVE);
 	}
 	ndi_devi_exit(devi, circ);
+	ndi_devi_exit(ddi_get_parent(devi), pcirc);
 
 	/*
 	 * Use private return codes to help identify issues without debugging
@@ -2448,6 +2472,7 @@ pcicfg_get_pf_mem(pcicfg_phdl_t *entry, uint32_t length, uint64_t *ans)
 		    length, ddi_get_name(entry->dip));
 }
 
+#ifdef __sparc
 static int
 pcicfg_sum_resources(dev_info_t *dip, void *hdl)
 {
@@ -2580,6 +2605,7 @@ pcicfg_sum_resources(dev_info_t *dip, void *hdl)
 		return (DDI_WALK_CONTINUE);
 	}
 }
+#endif /* __sparc */
 
 static int
 pcicfg_free_bridge_resources(dev_info_t *dip)

@@ -11,7 +11,7 @@
 .\"
 .\" Copyright 2020 Joyent, Inc.
 .\"
-.Dd November 22, 2020
+.Dd January 17, 2022
 .Dt GETGROUPLIST 3C
 .Os
 .Sh NAME
@@ -112,7 +112,7 @@ upon return to determine the number of entries in
 .Pp
 On Linux, both glibc and musl return the number of groups
 .Fa user
-belongs to on success and returns -1 on failure.
+belongs to on success and return -1 on failure.
 .Pp
 None of these other implementations document any
 .Va errno
@@ -121,7 +121,7 @@ values on failure, however their implementations show that
 may be set on failure.
 Software using
 .Fn getgrouplist
-should be aware of these differences when attemping to write portable
+should be aware of these differences when attempting to write portable
 software.
 .Sh EXAMPLES
 .Sy Example 1
@@ -145,7 +145,7 @@ printgroups(const char *user)
         err(EXIT_FAILURE, "calloc");
 
     if ((pw = getpwnam(user)) == NULL)
-        err(EXIT_FAILURE, "getpwname");
+        err(EXIT_FAILURE, "getpwnam");
 
     ngroups = NGROUPS_MAX;
     ret = getgrouplist(user, pw->pw_gid, groups, &ngroups);
@@ -165,7 +165,7 @@ printgroups(const char *user)
 .Sh ERRORS
 On failure,
 .Fn getgrouplist
-returns -1, and will set errno to one one of the following values:
+returns -1, and will set errno to one of the following values:
 .Bl -tag -width Dv
 .It Er ENOMEM
 Not enough memory to complete the request.
@@ -200,8 +200,8 @@ may be larger than the value returned by a successful call to
 .Sy MT-Safe
 .Sh SEE ALSO
 .Xr groups 1 ,
+.Xr getgroups 2 ,
 .Xr getuid 2 ,
 .Xr getgrnam 3C ,
-.Xr getgroups 3C ,
 .Xr initgroups 3C ,
 .Xr limits.h 3HEAD

@@ -56,7 +56,7 @@
  */
 #if defined(__sparc)
 char *jexec = "/usr/java/jre/lib/sparc/jexec";
-#elif defined(__i386) || defined(__i386_COMPAT)
+#elif defined(__x86)
 char *jexec = "/usr/java/jre/lib/i386/jexec";
 #else
 #error "Unknown ISA"
@@ -145,6 +145,7 @@ javaexec(vnode_t *vp, struct execa *uap, struct uarg *args,
 	/*
 	 * Find and invoke the Java runtime environment on the file
 	 */
+	bzero(&idata, sizeof (intpdata_t));
 	idata.intp = NULL;
 	idata.intp_name[0] = jexec;
 	idata.intp_arg[0] = jexec_arg;

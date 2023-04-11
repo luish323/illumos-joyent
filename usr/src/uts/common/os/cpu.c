@@ -61,7 +61,7 @@
 #include <sys/archsystm.h>
 #include <sys/sdt.h>
 #include <sys/smt.h>
-#if defined(__x86) || defined(__amd64)
+#if defined(__x86)
 #include <sys/x86_archext.h>
 #endif
 #include <sys/callo.h>
@@ -614,7 +614,7 @@ again:
 	 * requests will continue to be satisfied in the same way,
 	 * even if weak bindings have recommenced.
 	 */
-	if (t->t_nomigrate < 0 || weakbindingbarrier && t->t_nomigrate == 0) {
+	if (t->t_nomigrate < 0 || (weakbindingbarrier && t->t_nomigrate == 0)) {
 		--t->t_nomigrate;
 		thread_unlock(curthread);
 		return;		/* with kpreempt_disable still active */
