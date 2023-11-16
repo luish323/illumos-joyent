@@ -256,7 +256,8 @@ static boolean_t smb_spool_lookup_doc_byfid(smb_server_t *, uint16_t,
     smb_kspooldoc_t *);
 
 #ifdef	_KERNEL
-int smb_create_process = 1;
+/* XXX SmartOS - disable until illumos#16063 is properly fixed. */
+int smb_create_process = 0;
 static void smb_server_delproc(smb_server_t *);
 static int smb_server_newproc(smb_server_t *);
 static void smb_server_proc_main(void *);
