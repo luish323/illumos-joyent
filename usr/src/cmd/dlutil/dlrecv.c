@@ -204,15 +204,15 @@ main(int argc, char *argv[])
 		}
 
 		if (msglen != rinfo.dri_totmsglen) {
-			warnx("message truncated: expected %ld bytes, "
-			    "got %ld\n", sizeof (dlsend_msg_t),
+			warnx("message truncated: expected %zu bytes, "
+			    "got %zu\n", sizeof (dlsend_msg_t),
 			    rinfo.dri_totmsglen);
 			invalid = B_TRUE;
 		}
 
 		if (msglen != sizeof (msg)) {
-			warnx("message too short: expected %ld bytes, "
-			    "got %ld\n", sizeof (dlsend_msg_t),
+			warnx("message too short: expected %zu bytes, "
+			    "got %zu\n", sizeof (dlsend_msg_t),
 			    msglen);
 			invalid = B_TRUE;
 		}

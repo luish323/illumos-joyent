@@ -189,7 +189,7 @@ mcdecode_from_file(const char *file)
 	}
 	ret = nvlist_unpack(addr, st.st_size, &nvl, 0);
 	if (ret != 0) {
-		errx(EXIT_FAILURE, "failed to unpack %s: %s",
+		errx(EXIT_FAILURE, "failed to unpack %s: %s", file,
 		    strerror(ret));
 	}
 	if (munmap(addr, st.st_size) != 0) {
