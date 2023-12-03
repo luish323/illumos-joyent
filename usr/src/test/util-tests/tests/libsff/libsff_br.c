@@ -51,9 +51,8 @@ main(void)
 
 	if ((ret = nvlist_lookup_string(nvl, LIBSFF_KEY_BR_NOMINAL, &val)) !=
 	    0) {
-		errx(1, "TEST FAILED: failed to find %s: %s when "
-		    "parsing key %d: %s\n", LIBSFF_KEY_BR_NOMINAL,
-		    strerror(ret));
+		errc(1, ret, "TEST FAILED: failed to find %s",
+		    LIBSFF_KEY_BR_NOMINAL);
 	}
 	(void) printf("nominal: %s\n", val);
 
@@ -62,14 +61,14 @@ main(void)
 	 */
 	if ((ret = nvlist_lookup_string(nvl, LIBSFF_KEY_BR_MIN, &val)) !=
 	    ENOENT) {
-		errx(1, "TEST FALIED: found unexpected return value for key "
-		    "%s: %d\n", LIBSFF_KEY_BR_MIN, ret);
+		errc(1, ret, "TEST FALIED: found unexpected return value for "
+		    "key %s: %d", LIBSFF_KEY_BR_MIN, ret);
 	}
 
 	if ((ret = nvlist_lookup_string(nvl, LIBSFF_KEY_BR_MAX, &val)) !=
 	    ENOENT) {
 		errx(1, "TEST FALIED: found unexpected return value for key "
-		    "%s: %d\n", LIBSFF_KEY_BR_MAX, ret);
+		    "%s: %d", LIBSFF_KEY_BR_MAX, ret);
 	}
 	nvlist_free(nvl);
 
@@ -86,16 +85,14 @@ main(void)
 	}
 
 	if ((ret = nvlist_lookup_string(nvl, LIBSFF_KEY_BR_MAX, &val)) != 0) {
-		errx(1, "TEST FAILED: failed to find %s: %s when "
-		    "parsing key %d: %s\n", LIBSFF_KEY_BR_MAX,
-		    strerror(ret));
+		errc(1, ret, "TEST FAILED: failed to find %s",
+		    LIBSFF_KEY_BR_MAX);
 	}
 	(void) printf("max: %s\n", val);
 
 	if ((ret = nvlist_lookup_string(nvl, LIBSFF_KEY_BR_MIN, &val)) != 0) {
-		errx(1, "TEST FAILED: failed to find %s: %s when "
-		    "parsing key %d: %s\n", LIBSFF_KEY_BR_MIN,
-		    strerror(ret));
+		errc(1, ret, "TEST FAILED: failed to find %s",
+		    LIBSFF_KEY_BR_MIN);
 	}
 	(void) printf("min: %s\n", val);
 
@@ -121,9 +118,8 @@ main(void)
 
 	if ((ret = nvlist_lookup_string(nvl, LIBSFF_KEY_BR_NOMINAL,
 	    &val)) != 0) {
-		errx(1, "TEST FAILED: failed to find %s: %s when "
-		    "parsing key %d: %s\n", LIBSFF_KEY_BR_NOMINAL,
-		    strerror(ret));
+		errc(1, ret, "TEST FAILED: failed to find %s",
+		    LIBSFF_KEY_BR_NOMINAL);
 	}
 	(void) printf("nominal: %s\n", val);
 
