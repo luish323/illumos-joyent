@@ -417,6 +417,8 @@ sadb_satype_str(uint8_t satype)
 		return ("ESP");
 	case SADB_SATYPE_RSVP:
 		return ("RSVP");
+	case SADB_X_SATYPE_TCPSIG:
+		return ("TCPSIG");
 	case SADB_SATYPE_OSPFV2:
 		return ("OSPFV2");
 	case SADB_SATYPE_RIPV2:
