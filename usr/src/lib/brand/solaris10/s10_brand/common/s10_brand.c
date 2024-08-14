@@ -561,7 +561,7 @@ typedef struct s10_ct_param {
 } s10_ct_param_t;
 
 /*
- * We have to emulate process contract ioctls for init(1M) because the
+ * We have to emulate process contract ioctls for init(8) because the
  * ioctl parameter structure changed between S10 and Nevada.  This is
  * a relatively simple process of filling Nevada structure fields,
  * shuffling values, and initiating a native system call.
@@ -1356,7 +1356,7 @@ s10_exec(sysret_t *rval, const char *fname, const char **argp)
 		return (err);
 
 	/* If an exec call succeeds, it never returns */
-	err = __systemcall(rval, SYS_execve + 1024, fname, argp, NULL);
+	err = __systemcall(rval, SYS_execve + 1024, fname, argp, NULL, 0);
 	brand_assert(err != 0);
 	return (err);
 }
@@ -1374,7 +1374,7 @@ s10_execve(sysret_t *rval, const char *fname, const char **argp,
 		return (err);
 
 	/* If an exec call succeeds, it never returns */
-	err = __systemcall(rval, SYS_execve + 1024, fname, argp, envp);
+	err = __systemcall(rval, SYS_execve + 1024, fname, argp, envp, 0);
 	brand_assert(err != 0);
 	return (err);
 }
@@ -1838,7 +1838,7 @@ brand_init(int argc, char *argv[], char *envp[])
 
 	/*
 	 * Cache the pid of the zone's init process and determine if
-	 * we're init(1m) for the zone.  Remember: we might be init
+	 * we're init(8) for the zone.  Remember: we might be init
 	 * now, but as soon as we fork(2) we won't be.
 	 */
 	(void) get_initpid_info();

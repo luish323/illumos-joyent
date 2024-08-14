@@ -23,10 +23,10 @@ OBJECTS=			\
 
 include ../../Makefile.lib
 
-# libzutil must be installed in the root filesystem for mount(1M)
+# libzutil must be installed in the root filesystem for mount(8)
 include ../../Makefile.rootfs
 
-LIBS=	$(DYNLIB) $(LINTLIB)
+LIBS=	$(DYNLIB)
 
 SRCDIR =	../common
 
@@ -35,7 +35,6 @@ INCS += -I../../../uts/common/fs/zfs
 INCS += -I../../libc/inc
 
 CSTD=		$(CSTD_GNU99)
-C99LMODE=	-Xc99=%all
 LDLIBS +=	-lc -lm -ldevid -lnvpair -ladm -lavl -lefi
 CPPFLAGS +=	$(INCS) -D_LARGEFILE64_SOURCE=1 -D_REENTRANT
 $(NOT_RELEASE_BUILD)CPPFLAGS += -DDEBUG

@@ -150,6 +150,9 @@ static const hcc_t hc_canon[] = {
 	{ BAY, TOPO_STABILITY_PRIVATE },
 	{ BLADE, TOPO_STABILITY_PRIVATE },
 	{ BRANCH, TOPO_STABILITY_PRIVATE },
+	{ CACHE, TOPO_STABILITY_PRIVATE },
+	{ CCD, TOPO_STABILITY_PRIVATE },
+	{ CCX, TOPO_STABILITY_PRIVATE },
 	{ CMP, TOPO_STABILITY_PRIVATE },
 	{ CENTERPLANE, TOPO_STABILITY_PRIVATE },
 	{ CHASSIS, TOPO_STABILITY_PRIVATE },
@@ -265,8 +268,8 @@ hc_enum(topo_mod_t *mod, tnode_t *pnode, const char *name, topo_instance_t min,
 	if (min != max) {
 		topo_mod_dprintf(mod,
 		    "Request to enumerate %s component with an "
-		    "ambiguous instance number, min (%d) != max (%d).\n",
-		    HC, min, max);
+		    "ambiguous instance number, min (%" PRIu64 ") != max (%"
+		    PRIu64 ").\n", HC, min, max);
 		return (topo_mod_seterrno(mod, EINVAL));
 	}
 
@@ -295,7 +298,7 @@ hc_enum(topo_mod_t *mod, tnode_t *pnode, const char *name, topo_instance_t min,
 		if (topo_method_register(mod, node, fru_container_methods) <
 		    0) {
 			topo_mod_dprintf(mod, "failed to register methods on "
-			    "%s=%d\n", name, min);
+			    "%s=%" PRIu64 "\n", name, min);
 			return (-1);
 		}
 	}
@@ -1138,7 +1141,7 @@ hc_fmri_create_meth(topo_mod_t *mod, tnode_t *node, topo_version_t version,
 	int ret;
 	nvlist_t *args, *pfmri = NULL;
 	nvlist_t *auth;
-	uint32_t inst;
+	uint64_t inst;
 	char *name, *serial, *rev, *part;
 
 	if (version > TOPO_METH_FMRI_VERSION)
@@ -1147,7 +1150,7 @@ hc_fmri_create_meth(topo_mod_t *mod, tnode_t *node, topo_version_t version,
 	/* First the must-have fields */
 	if (nvlist_lookup_string(in, TOPO_METH_FMRI_ARG_NAME, &name) != 0)
 		return (topo_mod_seterrno(mod, EMOD_METHOD_INVAL));
-	if (nvlist_lookup_uint32(in, TOPO_METH_FMRI_ARG_INST, &inst) != 0)
+	if (nvlist_lookup_uint64(in, TOPO_METH_FMRI_ARG_INST, &inst) != 0)
 		return (topo_mod_seterrno(mod, EMOD_METHOD_INVAL));
 
 	/*
@@ -1344,8 +1347,8 @@ hc_walker(topo_mod_t *mod, tnode_t *node, void *pdata)
 	if (!match)
 		return (hc_walk_sibling(mod, node, hwp, name, inst));
 
-	topo_mod_dprintf(mod, "hc_walker: walking node:%s=%d for hc:"
-	    "%s=%d at %d, end at %d \n", topo_node_name(node),
+	topo_mod_dprintf(mod, "hc_walker: walking node:%s=%" PRIu64 " for hc:"
+	    "%s=%" PRIu64 " at %d, end at %d \n", topo_node_name(node),
 	    topo_node_instance(node), name, inst, i, hwp->hcw_end);
 
 	if (i == hwp->hcw_end) {

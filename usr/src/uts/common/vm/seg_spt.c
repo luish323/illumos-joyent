@@ -49,7 +49,6 @@
 #include <sys/vmsystm.h>
 #include <sys/policy.h>
 #include <sys/project.h>
-#include <sys/tnf_probe.h>
 #include <sys/zone.h>
 
 #define	SEGSPTADDR	(caddr_t)0x0
@@ -63,7 +62,7 @@ size_t	spt_used;
  * See spt_setminfree().
  */
 pgcnt_t segspt_minfree = 0;
-size_t segspt_minfree_clamp = (1UL << 30); /* 1Gb in bytes */
+size_t segspt_minfree_clamp = (1UL << 30); /* 1GB in bytes */
 
 static int segspt_create(struct seg **segpp, void *argsp);
 static int segspt_unmap(struct seg *seg, caddr_t raddr, size_t ssize);
@@ -317,7 +316,7 @@ static int spt_anon_getpages(struct seg *seg, caddr_t addr, size_t len,
  *
  * The traditional default value of 5% of total memory is used, except on
  * systems where that quickly gets ridiculous: in that case we clamp at a rather
- * arbitrary value of 1Gb.
+ * arbitrary value of 1GB.
  *
  * Note that since this is called lazily on the first sptcreate(), in theory,
  * this could represent a very small value if the system is heavily loaded
@@ -344,10 +343,6 @@ sptcreate(size_t size, struct seg **sptseg, struct anon_map *amp,
 	struct	as	*newas;
 	struct	segspt_crargs sptcargs;
 
-#ifdef DEBUG
-	TNF_PROBE_1(sptcreate, "spt", /* CSTYLED */,
-			tnf_ulong, size, size );
-#endif
 	if (segspt_minfree == 0)
 		spt_setminfree();
 
@@ -379,9 +374,6 @@ void
 sptdestroy(struct as *as, struct anon_map *amp)
 {
 
-#ifdef DEBUG
-	TNF_PROBE_0(sptdestroy, "spt", /* CSTYLED */);
-#endif
 	(void) as_unmap(as, SEGSPTADDR, amp->size);
 	as_free(as);
 }
@@ -553,10 +545,6 @@ segspt_create(struct seg **segpp, void *argsp)
 	ASSERT(seg->s_as && AS_WRITE_HELD(seg->s_as));
 	ASSERT(sp != NULL);
 
-#ifdef DEBUG
-	TNF_PROBE_2(segspt_create, "spt", /* CSTYLED */,
-	    tnf_opaque, addr, addr, tnf_ulong, len, seg->s_size);
-#endif
 	if ((sptcargs->flags & SHM_PAGEABLE) == 0) {
 		if (err = anon_swap_adjust(npages))
 			return (err);

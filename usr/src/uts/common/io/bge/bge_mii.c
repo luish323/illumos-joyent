@@ -29,6 +29,10 @@
  * All rights reserved.
  */
 
+/*
+ * Copyright 2023 Oxide Computer Company
+ */
+
 #include "bge_impl.h"
 
 /*
@@ -586,7 +590,7 @@ bge_restart_copper(bge_t *bgep, boolean_t powerdown)
 	case MHCR_CHIP_ASIC_REV_5906:
 	case MHCR_CHIP_ASIC_REV_5700:
 	case MHCR_CHIP_ASIC_REV_5701:
-	case MHCR_CHIP_ASIC_REV_5723: /* 5717 and 5725 series as well */
+	case MHCR_CHIP_ASIC_REV_5723: /* 5717, 5725, 57765 series as well */
 	case MHCR_CHIP_ASIC_REV_5721_5751:
 		/*
 		 * Just a plain reset; the "check" code breaks these chips
@@ -1333,7 +1337,8 @@ bge_restart_serdes(bge_t *bgep, boolean_t powerdown)
 	macmode &= ~ETHERNET_MODE_PORTMODE_MASK;
 	if (DEVICE_5717_SERIES_CHIPSETS(bgep) ||
 	    DEVICE_5725_SERIES_CHIPSETS(bgep) ||
-	    DEVICE_5714_SERIES_CHIPSETS(bgep)) {
+	    DEVICE_5714_SERIES_CHIPSETS(bgep) ||
+	    DEVICE_57765_SERIES_CHIPSETS(bgep)) {
 		macmode |= ETHERNET_MODE_PORTMODE_GMII;
 	} else {
 		macmode |= ETHERNET_MODE_PORTMODE_TBI;
@@ -1561,11 +1566,12 @@ bge_check_serdes(bge_t *bgep, boolean_t recheck)
 		 * Don't call function bge_autoneg_serdes() as
 		 * RX_1000BASEX_AUTONEG_REG (0x0448) is not applicable
 		 * to BCM5705, BCM5788, BCM5721, BCM5751, BCM5752,
-		 * BCM5714, and BCM5715 devices.
+		 * BCM5714, BCM5715, and BCM57765 family devices.
 		 */
 		if (DEVICE_5717_SERIES_CHIPSETS(bgep) ||
 		    DEVICE_5725_SERIES_CHIPSETS(bgep) ||
-		    DEVICE_5714_SERIES_CHIPSETS(bgep)) {
+		    DEVICE_5714_SERIES_CHIPSETS(bgep) ||
+		    DEVICE_57765_SERIES_CHIPSETS(bgep)) {
 			tx_status = bge_reg_get32(bgep,
 			    TRANSMIT_MAC_STATUS_REG);
 			linkup = BIS(tx_status, TRANSMIT_STATUS_LINK_UP);
@@ -1906,4 +1912,47 @@ bge_phys_check(bge_t *bgep)
 	 */
 	return ((*bgep->physops->phys_check)(bgep,
 	    (bgep->link_state == LINK_STATE_UNKNOWN)));
+}
+
+mac_ether_media_t
+bge_phys_media(bge_t *bgep)
+{
+	switch (bgep->link_state) {
+	case LINK_STATE_UP:
+		break;
+	case LINK_STATE_DOWN:
+		return (ETHER_MEDIA_NONE);
+	case LINK_STATE_UNKNOWN:
+	default:
+		return (ETHER_MEDIA_UNKNOWN);
+	}
+
+	if ((bgep->chipid.flags & CHIP_FLAG_SERDES) != 0) {
+		switch (bgep->param_link_speed) {
+		case 1000:
+			return (ETHER_MEDIA_1000BASE_X);
+		case 100:
+			return (ETHER_MEDIA_100BASE_FX);
+		default:
+			break;
+		}
+	} else {
+		switch (bgep->param_link_speed) {
+		case 1000:
+			return (ETHER_MEDIA_1000BASE_T);
+		case 100:
+			/*
+			 * All NetExtreme I docs we can find suggest that the
+			 * PHY never supported anything other than 100BASE-TX so
+			 * we don't further interrogate the device.
+			 */
+			return (ETHER_MEDIA_100BASE_TX);
+		case 10:
+			return (ETHER_MEDIA_10BASE_T);
+		default:
+			break;
+		}
+	}
+
+	return (ETHER_MEDIA_UNKNOWN);
 }

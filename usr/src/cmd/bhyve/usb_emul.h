@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2014 Leon Dang <ldang@nahannisys.com>
  * Copyright 2018 Joyent, Inc.
@@ -25,13 +25,12 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _USB_EMUL_H_
 #define _USB_EMUL_H_
 
+#include <sys/nv.h>
 #include <stdlib.h>
 #include <sys/linker_set.h>
 #include <pthread.h>
@@ -52,12 +51,12 @@ struct usb_data_xfer;
 
 /* Device emulation handlers */
 struct usb_devemu {
-	char	*ue_emu;	/* name of device emulation */
+	const char *ue_emu;	/* name of device emulation */
 	int	ue_usbver;	/* usb version: 2 or 3 */
 	int	ue_usbspeed;	/* usb device speed */
 
 	/* instance creation */
-	void	*(*ue_init)(struct usb_hci *hci, char *opt);
+	void	*(*ue_init)(struct usb_hci *hci, nvlist_t *nvl);
 
 	/* handlers */
 	int	(*ue_request)(void *sc, struct usb_data_xfer *xfer);
@@ -67,7 +66,7 @@ struct usb_devemu {
 	int	(*ue_remove)(void *sc);
 	int	(*ue_stop)(void *sc);
 };
-#define	USB_EMUL_SET(x)		DATA_SET(usb_emu_set, x);
+#define	USB_EMUL_SET(x)		DATA_SET(usb_emu_set, x)
 
 /*
  * USB device events to notify HCI when state changes
@@ -93,7 +92,7 @@ struct usb_hci {
 
 /*
  * Each xfer block is mapped to the hci transfer block.
- * On input into the device handler, blen is set to the lenght of buf.
+ * On input into the device handler, blen is set to the length of buf.
  * The device handler is to update blen to reflect on the residual size
  * of the buffer, i.e. len(buf) - len(consumed).
  */
@@ -155,7 +154,7 @@ enum USB_ERRCODE {
 #define	USB_DATA_XFER_LOCK_HELD(x) MUTEX_HELD(&((x)->mtx))
 #endif
 
-struct usb_devemu *usb_emu_finddev(char *name);
+struct usb_devemu *usb_emu_finddev(const char *name);
 
 struct usb_data_xfer_block *usb_data_xfer_append(struct usb_data_xfer *xfer,
                           void *buf, int blen, void *hci_data, int ccs);

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013 Neel Natu <neel@freebsd.org>
  * Copyright (c) 2013 Tycho Nightingale <tycho.nightingale@pluribusnetworks.com>
@@ -25,8 +25,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -34,11 +32,11 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/types.h>
 #include <machine/vmm.h>
 
+#include <err.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -46,11 +44,16 @@ __FBSDID("$FreeBSD$");
 #include <vmmapi.h>
 
 #include "acpi.h"
+#include "debug.h"
 #include "bootrom.h"
+#include "config.h"
 #include "inout.h"
 #include "pci_emul.h"
 #include "pci_irq.h"
 #include "pci_lpc.h"
+#include "pci_passthru.h"
+#include "pctestdev.h"
+#include "tpm_device.h"
 #include "uart_emul.h"
 
 #define	IO_ICU1		0x20
@@ -69,18 +72,21 @@ SYSRES_IO(NMISC_PORT, 1);
 
 static struct pci_devinst *lpc_bridge;
 
-static const char *romfile;
-
-#define	LPC_UART_NUM	2
+#define	LPC_UART_NUM	4
 static struct lpc_uart_softc {
 	struct uart_softc *uart_softc;
-	const char *opts;
 	int	iobase;
 	int	irq;
 	int	enabled;
 } lpc_uart_softc[LPC_UART_NUM];
 
-static const char *lpc_uart_names[LPC_UART_NUM] = { "COM1", "COM2" };
+static const char *lpc_uart_names[LPC_UART_NUM] = {
+	"com1", "com2", "com3", "com4"
+};
+
+static const char *lpc_uart_acpi_names[LPC_UART_NUM] = {
+	"COM1", "COM2", "COM3", "COM4"
+};
 
 /*
  * LPC device configuration is in the following form:
@@ -91,48 +97,107 @@ int
 lpc_device_parse(const char *opts)
 {
 	int unit, error;
-	char *str, *cpy, *lpcdev;
+	char *str, *cpy, *lpcdev, *node_name;
+	const char *romfile, *varfile, *tpm_type, *tpm_path;
 
 	error = -1;
 	str = cpy = strdup(opts);
 	lpcdev = strsep(&str, ",");
 	if (lpcdev != NULL) {
 		if (strcasecmp(lpcdev, "bootrom") == 0) {
-			romfile = str;
+			romfile = strsep(&str, ",");
+			if (romfile == NULL) {
+				errx(4, "invalid bootrom option \"%s\"", opts);
+			}
+			set_config_value("lpc.bootrom", romfile);
+
+			varfile = strsep(&str, ",");
+			if (varfile == NULL) {
+				error = 0;
+				goto done;
+			}
+			if (strchr(varfile, '=') == NULL) {
+				set_config_value("lpc.bootvars", varfile);
+			} else {
+				/* varfile doesn't exist, it's another config
+				 * option */
+				pci_parse_legacy_config(find_config_node("lpc"),
+				    varfile);
+			}
+
+			pci_parse_legacy_config(find_config_node("lpc"), str);
+			error = 0;
+			goto done;
+		}
+		if (strcasecmp(lpcdev, "tpm") == 0) {
+			nvlist_t *nvl = create_config_node("tpm");
+
+			tpm_type = strsep(&str, ",");
+			if (tpm_type == NULL) {
+				errx(4, "invalid tpm type \"%s\"", opts);
+			}
+			set_config_value_node(nvl, "type", tpm_type);
+
+			tpm_path = strsep(&str, ",");
+			if (tpm_path == NULL) {
+				errx(4, "invalid tpm path \"%s\"", opts);
+			}
+			set_config_value_node(nvl, "path", tpm_path);
+
+			pci_parse_legacy_config(find_config_node("tpm"), str);
+
+			set_config_value_node_if_unset(nvl, "version", "2.0");
 			error = 0;
 			goto done;
 		}
 		for (unit = 0; unit < LPC_UART_NUM; unit++) {
 			if (strcasecmp(lpcdev, lpc_uart_names[unit]) == 0) {
-				lpc_uart_softc[unit].opts = str;
+				asprintf(&node_name, "lpc.%s.path",
+				    lpc_uart_names[unit]);
+				set_config_value(node_name, str);
+				free(node_name);
 				error = 0;
 				goto done;
 			}
 		}
+		if (strcasecmp(lpcdev, pctestdev_getname()) == 0) {
+			asprintf(&node_name, "lpc.%s", pctestdev_getname());
+			set_config_bool(node_name, true);
+			free(node_name);
+			error = 0;
+			goto done;
+		}
 	}
 
 done:
-	if (error)
-		free(cpy);
+	free(cpy);
 
 	return (error);
 }
 
 void
-lpc_print_supported_devices()
+lpc_print_supported_devices(void)
 {
 	size_t i;
 
 	printf("bootrom\n");
 	for (i = 0; i < LPC_UART_NUM; i++)
 		printf("%s\n", lpc_uart_names[i]);
+	printf("tpm\n");
+	printf("%s\n", pctestdev_getname());
 }
 
 const char *
 lpc_bootrom(void)
 {
 
-	return (romfile);
+	return (get_config_value("lpc.bootrom"));
+}
+
+const char *
+lpc_fwcfg(void)
+{
+	return (get_config_value("lpc.fwcfg"));
 }
 
 static void
@@ -146,17 +211,17 @@ lpc_uart_intr_assert(void *arg)
 }
 
 static void
-lpc_uart_intr_deassert(void *arg)
+lpc_uart_intr_deassert(void *arg __unused)
 {
-	/* 
+	/*
 	 * The COM devices on the LPC bus generate edge triggered interrupts,
 	 * so nothing more to do here.
 	 */
 }
 
 static int
-lpc_uart_io_handler(struct vmctx *ctx, int vcpu, int in, int port, int bytes,
-		    uint32_t *eax, void *arg)
+lpc_uart_io_handler(struct vmctx *ctx __unused, int in,
+    int port, int bytes, uint32_t *eax, void *arg)
 {
 	int offset;
 	struct lpc_uart_softc *sc = arg;
@@ -206,14 +271,25 @@ lpc_init(struct vmctx *ctx)
 {
 	struct lpc_uart_softc *sc;
 	struct inout_port iop;
-	const char *name;
+	const char *backend, *name;
+	char *node_name;
 	int unit, error;
+	const nvlist_t *nvl;
 
-	if (romfile != NULL) {
-		error = bootrom_init(ctx, romfile);
+	nvl = find_config_node("lpc");
+#ifndef __FreeBSD__
+	if (nvl != NULL && nvlist_exists((nvlist_t *)nvl, "bootrom")) {
+		error = bootrom_loadrom(ctx, nvl);
 		if (error)
 			return (error);
 	}
+#else
+	if (nvl != NULL && nvlist_exists(nvl, "bootrom")) {
+		error = bootrom_loadrom(ctx, nvl);
+		if (error)
+			return (error);
+	}
+#endif
 
 	/* COM1 and COM2 */
 	for (unit = 0; unit < LPC_UART_NUM; unit++) {
@@ -221,8 +297,8 @@ lpc_init(struct vmctx *ctx)
 		name = lpc_uart_names[unit];
 
 		if (uart_legacy_alloc(unit, &sc->iobase, &sc->irq) != 0) {
-			fprintf(stderr, "Unable to allocate resources for "
-			    "LPC device %s\n", name);
+			EPRINTLN("Unable to allocate resources for "
+			    "LPC device %s", name);
 			return (-1);
 		}
 		pci_irq_reserve(sc->irq);
@@ -230,9 +306,12 @@ lpc_init(struct vmctx *ctx)
 		sc->uart_softc = uart_init(lpc_uart_intr_assert,
 				    lpc_uart_intr_deassert, sc);
 
-		if (uart_set_backend(sc->uart_softc, sc->opts) != 0) {
-			fprintf(stderr, "Unable to initialize backend '%s' "
-			    "for LPC device %s\n", sc->opts, name);
+		asprintf(&node_name, "lpc.%s.path", name);
+		backend = get_config_value(node_name);
+		free(node_name);
+		if (uart_set_backend(sc->uart_softc, backend) != 0) {
+			EPRINTLN("Unable to initialize backend '%s' "
+			    "for LPC device %s", backend, name);
 			return (-1);
 		}
 
@@ -248,6 +327,15 @@ lpc_init(struct vmctx *ctx)
 		assert(error == 0);
 		sc->enabled = 1;
 	}
+
+	/* pc-testdev */
+	asprintf(&node_name, "lpc.%s", pctestdev_getname());
+	if (get_config_bool_default(node_name, false)) {
+		error = pctestdev_init(ctx);
+		if (error)
+			return (error);
+	}
+	free(node_name);
 
 	return (0);
 }
@@ -356,7 +444,7 @@ pci_lpc_uart_dsdt(void)
 		if (!sc->enabled)
 			continue;
 		dsdt_line("");
-		dsdt_line("Device (%s)", lpc_uart_names[unit]);
+		dsdt_line("Device (%s)", lpc_uart_acpi_names[unit]);
 		dsdt_line("{");
 		dsdt_line("  Name (_HID, EisaId (\"PNP0501\"))");
 		dsdt_line("  Name (_UID, %d)", unit + 1);
@@ -373,8 +461,7 @@ pci_lpc_uart_dsdt(void)
 LPC_DSDT(pci_lpc_uart_dsdt);
 
 static int
-pci_lpc_cfgwrite(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
-		  int coff, int bytes, uint32_t val)
+pci_lpc_cfgwrite(struct pci_devinst *pi, int coff, int bytes, uint32_t val)
 {
 	int pirq_pin;
 
@@ -385,7 +472,7 @@ pci_lpc_cfgwrite(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
 		if (coff >= 0x68 && coff <= 0x6b)
 			pirq_pin = coff - 0x68 + 5;
 		if (pirq_pin != 0) {
-			pirq_write(ctx, pirq_pin, val);
+			pirq_write(pi->pi_vmctx, pirq_pin, val);
 			pci_set_cfgdata8(pi, coff, pirq_read(pirq_pin));
 			return (0);
 		}
@@ -394,30 +481,84 @@ pci_lpc_cfgwrite(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
 }
 
 static void
-pci_lpc_write(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
-	       int baridx, uint64_t offset, int size, uint64_t value)
+pci_lpc_write(struct pci_devinst *pi __unused, int baridx __unused,
+    uint64_t offset __unused, int size __unused, uint64_t value __unused)
 {
 }
 
 static uint64_t
-pci_lpc_read(struct vmctx *ctx, int vcpu, struct pci_devinst *pi,
-	      int baridx, uint64_t offset, int size)
+pci_lpc_read(struct pci_devinst *pi __unused, int baridx __unused,
+    uint64_t offset __unused, int size __unused)
 {
 	return (0);
 }
 
 #define	LPC_DEV		0x7000
 #define	LPC_VENDOR	0x8086
+#define LPC_REVID	0x00
+#define LPC_SUBVEND_0	0x0000
+#define LPC_SUBDEV_0	0x0000
+
+#ifdef	__FreeBSD__
+static int
+pci_lpc_get_sel(struct pcisel *const sel)
+{
+	assert(sel != NULL);
+
+	memset(sel, 0, sizeof(*sel));
+
+	for (uint8_t slot = 0; slot <= PCI_SLOTMAX; ++slot) {
+		uint8_t max_func = 0;
+
+		sel->pc_dev = slot;
+		sel->pc_func = 0;
+
+		if (read_config(sel, PCIR_HDRTYPE, 1) & PCIM_MFDEV)
+			max_func = PCI_FUNCMAX;
+
+		for (uint8_t func = 0; func <= max_func; ++func) {
+			sel->pc_func = func;
+
+			if ((read_config(sel, PCIR_CLASS, 1) == PCIC_BRIDGE) &&
+			    (read_config(sel, PCIR_SUBCLASS, 1) ==
+				PCIS_BRIDGE_ISA)) {
+				return (0);
+			}
+		}
+	}
+
+	warnx("%s: Unable to find host selector of LPC bridge.", __func__);
+
+	return (-1);
+}
+#else
+/*
+ * This function is used to find the PCI selector for the host's LPC so that
+ * its various IDs can be used to configure the guest LPC with the same values
+ * when the `host` keyword is used in the configuration.
+ * On illumos we always just report that we cannot find the host LPC. This is
+ * likely to be true in the case that we're running in a zone anyway.
+ */
+static int
+pci_lpc_get_sel(struct pcisel *const sel __unused)
+{
+	return (-1);
+}
+#endif
 
 static int
-pci_lpc_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts)
+pci_lpc_init(struct pci_devinst *pi, nvlist_t *nvl)
 {
+	struct pcisel sel = { 0 };
+	struct pcisel *selp = NULL;
+	uint16_t device, subdevice, subvendor, vendor;
+	uint8_t revid;
 
 	/*
 	 * Do not allow more than one LPC bridge to be configured.
 	 */
 	if (lpc_bridge != NULL) {
-		fprintf(stderr, "Only one LPC bridge is allowed.\n");
+		EPRINTLN("Only one LPC bridge is allowed.");
 		return (-1);
 	}
 
@@ -427,18 +568,32 @@ pci_lpc_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts)
 	 * all legacy i/o ports behind bus 0.
 	 */
 	if (pi->pi_bus != 0) {
-		fprintf(stderr, "LPC bridge can be present only on bus 0.\n");
+		EPRINTLN("LPC bridge can be present only on bus 0.");
 		return (-1);
 	}
 
-	if (lpc_init(ctx) != 0)
+	if (lpc_init(pi->pi_vmctx) != 0)
 		return (-1);
 
+	if (pci_lpc_get_sel(&sel) == 0)
+		selp = &sel;
+
+	vendor = pci_config_read_reg(selp, nvl, PCIR_VENDOR, 2, LPC_VENDOR);
+	device = pci_config_read_reg(selp, nvl, PCIR_DEVICE, 2, LPC_DEV);
+	revid = pci_config_read_reg(selp, nvl, PCIR_REVID, 1, LPC_REVID);
+	subvendor = pci_config_read_reg(selp, nvl, PCIR_SUBVEND_0, 2,
+	    LPC_SUBVEND_0);
+	subdevice = pci_config_read_reg(selp, nvl, PCIR_SUBDEV_0, 2,
+	    LPC_SUBDEV_0);
+
 	/* initialize config space */
-	pci_set_cfgdata16(pi, PCIR_DEVICE, LPC_DEV);
-	pci_set_cfgdata16(pi, PCIR_VENDOR, LPC_VENDOR);
+	pci_set_cfgdata16(pi, PCIR_VENDOR, vendor);
+	pci_set_cfgdata16(pi, PCIR_DEVICE, device);
 	pci_set_cfgdata8(pi, PCIR_CLASS, PCIC_BRIDGE);
 	pci_set_cfgdata8(pi, PCIR_SUBCLASS, PCIS_BRIDGE_ISA);
+	pci_set_cfgdata8(pi, PCIR_REVID, revid);
+	pci_set_cfgdata16(pi, PCIR_SUBVEND_0, subvendor);
+	pci_set_cfgdata16(pi, PCIR_SUBDEV_0, subdevice);
 
 	lpc_bridge = pi;
 
@@ -470,7 +625,7 @@ lpc_pirq_routed(void)
 		pci_set_cfgdata8(lpc_bridge, 0x68 + pin, pirq_read(pin + 5));
 }
 
-struct pci_devemu pci_de_lpc = {
+static const struct pci_devemu pci_de_lpc = {
 	.pe_emu =	"lpc",
 	.pe_init =	pci_lpc_init,
 	.pe_write_dsdt = pci_lpc_write_dsdt,

@@ -41,6 +41,13 @@ YACCPAR=	yaccpar
 
 include ../../../../lib/Makefile.lib
 
+COMPATLINKS=	usr/ccs/lib/liby.so
+COMPATLINKS64=	usr/ccs/lib/$(MACH64)/liby.so
+
+$(ROOT)/usr/ccs/lib/liby.so := COMPATLINKTARGET=../../lib/liby.so.1
+$(ROOT)/usr/ccs/lib/$(MACH64)/liby.so:= \
+	COMPATLINKTARGET=../../../lib/$(MACH64)/liby.so.1
+
 SRCDIR =	../common
 
 # Override default source file derivation rule (in Makefile.lib)
@@ -65,11 +72,6 @@ $(PROG):=	LDLIBS = $(LDLIBS.cmd)
 CSTD= $(CSTD_GNU99)
 CFLAGS += $(CCVERBOSE)
 CFLAGS64 += $(CCVERBOSE)
-CERRWARN += -_gcc=-Wno-parentheses
-CERRWARN += $(CNOWARN_UNINIT)
-
-# not linted
-SMATCH=off
 
 $(ROOTPROG):= FILEMODE = 0555
 

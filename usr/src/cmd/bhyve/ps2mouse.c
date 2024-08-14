@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2015 Tycho Nightingale <tycho.nightingale@pluribusnetworks.com>
  * Copyright (c) 2015 Nahanni Systems Inc.
@@ -28,7 +28,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/types.h>
 
@@ -42,6 +41,8 @@ __FBSDID("$FreeBSD$");
 
 #include "atkbdc.h"
 #include "console.h"
+#include "debug.h"
+#include "ps2mouse.h"
 
 /* mouse device commands */
 #define	PS2MC_RESET_DEV		0xff
@@ -289,8 +290,8 @@ ps2mouse_write(struct ps2mouse_softc *sc, uint8_t val, int insert)
 			fifo_put(sc, PS2MC_ACK);
 			break;
 		default:
-			fprintf(stderr, "Unhandled ps2 mouse current "
-			    "command byte 0x%02x\n", val);
+			EPRINTLN("Unhandled ps2 mouse current "
+			    "command byte 0x%02x", val);
 			break;
 		}
 		sc->curcmd = 0;
@@ -358,8 +359,8 @@ ps2mouse_write(struct ps2mouse_softc *sc, uint8_t val, int insert)
 			break;
 		default:
 			fifo_put(sc, PS2MC_ACK);
-			fprintf(stderr, "Unhandled ps2 mouse command "
-			    "0x%02x\n", val);
+			EPRINTLN("Unhandled ps2 mouse command "
+			    "0x%02x", val);
 			break;
 		}
 	}

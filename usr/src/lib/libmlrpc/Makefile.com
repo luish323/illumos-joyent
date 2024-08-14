@@ -23,7 +23,7 @@
 # Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
 #
-# Copyright 2013 Nexenta Systems, Inc.  All rights reserved.
+# Copyright 2020 Tintri by DDN, Inc. All rights reserved.
 #
 
 LIBRARY =	libmlrpc.a
@@ -31,6 +31,7 @@ VERS =		.2
 
 OBJS_COMMON =			\
 	mlrpc_clh.o		\
+	ndr_auth.o		\
 	ndr_client.o		\
 	ndr_heap.o		\
 	ndr_marshal.o		\
@@ -47,13 +48,12 @@ CLEANFILES += $(NDLLIST:%=%_ndr.c)
 
 include ../../Makefile.lib
 
-LIBS=		$(DYNLIB) $(LINTLIB)
+LIBS=		$(DYNLIB)
 
 LDLIBS +=	-lsmbfs -luuid -lc
 
 SRCDIR=		../common
 SRCS=   $(OBJS_COMMON:%.o=$(SRCDIR)/%.c)
-$(LINTLIB) := SRCS = $(SRCDIR)/$(LINTSRC)
 
 NDLDIR =	$(SRCDIR)
 
@@ -63,7 +63,6 @@ CPPFLAGS += $(INCS) -D_REENTRANT
 
 all:	$(LIBS)
 
-lint:	lintcheck
 
 include ../../Makefile.targ
 

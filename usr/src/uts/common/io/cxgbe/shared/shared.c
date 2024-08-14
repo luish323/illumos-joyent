@@ -32,17 +32,19 @@
 static int rxbuf_ctor(void *, void *, int);
 static void rxbuf_dtor(void *, void *);
 
-void
+int
 cxgb_printf(dev_info_t *dip, int level, char *f, ...)
 {
 	va_list list;
 	char fmt[128];
+	int rv;
 
-	(void) snprintf(fmt, sizeof (fmt), "%s%d: %s", ddi_driver_name(dip),
+	rv = snprintf(fmt, sizeof (fmt), "%s%d: %s", ddi_driver_name(dip),
 	    ddi_get_instance(dip), f);
 	va_start(list, f);
 	vcmn_err(level, fmt, list);
 	va_end(list);
+	return (rv);
 }
 
 kmem_cache_t *
@@ -105,10 +107,10 @@ rxbuf_ctor(void *arg1, void *arg2, int kmflag)
 	int (*callback)(caddr_t);
 	int rc = ENOMEM;
 
-	if (kmflag & KM_SLEEP)
-		callback = DDI_DMA_SLEEP;
-	else
+	if ((kmflag & KM_NOSLEEP) != 0)
 		callback = DDI_DMA_DONTWAIT;
+	else
+		callback = DDI_DMA_SLEEP;
 
 	rc = ddi_dma_alloc_handle(p->dip, &p->dma_attr_rx, callback, 0,
 	    &rxb->dhdl);

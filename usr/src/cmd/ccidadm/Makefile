@@ -11,6 +11,7 @@
 
 #
 # Copyright 2019, Joyent, Inc.
+# Copyright 2024 Oxide Computer Company
 #
 
 PROG= ccidadm
@@ -18,14 +19,11 @@ PROG= ccidadm
 include ../Makefile.cmd
 include ../Makefile.ctf
 
-ROOTCMDDIR = $(ROOTLIB)/ccid
 CFLAGS += $(CCVERBOSE)
 LDLIBS += -lofmt -lcmdutils
-SRCS = ccidadm.c atr.c
+SRCS = ccidadm.c atr.c ilstr.o
 OBJS = $(SRCS:%.c=%.o)
 CPPFLAGS += -I$(SRC)/common/ccid
-
-ROOTCCIDFILES = $(PROG:%=$(ROOTCMDDIR)/%)
 
 .KEEP_STATE:
 
@@ -41,11 +39,15 @@ $(PROG): $(OBJS)
 	$(COMPILE.c) $<
 	$(POST_PROCESS_O)
 
+%.o: $(SRC)/common/ilstr/%.c
+	$(COMPILE.c) $<
+	$(POST_PROCESS_O)
+
 all: $(PROG)
 
-install: all $(ROOTCMD)
+install: all $(ROOTUSRSBINPROG)
 
 clean:
-	$(RM) $(OBJS)
+	$(RM) $(OBJS) $(PROG)
 
 include ../Makefile.targ

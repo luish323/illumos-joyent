@@ -23,8 +23,9 @@
  * Copyright (c) 1995, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2015, Joyent, Inc. All rights reserved.
  * Copyright 2016 Nexenta Systems, Inc.  All rights reserved.
- * Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
  * Copyright 2015, Joyent, Inc. All rights reserved.
+ * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2022 Garrett D'Amore
  */
 
 #include <sys/types.h>
@@ -73,7 +74,6 @@
 
 #include <c2/audit.h>
 
-#include <fs/sockfs/nl7c.h>
 #include <fs/sockfs/sockcommon.h>
 #include <fs/sockfs/sockfilter_impl.h>
 #include <fs/sockfs/socktpi.h>
@@ -95,7 +95,6 @@
 #define	SO_LOCK_WAKEUP_TIME	3000	/* Wakeup time in milliseconds */
 
 dev_t sockdev;	/* For fsid in getattr */
-int sockfs_defer_nl7c_init = 0;
 
 struct socklist socklist;
 
@@ -112,8 +111,6 @@ static int sockfs_snapshot(kstat_t *, void *, int);
 extern smod_info_t *sotpi_smod_create(void);
 
 extern void sendfile_init();
-
-extern void nl7c_init(void);
 
 extern int modrootloaded;
 
@@ -283,11 +280,6 @@ sockinit(int fstype, char *name)
 
 	mutex_init(&socklist.sl_lock, NULL, MUTEX_DEFAULT, NULL);
 	sendfile_init();
-	if (!modrootloaded) {
-		sockfs_defer_nl7c_init = 1;
-	} else {
-		nl7c_init();
-	}
 
 	/* Initialize socket filters */
 	sof_init();
@@ -472,7 +464,8 @@ so_ux_lookup(struct sonode *so, struct sockaddr_un *soun, int checkaccess,
 		 * vnode. This check is not done in BSD but it is required
 		 * by X/Open.
 		 */
-		if (error = VOP_ACCESS(vp, VREAD|VWRITE, 0, CRED(), NULL)) {
+		error = VOP_ACCESS(vp, VREAD|VWRITE, 0, CRED(), NULL);
+		if (error != 0) {
 			eprintsoline(so, error);
 			goto done2;
 		}
@@ -962,7 +955,46 @@ so_closefds(void *control, t_uscalar_t controllen, int oldflg,
 			    (int)CMSG_CONTENTLEN(cmsg),
 			    startoff - (int)sizeof (struct cmsghdr));
 		}
-		startoff -= cmsg->cmsg_len;
+		startoff -= ROUNDUP_cmsglen(cmsg->cmsg_len);
+	}
+}
+
+/*
+ * Handle truncation of a cmsg when the receive buffer is not big enough.
+ * Adjust the cmsg_len header field in the last cmsg that will be included in
+ * the buffer to reflect the number of bytes included.
+ */
+void
+so_truncatecmsg(void *control, t_uscalar_t controllen, uint_t maxlen)
+{
+	struct cmsghdr *cmsg;
+	uint_t len = 0;
+
+	if (control == NULL)
+		return;
+
+	for (cmsg = control;
+	    CMSG_VALID(cmsg, control, (uintptr_t)control + controllen);
+	    cmsg = CMSG_NEXT(cmsg)) {
+
+		len += ROUNDUP_cmsglen(cmsg->cmsg_len);
+
+		if (len > maxlen) {
+			/*
+			 * This cmsg is the last one that will be included in
+			 * the truncated buffer.
+			 */
+			socklen_t diff = len - maxlen;
+
+			if (diff < CMSG_CONTENTLEN(cmsg)) {
+				dprint(1, ("so_truncatecmsg: %d -> %d\n",
+				    cmsg->cmsg_len, cmsg->cmsg_len - diff));
+				cmsg->cmsg_len -= diff;
+			} else {
+				cmsg->cmsg_len = sizeof (struct cmsghdr);
+			}
+			break;
+		}
 	}
 }
 
@@ -1282,8 +1314,24 @@ so_opt2cmsg(mblk_t *mp, void *opt, t_uscalar_t optlen, int oldflg,
 
 			cmsg->cmsg_level = tohp->level;
 			cmsg->cmsg_type = tohp->name;
-			cmsg->cmsg_len = (socklen_t)(_TPI_TOPT_DATALEN(tohp) +
-			    sizeof (struct cmsghdr));
+			cmsg->cmsg_len = (socklen_t)sizeof (struct cmsghdr);
+			if (tohp->level == IPPROTO_IP &&
+			    (tohp->name == IP_RECVTOS ||
+			    tohp->name == IP_RECVTTL)) {
+				/*
+				 * The data for these is a uint8_t but, in
+				 * order to maintain alignment for any
+				 * following TPI primitives in the message,
+				 * there will be some trailing padding bytes
+				 * which are included in the TPI_TOPT_DATALEN.
+				 * For these types, we set the cmsg_len
+				 * explicitly to the correct value.
+				 */
+				cmsg->cmsg_len += (socklen_t)sizeof (uint8_t);
+			} else {
+				cmsg->cmsg_len +=
+				    (socklen_t)(_TPI_TOPT_DATALEN(tohp));
+			}
 
 			/* copy content to control data part */
 			bcopy(&tohp[1], CMSG_CONTENT(cmsg),
@@ -1930,7 +1978,7 @@ soreadfile(file_t *fp, uchar_t *buf, u_offset_t fileoff, int *err, size_t size)
 
 	if (error == EINTR && cnt != 0)
 		error = 0;
-out:
+
 	if (error != 0) {
 		*err = error;
 		return (0);

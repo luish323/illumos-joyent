@@ -23,6 +23,8 @@
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2020 Joyent, Inc.
  * Copyright 2015 Garrett D'Amore <garrett@damore.org>
+ * Copyright 2020 RackTop Systems, Inc.
+ * Copyright 2024 Oxide Computer Company
  */
 
 /*
@@ -321,6 +323,7 @@
 #include <sys/cpupart.h>
 #include <inet/wifi_ioctl.h>
 #include <net/wpa.h>
+#include <sys/mac_ether.h>
 
 #define	IMPL_HASHSZ	67	/* prime */
 
@@ -377,7 +380,8 @@ static int i_mac_constructor(void *, void *, int);
 static void i_mac_destructor(void *, void *);
 static int i_mac_ring_ctor(void *, void *, int);
 static void i_mac_ring_dtor(void *, void *);
-static mblk_t *mac_rx_classify(mac_impl_t *, mac_resource_handle_t, mblk_t *);
+static flow_entry_t *mac_rx_classify(mac_impl_t *, mac_resource_handle_t,
+    mblk_t *);
 void mac_tx_client_flush(mac_client_impl_t *);
 void mac_tx_client_block(mac_client_impl_t *);
 static void mac_rx_ring_quiesce(mac_ring_t *, uint_t);
@@ -2740,7 +2744,7 @@ mac_disable(mac_handle_t mh)
  * incoming packets to the right flow.
  */
 /* ARGSUSED */
-static mblk_t *
+static flow_entry_t *
 mac_rx_classify(mac_impl_t *mip, mac_resource_handle_t mrh, mblk_t *mp)
 {
 	flow_entry_t	*flent = NULL;
@@ -2748,10 +2752,7 @@ mac_rx_classify(mac_impl_t *mip, mac_resource_handle_t mrh, mblk_t *mp)
 	int		err;
 
 	err = mac_flow_lookup(mip->mi_flow_tab, mp, flags, &flent);
-	if (err != 0) {
-		/* no registered receive function */
-		return (mp);
-	} else {
+	if (err == 0) {
 		mac_client_impl_t	*mcip;
 
 		/*
@@ -2766,39 +2767,81 @@ mac_rx_classify(mac_impl_t *mip, mac_resource_handle_t mrh, mblk_t *mp)
 			flent = mcip->mci_flent;
 			FLOW_TRY_REFHOLD(flent, err);
 			if (err != 0)
-				return (mp);
+				return (NULL);
 		}
-		(flent->fe_cb_fn)(flent->fe_cb_arg1, flent->fe_cb_arg2, mp,
-		    B_FALSE);
-		FLOW_REFRELE(flent);
 	}
-	return (NULL);
+
+	/* flent will be NULL if mac_flow_lookup fails to find a match. */
+	return (flent);
 }
 
 mblk_t *
 mac_rx_flow(mac_handle_t mh, mac_resource_handle_t mrh, mblk_t *mp_chain)
 {
 	mac_impl_t	*mip = (mac_impl_t *)mh;
-	mblk_t		*bp, *bp1, **bpp, *list = NULL;
+	mblk_t		*mp_next, *tail, **unclass_nextp;
+	mblk_t		*unclass_list = NULL;
+	flow_entry_t	*prev_flent = NULL;
 
 	/*
 	 * We walk the chain and attempt to classify each packet.
 	 * The packets that couldn't be classified will be returned
 	 * back to the caller.
+	 *
+	 * We want to batch together runs of matched packets bound
+	 * for the same flent into the same callback. Unmatched
+	 * packets should not break an ongoing chain.
 	 */
-	bp = mp_chain;
-	bpp = &list;
-	while (bp != NULL) {
-		bp1 = bp;
-		bp = bp->b_next;
-		bp1->b_next = NULL;
+	mp_next = tail = mp_chain;
+	unclass_nextp = &unclass_list;
+	while (mp_next != NULL) {
+		flow_entry_t	*flent;
+		mblk_t		*mp = mp_next;
+		mp_next = mp_next->b_next;
+		mp->b_next = NULL;
 
-		if (mac_rx_classify(mip, mrh, bp1) != NULL) {
-			*bpp = bp1;
-			bpp = &bp1->b_next;
+		flent = mac_rx_classify(mip, mrh, mp);
+		if (flent == NULL) {
+			/*
+			 * Add the current mblk_t to the end of the
+			 * unclassified packet chain at 'unclass_list'.
+			 * Move the current head forward if we have not
+			 * yet made any match.
+			 */
+			if (prev_flent == NULL) {
+				mp_chain = mp_next;
+				tail = mp_next;
+			}
+			*unclass_nextp = mp;
+			unclass_nextp = &mp->b_next;
+			continue;
 		}
+
+		if (prev_flent == NULL || flent == prev_flent) {
+			/* Either the first valid match, or in the same chain */
+			if (prev_flent != NULL)
+				FLOW_REFRELE(prev_flent);
+			if (mp != tail)
+				tail->b_next = mp;
+		} else {
+			ASSERT3P(prev_flent, !=, NULL);
+			(prev_flent->fe_cb_fn)(prev_flent->fe_cb_arg1,
+			    prev_flent->fe_cb_arg2, mp_chain, B_FALSE);
+			FLOW_REFRELE(prev_flent);
+			mp_chain = mp;
+		}
+
+		prev_flent = flent;
+		tail = mp;
 	}
-	return (list);
+	/* Last chain */
+	if (mp_chain != NULL) {
+		ASSERT3P(prev_flent, !=, NULL);
+		(prev_flent->fe_cb_fn)(prev_flent->fe_cb_arg1,
+		    prev_flent->fe_cb_arg2, mp_chain, B_FALSE);
+		FLOW_REFRELE(prev_flent);
+	}
+	return (unclass_list);
 }
 
 static int
@@ -3341,10 +3384,14 @@ mac_prop_check_size(mac_prop_id_t id, uint_t valsize, boolean_t is_range)
 	case MAC_PROP_FLOWCTRL:
 		minsize = sizeof (link_flowctrl_t);
 		break;
-	case MAC_PROP_ADV_5000FDX_CAP:
-	case MAC_PROP_EN_5000FDX_CAP:
-	case MAC_PROP_ADV_2500FDX_CAP:
-	case MAC_PROP_EN_2500FDX_CAP:
+	case MAC_PROP_ADV_FEC_CAP:
+	case MAC_PROP_EN_FEC_CAP:
+		minsize = sizeof (link_fec_t);
+		break;
+	case MAC_PROP_ADV_400GFDX_CAP:
+	case MAC_PROP_EN_400GFDX_CAP:
+	case MAC_PROP_ADV_200GFDX_CAP:
+	case MAC_PROP_EN_200GFDX_CAP:
 	case MAC_PROP_ADV_100GFDX_CAP:
 	case MAC_PROP_EN_100GFDX_CAP:
 	case MAC_PROP_ADV_50GFDX_CAP:
@@ -3355,18 +3402,22 @@ mac_prop_check_size(mac_prop_id_t id, uint_t valsize, boolean_t is_range)
 	case MAC_PROP_EN_25GFDX_CAP:
 	case MAC_PROP_ADV_10GFDX_CAP:
 	case MAC_PROP_EN_10GFDX_CAP:
+	case MAC_PROP_ADV_5000FDX_CAP:
+	case MAC_PROP_EN_5000FDX_CAP:
+	case MAC_PROP_ADV_2500FDX_CAP:
+	case MAC_PROP_EN_2500FDX_CAP:
 	case MAC_PROP_ADV_1000HDX_CAP:
 	case MAC_PROP_EN_1000HDX_CAP:
 	case MAC_PROP_ADV_100FDX_CAP:
 	case MAC_PROP_EN_100FDX_CAP:
+	case MAC_PROP_ADV_100T4_CAP:
+	case MAC_PROP_EN_100T4_CAP:
 	case MAC_PROP_ADV_100HDX_CAP:
 	case MAC_PROP_EN_100HDX_CAP:
 	case MAC_PROP_ADV_10FDX_CAP:
 	case MAC_PROP_EN_10FDX_CAP:
 	case MAC_PROP_ADV_10HDX_CAP:
 	case MAC_PROP_EN_10HDX_CAP:
-	case MAC_PROP_ADV_100T4_CAP:
-	case MAC_PROP_EN_100T4_CAP:
 		minsize = sizeof (uint8_t);
 		break;
 	case MAC_PROP_PVID:
@@ -3453,6 +3504,14 @@ mac_prop_check_size(mac_prop_id_t id, uint_t valsize, boolean_t is_range)
 	case MAC_PROP_VN_PROMISC_FILTERED:
 		minsize = sizeof (boolean_t);
 		break;
+	case MAC_PROP_MEDIA:
+		/*
+		 * Our assumption is that each class of device uses an enum and
+		 * that all enums will be the same size so it is OK to use a
+		 * single one.
+		 */
+		minsize = sizeof (mac_ether_media_t);
+		break;
 	}
 
 	return (valsize >= minsize);
@@ -3526,6 +3585,28 @@ mac_set_prop(mac_handle_t mh, mac_prop_id_t id, char *name, void *val,
 		else
 			mip->mi_ldecay = learnval;
 		err = 0;
+		break;
+	}
+
+	case MAC_PROP_ADV_FEC_CAP:
+	case MAC_PROP_EN_FEC_CAP: {
+		link_fec_t fec;
+
+		ASSERT(valsize >= sizeof (link_fec_t));
+
+		/*
+		 * fec cannot be zero, and auto must be set exclusively.
+		 */
+		bcopy(val, &fec, sizeof (link_fec_t));
+		if (fec == 0)
+			return (EINVAL);
+		if ((fec & LINK_FEC_AUTO) != 0 && (fec & ~LINK_FEC_AUTO) != 0)
+			return (EINVAL);
+
+		if (mip->mi_callbacks->mc_callbacks & MC_SETPROP) {
+			err = mip->mi_callbacks->mc_setprop(mip->mi_driver,
+			    name, id, valsize, val);
+		}
 		break;
 	}
 
@@ -3794,6 +3875,7 @@ mac_prop_info(mac_handle_t mh, mac_prop_id_t id, char *name,
 		return (0);
 
 	case MAC_PROP_STATUS:
+	case MAC_PROP_MEDIA:
 		if (perm != NULL)
 			*perm = MAC_PROP_PERM_READ;
 		return (0);
@@ -4741,7 +4823,7 @@ mac_bridge_tx(mac_impl_t *mip, mac_ring_handle_t rh, mblk_t *mp)
 		 * The bridge may place this mblk on a provider's Tx
 		 * path, a mac's Rx path, or both. Since we don't have
 		 * enough information at this point, we can't be sure
-		 * that the desination(s) are capable of handling the
+		 * that the destination(s) are capable of handling the
 		 * hardware offloads requested by the mblk. We emulate
 		 * them here as it is the safest choice. In the
 		 * future, if bridge performance becomes a priority,

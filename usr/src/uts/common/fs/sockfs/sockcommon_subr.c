@@ -665,7 +665,7 @@ so_dequeue_msg(struct sonode *so, mblk_t **mctlp, struct uio *uiop,
 	mblk_t	*savemp, *savemptail;
 	mblk_t	*new_msg_head;
 	mblk_t	*new_msg_last_head;
-	mblk_t	*last_tail;
+	mblk_t	*last_tail = NULL;
 	boolean_t partial_read;
 	boolean_t reset_atmark = B_FALSE;
 	int more = 0;
@@ -940,6 +940,11 @@ try_again:
 			mutex_exit(&so->so_lock);
 			return (error);
 		}
+
+		/* See if new data has arrived in the meantime */
+		if (so->so_rcv_head != NULL)
+			goto again1;
+
 		/*
 		 * No pending data. Return right away for nonblocking
 		 * socket, otherwise sleep waiting for data.
@@ -956,9 +961,6 @@ try_again:
 					goto done;
 				}
 
-				if (so->so_rcv_head != NULL) {
-					goto again1;
-				}
 				so->so_rcv_wakeup = B_TRUE;
 				so->so_rcv_wanted = uiop->uio_resid;
 				if (so->so_rcvtimeo == 0) {

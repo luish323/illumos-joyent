@@ -22,9 +22,11 @@
 # Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
 #
-# Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
+# Copyright 2014-2021 Tintri by DDN, Inc. All rights reserved.
 #
 # Copyright (c) 2018, Joyent, Inc.
+#
+# Copyright 2020 RackTop Systems, Inc.
 
 LIBRARY =	libfksmbsrv.a
 VERS =		.1
@@ -36,9 +38,12 @@ OBJS_LOCAL = \
 		fksmb_idmap.o \
 		fksmb_init.o \
 		fksmb_kdoor.o \
+		fksmb_preauth_pkcs.o \
 		fksmb_sign_pkcs.o \
+		fake_ksocket.o \
 		fake_lookup.o \
 		fake_nblk.o \
+		fake_stream.o \
 		fake_vfs.o \
 		fake_vnode.o \
 		fake_vop.o \
@@ -161,6 +166,7 @@ OBJS_FS_SMBSRV = \
 		smb2_tree_disconn.o \
 		smb2_write.o \
 	        \
+	        smb3_kdf.o \
 	        smb3_encrypt.o
 
 # Can't just link with -lsmb because of user vs kernel API
@@ -217,10 +223,6 @@ CPPFLAGS	= $(CPPFLAGS.first)
 INCS += -I$(SRC)/uts/common
 INCS += -I$(SRC)/common/smbsrv
 INCS += -I$(SRC)/common
-
-LINTCHECKFLAGS += -erroff=E_INCONS_ARG_DECL2
-LINTCHECKFLAGS += -erroff=E_INCONS_VAL_TYPE_DECL2
-LINTCHECKFLAGS += -erroff=E_INCONS_VAL_TYPE_USED2
 
 LDLIBS +=	$(MACH_LDLIBS)
 LDLIBS +=	-lfakekernel -lidmap -lcmdutils

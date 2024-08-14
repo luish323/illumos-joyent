@@ -55,27 +55,6 @@
 #include <sys/ds_impl.h>
 
 /*
- * All DS ports in the system
- *
- * The list of DS ports is read in from the MD when the DS module is
- * initialized and is never modified. This eliminates the need for
- * locking to access the port array itself. Access to the individual
- * ports are synchronized at the port level.
- */
-ds_port_t	ds_ports[DS_MAX_PORTS];
-ds_portset_t	ds_allports;	/* all DS ports in the system */
-
-/*
- * Table of registered services
- *
- * Locking: Accesses to the table of services are synchronized using
- *   a mutex lock. The reader lock must be held when looking up service
- *   information in the table. The writer lock must be held when any
- *   service information is being modified.
- */
-ds_svcs_t	ds_svcs;
-
-/*
  * Taskq for internal task processing
  */
 static taskq_t *ds_taskq;
@@ -493,8 +472,6 @@ static ds_log_entry_t ds_log_entry_pool[DS_LOG_NPOOL];
 static void
 ds_log_init(void)
 {
-	ds_log_entry_t	*new;
-
 	/* initialize global lock */
 	mutex_init(&ds_log.lock, NULL, MUTEX_DRIVER, NULL);
 
@@ -506,9 +483,9 @@ ds_log_init(void)
 	ds_log.nentry = 0;
 
 	/* initialize the free list */
-	for (new = ds_log_entry_pool; new < DS_LOG_POOL_END; new++) {
-		new->next = ds_log.freelist;
-		ds_log.freelist = new;
+	for (int i = 0; i < DS_LOG_NPOOL; i++) {
+		ds_log_entry_pool[i].next = ds_log.freelist;
+		ds_log.freelist = &ds_log_entry_pool[i];
 	}
 
 	mutex_exit(&ds_log.lock);

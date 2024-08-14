@@ -87,6 +87,7 @@ boolean_t ixgbe_removed(struct ixgbe_hw *);
 #define	SPEED_2_5GB		2500
 #define	SPEED_1GB		1000
 #define	SPEED_100		100
+#define	SPEED_10		10
 #define	FULL_DUPLEX		2
 
 #define	IXGBE_WRITE_FLUSH(a)	(void) IXGBE_READ_REG(a, IXGBE_STATUS)
@@ -113,7 +114,7 @@ boolean_t ixgbe_removed(struct ixgbe_hw *);
 #ifdef _BIG_ENDIAN
 #define	IXGBE_CPU_TO_LE16	BSWAP_16
 #define	IXGBE_CPU_TO_LE32	BSWAP_32
-#define	IXGBE_LE32_TO_CPUS	BSWAP_32
+#define	IXGBE_LE32_TO_CPUS(x)	*(x) = BSWAP_32(*(x))
 #define	IXGBE_CPU_TO_BE16(x)	(x)
 #define	IXGBE_CPU_TO_BE32(x)	(x)
 #define	IXGBE_BE32_TO_CPU(x)	(x)

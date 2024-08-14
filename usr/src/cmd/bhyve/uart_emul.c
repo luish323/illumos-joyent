@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2012 NetApp, Inc.
  * Copyright (c) 2013 Neel Natu <neel@freebsd.org>
@@ -26,8 +26,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $FreeBSD$
- *
  */
 /*
  * This file and its contents are supplied under the terms of the
@@ -44,7 +42,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/types.h>
 #include <dev/ic/ns16550.h>
@@ -71,14 +68,19 @@ __FBSDID("$FreeBSD$");
 
 #include "mevent.h"
 #include "uart_emul.h"
+#include "debug.h"
 
 #define	COM1_BASE	0x3F8
 #define	COM1_IRQ	4
 #define	COM2_BASE	0x2F8
 #define	COM2_IRQ	3
+#define	COM3_BASE	0x3E8
+#define	COM3_IRQ	4
+#define	COM4_BASE	0x2E8
+#define	COM4_IRQ	3
 
 #define	DEFAULT_RCLK	1843200
-#define	DEFAULT_BAUD	9600
+#define	DEFAULT_BAUD	115200
 
 #define	FCR_RX_MASK	0xC0
 
@@ -103,6 +105,8 @@ static struct {
 } uart_lres[] = {
 	{ COM1_BASE, COM1_IRQ, false},
 	{ COM2_BASE, COM2_IRQ, false},
+	{ COM3_BASE, COM3_IRQ, false},
+	{ COM4_BASE, COM4_IRQ, false},
 };
 
 #define	UART_NLDEVS	(sizeof(uart_lres) / sizeof(uart_lres[0]))
@@ -137,6 +141,7 @@ struct uart_softc {
 
 	struct fifo rxfifo;
 	struct mevent *mev;
+	struct mevent *mev_timer;
 
 	struct ttyfd tty;
 #ifndef	__FreeBSD__
@@ -178,6 +183,7 @@ ttyopen(struct ttyfd *tf)
 		tio_stdio_orig = orig;
 		atexit(ttyclose);
 	}
+	raw_stdio = 1;
 }
 
 static int
@@ -213,7 +219,7 @@ rxfifo_reset(struct uart_softc *sc, int size)
 	struct fifo *fifo;
 	ssize_t nread;
 	int error;
- 
+
 	fifo = &sc->rxfifo;
 	bzero(fifo, sizeof(struct fifo));
 	fifo->size = size;
@@ -415,8 +421,33 @@ uart_reset(struct uart_softc *sc)
 }
 
 /*
+ * Clear the IIR_RXTOUT timer, allowing uart_sock_drain() to continue
+ * processing.
+ */
+static void
+uart_intr_callback(int fd __unused, enum ev_type type __unused, void *param)
+{
+	struct uart_softc *sc = param;
+
+	pthread_mutex_lock(&sc->mtx);
+
+	mevent_delete(sc->mev_timer);
+	sc->mev_timer = NULL;
+
+	pthread_mutex_unlock(&sc->mtx);
+}
+
+/*
  * Toggle the COM port's intr pin depending on whether or not we have an
  * interrupt condition to report to the processor.
+ *
+ * For the IIR_RXTOUT path, interrupts are limited to no more than 1 per
+ * millisecond, otherwise it's possible to overflow a VM's TTY queue before it
+ * has a chance to process the incoming data, resulting in lost data.
+ *
+ * It would be nice to hook this properly into the baudrate, but until high
+ * resolution timers are supported we're effectively running at around 16000
+ * baud (one interrupt per full FIFO).
  */
 static void
 uart_toggle_intr(struct uart_softc *sc)
@@ -427,8 +458,12 @@ uart_toggle_intr(struct uart_softc *sc)
 
 	if (intr_reason == IIR_NOPEND)
 		(*sc->intr_deassert)(sc->arg);
-	else
+	else if (intr_reason != IIR_RXTOUT)
 		(*sc->intr_assert)(sc->arg);
+	else if (sc->mev_timer == NULL) {
+		(*sc->intr_assert)(sc->arg);
+		sc->mev_timer = mevent_add(1, EVF_TIMER, uart_intr_callback, sc);
+	}
 }
 
 static void
@@ -690,7 +725,7 @@ uart_sock_drain(int fd, enum ev_type ev, void *arg)
 	} else {
 		bool err_close = false;
 
-		while (rxfifo_available(sc)) {
+		while (rxfifo_available(sc) && sc->mev_timer == NULL) {
 			int res;
 
 			res = read(sc->usc_sock.clifd, &ch, 1);
@@ -805,7 +840,7 @@ int
 uart_legacy_alloc(int which, int *baseaddr, int *irq)
 {
 
-	if (which < 0 || which >= UART_NLDEVS || uart_lres[which].inuse)
+	if (which < 0 || which >= (int)UART_NLDEVS || uart_lres[which].inuse)
 		return (-1);
 
 	uart_lres[which].inuse = true;
@@ -838,7 +873,7 @@ uart_init(uart_intr_func_t intr_assert, uart_intr_func_t intr_deassert,
 static int
 uart_sock_backend(struct uart_softc *sc, const char *inopts)
 {
-	char *opts;
+	char *opts, *tofree;
 	char *opt;
 	char *nextopt;
 	char *path = NULL;
@@ -850,7 +885,7 @@ uart_sock_backend(struct uart_softc *sc, const char *inopts)
 		return (-1);
 	}
 
-	nextopt = opts;
+	tofree = nextopt = opts;
 	for (opt = strsep(&nextopt, ","); opt != NULL;
 	    opt = strsep(&nextopt, ",")) {
 		if (path == NULL && *opt == '/') {
@@ -861,13 +896,13 @@ uart_sock_backend(struct uart_softc *sc, const char *inopts)
 		 * XXX check for server and client options here.  For now,
 		 * everything is a server
 		 */
-		free(opts);
+		free(tofree);
 		return (-1);
 	}
 
 	sc->usc_sock.clifd = -1;
 	if ((sc->usc_sock.servfd = init_sock(path)) == -1) {
-		free(opts);
+		free(tofree);
 		return (-1);
 	}
 	sc->sock = true;
@@ -876,6 +911,7 @@ uart_sock_backend(struct uart_softc *sc, const char *inopts)
 	    uart_sock_accept, sc);
 	assert(sc->usc_sock.servmev != NULL);
 
+	free(tofree);
 	return (0);
 }
 #endif /* not __FreeBSD__ */
@@ -914,7 +950,7 @@ uart_stdio_backend(struct uart_softc *sc)
 }
 
 static int
-uart_tty_backend(struct uart_softc *sc, const char *opts)
+uart_tty_backend(struct uart_softc *sc, const char *path)
 {
 #ifndef WITHOUT_CAPSICUM
 	cap_rights_t rights;
@@ -922,7 +958,7 @@ uart_tty_backend(struct uart_softc *sc, const char *opts)
 #endif
 	int fd;
 
-	fd = open(opts, O_RDWR | O_NONBLOCK);
+	fd = open(path, O_RDWR | O_NONBLOCK);
 	if (fd < 0)
 		return (-1);
 
@@ -946,21 +982,21 @@ uart_tty_backend(struct uart_softc *sc, const char *opts)
 }
 
 int
-uart_set_backend(struct uart_softc *sc, const char *opts)
+uart_set_backend(struct uart_softc *sc, const char *device)
 {
 	int retval;
 
-	if (opts == NULL)
+	if (device == NULL)
 		return (0);
 
 #ifndef __FreeBSD__
-	if (strncmp("socket,", opts, 7) == 0)
-		return (uart_sock_backend(sc, opts));
+	if (strncmp("socket,", device, 7) == 0)
+		return (uart_sock_backend(sc, device));
 #endif
-	if (strcmp("stdio", opts) == 0)
+	if (strcmp("stdio", device) == 0)
 		retval = uart_stdio_backend(sc);
 	else
-		retval = uart_tty_backend(sc, opts);
+		retval = uart_tty_backend(sc, device);
 	if (retval == 0)
 		uart_opentty(sc);
 

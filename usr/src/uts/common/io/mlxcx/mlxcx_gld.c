@@ -10,7 +10,9 @@
  */
 
 /*
- * Copyright (c) 2020, the University of Queensland
+ * Copyright (c) 2021, the University of Queensland
+ * Copyright 2020 RackTop Systems, Inc.
+ * Copyright 2023 MNX Cloud, Inc.
  */
 
 /*
@@ -42,13 +44,32 @@ static char *mlxcx_priv_props[] = {
 #define	GBITS		(1000ULL * MBITS)
 
 static uint64_t
-mlxcx_speed_to_bits(mlxcx_eth_proto_t v)
+mlxcx_speed_to_bits(mlxcx_eth_proto_t proto, mlxcx_ext_eth_proto_t ext_proto)
 {
-	switch (v) {
+	/*
+	 * Older parts only used "proto", but starting with ConnectX-6, there
+	 * might be speeds & link-types in an extended set of proto bits.
+	 *
+	 * We check the old bits first because the extended bits do not report
+	 * media on links (e.g. nothing like MLXCX_EXTPROTO_100GBASE_CR2
+	 * for a 50Gbit lane).
+	 *
+	 * In the case of, e.g., 100GBASE_CR4 both proto and ext_proto have
+	 * bits set, but the extended proto bits are a generic CAUI4 indicator
+	 * that could be for CR4, KR4, etc. If we get a legitimate single-bit
+	 * value, we don't worry about ext_proto. This may change in the face
+	 * of other HW or cabling, however.
+	 */
+	switch (proto) {
+	case MLXCX_PROTO_NONE:	/* Aka "0" */
+		/* Go straight to checking ext_proto. */
+		break;
 	case MLXCX_PROTO_SGMII_100BASE:
+	case MLXCX_PROTO_100BASE_TX:
 		return (100ULL * MBITS);
 	case MLXCX_PROTO_SGMII:
 	case MLXCX_PROTO_1000BASE_KX:
+	case MLXCX_PROTO_1000BASE_T:
 		return (1000ULL * MBITS);
 	case MLXCX_PROTO_10GBASE_CX4:
 	case MLXCX_PROTO_10GBASE_KX4:
@@ -56,6 +77,7 @@ mlxcx_speed_to_bits(mlxcx_eth_proto_t v)
 	case MLXCX_PROTO_10GBASE_CR:
 	case MLXCX_PROTO_10GBASE_SR:
 	case MLXCX_PROTO_10GBASE_ER_LR:
+	case MLXCX_PROTO_10GBASE_T:
 		return (10ULL * GBITS);
 	case MLXCX_PROTO_40GBASE_CR4:
 	case MLXCX_PROTO_40GBASE_KR4:
@@ -73,10 +95,109 @@ mlxcx_speed_to_bits(mlxcx_eth_proto_t v)
 	case MLXCX_PROTO_100GBASE_CR4:
 	case MLXCX_PROTO_100GBASE_SR4:
 	case MLXCX_PROTO_100GBASE_KR4:
+	case MLXCX_PROTO_100GBASE_LR4_ER4:
 		return (100ULL * GBITS);
 	default:
+		/*
+		 * We've checked for 0 explicitly above, so don't worry here.
+		 *
+		 * There ARE legitimate single-bit values we don't support,
+		 * and should just return 0 immediately.  We will ASSERT()
+		 * that it's a single-bit value, however, since the passed-in
+		 * values are from the "operational" register, which is only
+		 * supposed to have one bit set. If the assertion fails
+		 * there's either a hardware error or a severe
+		 * misunderstanding of the register.
+		 */
+		ASSERT0((uint32_t)proto & ((uint32_t)proto - 1U));
 		return (0);
 	}
+
+	switch (ext_proto) {
+	case MLXCX_EXTPROTO_SGMII_100BASE:
+		return (100ULL * MBITS);
+	case MLXCX_EXTPROTO_1000BASE_X_SGMII:
+		return (1000ULL * MBITS);
+	case MLXCX_EXTPROTO_5GBASE_R:
+		return (5ULL * GBITS);
+	case MLXCX_EXTPROTO_10GBASE_XFI_XAUI_1:
+		return (10ULL * GBITS);
+	case MLXCX_EXTPROTO_40GBASE_XLAUI_4_XLPPI_4:
+		return (40ULL * GBITS);
+	case MLXCX_EXTPROTO_25GAUI_1_25GBASE_CR_KR:
+		return (25ULL * GBITS);
+	case MLXCX_EXTPROTO_50GAUI_2_LAUI_2_50GBASE_CR2_KR2:
+	case MLXCX_EXTPROTO_50GAUI_1_LAUI_1_50GBASE_CR_KR:
+		return (50ULL * GBITS);
+	case MLXCX_EXTPROTO_CAUI_4_100GBASE_CR4_KR4:
+	case MLXCX_EXTPROTO_100GAUI_2_100GBASE_CR2_KR2:
+	case MLXCX_EXTPROTO_100GAUI_1_100GBASE_CR_KR:
+		return (100ULL * GBITS);
+	case MLXCX_EXTPROTO_200GAUI_4_200GBASE_CR4_KR4:
+	case MLXCX_EXTPROTO_200GAUI_2_200GBASE_CR2_KR2:
+		return (200ULL * GBITS);
+	case MLXCX_EXTPROTO_400GAUI_8_400GBASE_CR8:
+	case MLXCX_EXTPROTO_400GAUI_4_400GBASE_CR4:
+		return (400ULL * GBITS);
+	default:
+		/*
+		 * There ARE legitimate single-bit values we don't support,
+		 * and should just return 0 immediately.  We will ASSERT()
+		 * that it's a single-bit value, however, for reasons detailed
+		 * in the prior `default` case.
+		 */
+		ASSERT0((uint32_t)ext_proto & ((uint32_t)ext_proto - 1U));
+		break;
+	}
+
+	return (0);
+}
+
+static link_fec_t
+mlxcx_fec_to_link_fec(mlxcx_pplm_fec_active_t mlxcx_fec)
+{
+	if ((mlxcx_fec & MLXCX_PPLM_FEC_ACTIVE_NONE) != 0)
+		return (LINK_FEC_NONE);
+
+	if ((mlxcx_fec & MLXCX_PPLM_FEC_ACTIVE_FIRECODE) != 0)
+		return (LINK_FEC_BASE_R);
+
+	if ((mlxcx_fec & (MLXCX_PPLM_FEC_ACTIVE_RS528 |
+	    MLXCX_PPLM_FEC_ACTIVE_RS271 | MLXCX_PPLM_FEC_ACTIVE_RS544 |
+	    MLXCX_PPLM_FEC_ACTIVE_RS272)) != 0)
+		return (LINK_FEC_RS);
+
+	return (LINK_FEC_NONE);
+}
+
+static boolean_t
+mlxcx_link_fec_cap(link_fec_t fec, mlxcx_pplm_fec_caps_t *pfecp)
+{
+	mlxcx_pplm_fec_caps_t pplm_fec = 0;
+
+	if ((fec & LINK_FEC_AUTO) != 0) {
+		pplm_fec = MLXCX_PPLM_FEC_CAP_AUTO;
+		fec &= ~LINK_FEC_AUTO;
+	} else if ((fec & LINK_FEC_NONE) != 0) {
+		pplm_fec = MLXCX_PPLM_FEC_CAP_NONE;
+		fec &= ~LINK_FEC_NONE;
+	} else if ((fec & LINK_FEC_RS) != 0) {
+		pplm_fec |= MLXCX_PPLM_FEC_CAP_RS;
+		fec &= ~LINK_FEC_RS;
+	} else if ((fec & LINK_FEC_BASE_R) != 0) {
+		pplm_fec |= MLXCX_PPLM_FEC_CAP_FIRECODE;
+		fec &= ~LINK_FEC_BASE_R;
+	}
+
+	/*
+	 * Only one fec option is allowed.
+	 */
+	if (fec != 0)
+		return (B_FALSE);
+
+	*pfecp = pplm_fec;
+
+	return (B_TRUE);
 }
 
 static int
@@ -192,7 +313,8 @@ mlxcx_mac_stat(void *arg, uint_t stat, uint64_t *val)
 
 	switch (stat) {
 	case MAC_STAT_IFSPEED:
-		*val = mlxcx_speed_to_bits(port->mlp_oper_proto);
+		*val = mlxcx_speed_to_bits(port->mlp_oper_proto,
+		    port->mlp_ext_oper_proto);
 		break;
 	case ETHER_STAT_LINK_DUPLEX:
 		*val = LINK_DUPLEX_FULL;
@@ -394,6 +516,7 @@ mlxcx_mac_ring_tx(void *arg, mblk_t *mp)
 	uint32_t chkflags = 0;
 	boolean_t ok;
 	size_t take = 0;
+	uint_t bcount;
 
 	VERIFY(mp->b_next == NULL);
 
@@ -429,15 +552,10 @@ mlxcx_mac_ring_tx(void *arg, mblk_t *mp)
 		}
 	}
 
-	if (!mlxcx_buf_bind_or_copy(mlxp, sq, kmp, take, &b)) {
-		/*
-		 * Something went really wrong, and we probably will never be
-		 * able to TX again (all our buffers are broken and DMA is
-		 * failing). Drop the packet on the floor -- FMA should be
-		 * reporting this error elsewhere.
-		 */
-		freemsg(mp);
-		return (NULL);
+	bcount = mlxcx_buf_bind_or_copy(mlxp, sq, kmp, take, &b);
+	if (bcount == 0) {
+		atomic_or_uint(&sq->mlwq_state, MLXCX_WQ_BLOCKED_MAC);
+		return (mp);
 	}
 
 	mutex_enter(&sq->mlwq_mtx);
@@ -454,30 +572,35 @@ mlxcx_mac_ring_tx(void *arg, mblk_t *mp)
 		return (NULL);
 	}
 
-	if (sq->mlwq_state & MLXCX_WQ_TEARDOWN) {
+	if ((sq->mlwq_state & (MLXCX_WQ_TEARDOWN | MLXCX_WQ_STARTED)) !=
+	    MLXCX_WQ_STARTED) {
 		mutex_exit(&sq->mlwq_mtx);
 		mlxcx_buf_return_chain(mlxp, b, B_FALSE);
 		return (NULL);
 	}
 
 	/*
-	 * Similar logic here: bufcnt is only manipulated atomically, and
-	 * bufhwm is set at startup.
+	 * If the completion queue buffer count is already at or above
+	 * the high water mark, or the addition of this new chain will
+	 * exceed the CQ ring size, then indicate we are blocked.
 	 */
-	if (cq->mlcq_bufcnt >= cq->mlcq_bufhwm) {
+	if (cq->mlcq_bufcnt >= cq->mlcq_bufhwm ||
+	    (cq->mlcq_bufcnt + bcount) > cq->mlcq_nents) {
 		atomic_or_uint(&cq->mlcq_state, MLXCX_CQ_BLOCKED_MAC);
-		mutex_exit(&sq->mlwq_mtx);
-		mlxcx_buf_return_chain(mlxp, b, B_TRUE);
-		return (mp);
+		goto blocked;
+	}
+
+	if (sq->mlwq_wqebb_used >= sq->mlwq_bufhwm) {
+		atomic_or_uint(&sq->mlwq_state, MLXCX_WQ_BLOCKED_MAC);
+		goto blocked;
 	}
 
 	ok = mlxcx_sq_add_buffer(mlxp, sq, inline_hdrs, inline_hdrlen,
 	    chkflags, b);
 	if (!ok) {
 		atomic_or_uint(&cq->mlcq_state, MLXCX_CQ_BLOCKED_MAC);
-		mutex_exit(&sq->mlwq_mtx);
-		mlxcx_buf_return_chain(mlxp, b, B_TRUE);
-		return (mp);
+		atomic_or_uint(&sq->mlwq_state, MLXCX_WQ_BLOCKED_MAC);
+		goto blocked;
 	}
 
 	/*
@@ -492,6 +615,11 @@ mlxcx_mac_ring_tx(void *arg, mblk_t *mp)
 	mutex_exit(&sq->mlwq_mtx);
 
 	return (NULL);
+
+blocked:
+	mutex_exit(&sq->mlwq_mtx);
+	mlxcx_buf_return_chain(mlxp, b, B_TRUE);
+	return (mp);
 }
 
 static int
@@ -612,12 +740,6 @@ mlxcx_group_add_mac(void *arg, const uint8_t *mac_addr)
 	return (ret);
 }
 
-/*
- * Support for VLAN steering into groups is not yet available in upstream
- * illumos.
- */
-#if defined(MAC_VLAN_UNTAGGED)
-
 static int
 mlxcx_group_add_vlan(mac_group_driver_t gh, uint16_t vid)
 {
@@ -661,8 +783,6 @@ mlxcx_group_remove_vlan(mac_group_driver_t gh, uint16_t vid)
 
 	return (ret);
 }
-
-#endif /* MAC_VLAN_UNTAGGED */
 
 static int
 mlxcx_group_remove_mac(void *arg, const uint8_t *mac_addr)
@@ -719,8 +839,28 @@ mlxcx_mac_ring_stop(mac_ring_driver_t rh)
 	mlxcx_buf_shard_t *s;
 	mlxcx_buffer_t *buf;
 
+	/*
+	 * To prevent deadlocks and sleeping whilst holding either the
+	 * CQ mutex or WQ mutex, we split the stop processing into two
+	 * parts.
+	 *
+	 * With the CQ amd WQ mutexes held the appropriate WQ is stopped.
+	 * The Q in the HCA is set to Reset state and flagged as no
+	 * longer started. Atomic with changing this WQ state, the buffer
+	 * shards are flagged as draining.
+	 *
+	 * Now, any requests for buffers and attempts to submit messages
+	 * will fail and once we're in this state it is safe to relinquish
+	 * the CQ and WQ mutexes. Allowing us to complete the ring stop
+	 * by waiting for the buffer lists, with the exception of
+	 * the loaned list, to drain. Buffers on the loaned list are
+	 * not under our control, we will get them back when the mblk tied
+	 * to the buffer is freed.
+	 */
+
 	mutex_enter(&cq->mlcq_mtx);
 	mutex_enter(&wq->mlwq_mtx);
+
 	if (wq->mlwq_state & MLXCX_WQ_STARTED) {
 		if (wq->mlwq_type == MLXCX_WQ_TYPE_RECVQ &&
 		    !mlxcx_cmd_stop_rq(mlxp, wq)) {
@@ -737,17 +877,38 @@ mlxcx_mac_ring_stop(mac_ring_driver_t rh)
 	}
 	ASSERT0(wq->mlwq_state & MLXCX_WQ_STARTED);
 
+	mlxcx_shard_draining(wq->mlwq_bufs);
+	if (wq->mlwq_foreign_bufs != NULL)
+		mlxcx_shard_draining(wq->mlwq_foreign_bufs);
+
+
 	if (wq->mlwq_state & MLXCX_WQ_BUFFERS) {
-		/* Return any outstanding buffers to the free pool. */
-		while ((buf = list_remove_head(&cq->mlcq_buffers)) != NULL) {
-			mlxcx_buf_return_chain(mlxp, buf, B_FALSE);
-		}
+		list_t cq_buffers;
+
+		/*
+		 * Take the buffers away from the CQ. If the CQ is being
+		 * processed and the WQ has been stopped, a completion
+		 * which does not match to a buffer will be ignored.
+		 */
+		list_create(&cq_buffers, sizeof (mlxcx_buffer_t),
+		    offsetof(mlxcx_buffer_t, mlb_cq_entry));
+
+		list_move_tail(&cq_buffers, &cq->mlcq_buffers);
+
 		mutex_enter(&cq->mlcq_bufbmtx);
-		while ((buf = list_remove_head(&cq->mlcq_buffers_b)) != NULL) {
+		list_move_tail(&cq_buffers, &cq->mlcq_buffers_b);
+		mutex_exit(&cq->mlcq_bufbmtx);
+
+		cq->mlcq_bufcnt = 0;
+
+		mutex_exit(&wq->mlwq_mtx);
+		mutex_exit(&cq->mlcq_mtx);
+
+		/* Return any outstanding buffers to the free pool. */
+		while ((buf = list_remove_head(&cq_buffers)) != NULL) {
 			mlxcx_buf_return_chain(mlxp, buf, B_FALSE);
 		}
-		mutex_exit(&cq->mlcq_bufbmtx);
-		cq->mlcq_bufcnt = 0;
+		list_destroy(&cq_buffers);
 
 		s = wq->mlwq_bufs;
 		mutex_enter(&s->mlbs_mtx);
@@ -769,12 +930,13 @@ mlxcx_mac_ring_stop(mac_ring_driver_t rh)
 			mutex_exit(&s->mlbs_mtx);
 		}
 
+		mutex_enter(&wq->mlwq_mtx);
 		wq->mlwq_state &= ~MLXCX_WQ_BUFFERS;
+		mutex_exit(&wq->mlwq_mtx);
+	} else {
+		mutex_exit(&wq->mlwq_mtx);
+		mutex_exit(&cq->mlcq_mtx);
 	}
-	ASSERT0(wq->mlwq_state & MLXCX_WQ_BUFFERS);
-
-	mutex_exit(&wq->mlwq_mtx);
-	mutex_exit(&cq->mlcq_mtx);
 }
 
 static int
@@ -835,23 +997,22 @@ static int
 mlxcx_mac_ring_intr_enable(mac_intr_handle_t intrh)
 {
 	mlxcx_completion_queue_t *cq = (mlxcx_completion_queue_t *)intrh;
-	mlxcx_event_queue_t *eq = cq->mlcq_eq;
 	mlxcx_t *mlxp = cq->mlcq_mlx;
 
 	/*
-	 * We are going to call mlxcx_arm_cq() here, so we take the EQ lock
+	 * We are going to call mlxcx_arm_cq() here, so we take the arm lock
 	 * as well as the CQ one to make sure we don't race against
 	 * mlxcx_intr_n().
 	 */
-	mutex_enter(&eq->mleq_mtx);
+	mutex_enter(&cq->mlcq_arm_mtx);
 	mutex_enter(&cq->mlcq_mtx);
 	if (cq->mlcq_state & MLXCX_CQ_POLLING) {
-		cq->mlcq_state &= ~MLXCX_CQ_POLLING;
+		atomic_and_uint(&cq->mlcq_state, ~MLXCX_CQ_POLLING);
 		if (!(cq->mlcq_state & MLXCX_CQ_ARMED))
 			mlxcx_arm_cq(mlxp, cq);
 	}
 	mutex_exit(&cq->mlcq_mtx);
-	mutex_exit(&eq->mleq_mtx);
+	mutex_exit(&cq->mlcq_arm_mtx);
 
 	return (0);
 }
@@ -861,9 +1022,8 @@ mlxcx_mac_ring_intr_disable(mac_intr_handle_t intrh)
 {
 	mlxcx_completion_queue_t *cq = (mlxcx_completion_queue_t *)intrh;
 
-	atomic_or_uint(&cq->mlcq_state, MLXCX_CQ_POLLING);
 	mutex_enter(&cq->mlcq_mtx);
-	VERIFY(cq->mlcq_state & MLXCX_CQ_POLLING);
+	atomic_or_uint(&cq->mlcq_state, MLXCX_CQ_POLLING);
 	mutex_exit(&cq->mlcq_mtx);
 
 	return (0);
@@ -953,10 +1113,8 @@ mlxcx_mac_fill_rx_group(void *arg, mac_ring_type_t rtype, const int index,
 	infop->mgi_stop = NULL;
 	infop->mgi_addmac = mlxcx_group_add_mac;
 	infop->mgi_remmac = mlxcx_group_remove_mac;
-#if defined(MAC_VLAN_UNTAGGED)
 	infop->mgi_addvlan = mlxcx_group_add_vlan;
 	infop->mgi_remvlan = mlxcx_group_remove_vlan;
-#endif /* MAC_VLAN_UNTAGGED */
 
 	infop->mgi_count = g->mlg_nwqs;
 }
@@ -1056,6 +1214,75 @@ mlxcx_mac_propinfo(void *arg, const char *pr_name, mac_prop_id_t pr_num,
 		mac_prop_info_set_perm(prh, MAC_PROP_PERM_READ);
 		mac_prop_info_set_default_uint8(prh, 1);
 		break;
+	case MAC_PROP_ADV_FEC_CAP:
+		mac_prop_info_set_perm(prh, MAC_PROP_PERM_READ);
+		mac_prop_info_set_default_fec(prh, LINK_FEC_AUTO);
+		break;
+	case MAC_PROP_EN_FEC_CAP:
+		mac_prop_info_set_perm(prh, MAC_PROP_PERM_RW);
+		mac_prop_info_set_default_fec(prh, LINK_FEC_AUTO);
+		break;
+	case MAC_PROP_ADV_400GFDX_CAP:
+	case MAC_PROP_EN_400GFDX_CAP:
+		mac_prop_info_set_perm(prh, MAC_PROP_PERM_READ);
+		mac_prop_info_set_default_uint8(prh,
+		    (port->mlp_ext_oper_proto & MLXCX_EXTPROTO_400G) != 0);
+		break;
+	case MAC_PROP_ADV_200GFDX_CAP:
+	case MAC_PROP_EN_200GFDX_CAP:
+		mac_prop_info_set_perm(prh, MAC_PROP_PERM_READ);
+		mac_prop_info_set_default_uint8(prh,
+		    (port->mlp_ext_oper_proto & MLXCX_EXTPROTO_200G) != 0);
+		break;
+	case MAC_PROP_ADV_100GFDX_CAP:
+	case MAC_PROP_EN_100GFDX_CAP:
+		mac_prop_info_set_perm(prh, MAC_PROP_PERM_READ);
+		mac_prop_info_set_default_uint8(prh,
+		    ((port->mlp_oper_proto & MLXCX_PROTO_100G) != 0 ||
+		    (port->mlp_ext_oper_proto & MLXCX_EXTPROTO_100G)) != 0);
+		break;
+	case MAC_PROP_ADV_50GFDX_CAP:
+	case MAC_PROP_EN_50GFDX_CAP:
+		mac_prop_info_set_perm(prh, MAC_PROP_PERM_READ);
+		mac_prop_info_set_default_uint8(prh,
+		    ((port->mlp_oper_proto & MLXCX_PROTO_50G) != 0 ||
+		    (port->mlp_ext_oper_proto & MLXCX_EXTPROTO_50G)) != 0);
+		break;
+	case MAC_PROP_ADV_40GFDX_CAP:
+	case MAC_PROP_EN_40GFDX_CAP:
+		mac_prop_info_set_perm(prh, MAC_PROP_PERM_READ);
+		mac_prop_info_set_default_uint8(prh,
+		    ((port->mlp_oper_proto & MLXCX_PROTO_40G) != 0 ||
+		    (port->mlp_ext_oper_proto & MLXCX_EXTPROTO_40G)) != 0);
+		break;
+	case MAC_PROP_ADV_25GFDX_CAP:
+	case MAC_PROP_EN_25GFDX_CAP:
+		mac_prop_info_set_perm(prh, MAC_PROP_PERM_READ);
+		mac_prop_info_set_default_uint8(prh,
+		    ((port->mlp_oper_proto & MLXCX_PROTO_25G) != 0 ||
+		    (port->mlp_ext_oper_proto & MLXCX_EXTPROTO_25G)) != 0);
+		break;
+	case MAC_PROP_ADV_10GFDX_CAP:
+	case MAC_PROP_EN_10GFDX_CAP:
+		mac_prop_info_set_perm(prh, MAC_PROP_PERM_READ);
+		mac_prop_info_set_default_uint8(prh,
+		    ((port->mlp_oper_proto & MLXCX_PROTO_10G) != 0 ||
+		    (port->mlp_ext_oper_proto & MLXCX_EXTPROTO_10G)) != 0);
+		break;
+	case MAC_PROP_ADV_1000FDX_CAP:
+	case MAC_PROP_EN_1000FDX_CAP:
+		mac_prop_info_set_perm(prh, MAC_PROP_PERM_READ);
+		mac_prop_info_set_default_uint8(prh,
+		    ((port->mlp_oper_proto & MLXCX_PROTO_1G) != 0 ||
+		    (port->mlp_ext_oper_proto & MLXCX_EXTPROTO_1G)) != 0);
+		break;
+	case MAC_PROP_ADV_100FDX_CAP:
+	case MAC_PROP_EN_100FDX_CAP:
+		mac_prop_info_set_perm(prh, MAC_PROP_PERM_READ);
+		mac_prop_info_set_default_uint8(prh,
+		    ((port->mlp_oper_proto & MLXCX_PROTO_100M) != 0 ||
+		    (port->mlp_ext_oper_proto & MLXCX_EXTPROTO_100M)) != 0);
+		break;
 	default:
 		break;
 	}
@@ -1073,6 +1300,9 @@ mlxcx_mac_setprop(void *arg, const char *pr_name, mac_prop_id_t pr_num,
 	uint32_t new_mtu, new_hw_mtu, old_mtu;
 	mlxcx_buf_shard_t *sh;
 	boolean_t allocd = B_FALSE;
+	boolean_t relink = B_FALSE;
+	link_fec_t fec;
+	mlxcx_pplm_fec_caps_t cap_fec;
 
 	mutex_enter(&port->mlp_mtx);
 
@@ -1090,7 +1320,8 @@ mlxcx_mac_setprop(void *arg, const char *pr_name, mac_prop_id_t pr_num,
 		for (; sh != NULL; sh = list_next(&mlxp->mlx_buf_shards, sh)) {
 			mutex_enter(&sh->mlbs_mtx);
 			if (!list_is_empty(&sh->mlbs_free) ||
-			    !list_is_empty(&sh->mlbs_busy)) {
+			    !list_is_empty(&sh->mlbs_busy) ||
+			    !list_is_empty(&sh->mlbs_loaned)) {
 				allocd = B_TRUE;
 				mutex_exit(&sh->mlbs_mtx);
 				break;
@@ -1120,11 +1351,57 @@ mlxcx_mac_setprop(void *arg, const char *pr_name, mac_prop_id_t pr_num,
 			break;
 		}
 		break;
+
+	case MAC_PROP_EN_FEC_CAP:
+		bcopy(pr_val, &fec, sizeof (fec));
+		if (!mlxcx_link_fec_cap(fec, &cap_fec)) {
+			ret = EINVAL;
+			break;
+		}
+
+		/*
+		 * Don't change the FEC if it is already at the requested
+		 * setting AND the port is up.
+		 * When the port is down, always set the FEC and attempt
+		 * to retrain the link.
+		 */
+		if (fec == port->mlp_fec_requested &&
+		    fec == mlxcx_fec_to_link_fec(port->mlp_fec_active) &&
+		    port->mlp_oper_status != MLXCX_PORT_STATUS_DOWN)
+			break;
+
+		/*
+		 * The most like cause of this failing is an invalid
+		 * or unsupported fec option.
+		 */
+		if (!mlxcx_cmd_modify_port_fec(mlxp, port, cap_fec)) {
+			ret = EINVAL;
+			break;
+		}
+
+		port->mlp_fec_requested = fec;
+
+		/*
+		 * For FEC to become effective, the link needs to go back
+		 * to training and negotiation state. This happens when
+		 * the link transitions from down to up, force a relink.
+		 */
+		relink = B_TRUE;
+		break;
+
 	default:
 		ret = ENOTSUP;
 		break;
 	}
 
+	if (relink) {
+		if (!mlxcx_cmd_modify_port_status(mlxp, port,
+		    MLXCX_PORT_STATUS_DOWN) ||
+		    !mlxcx_cmd_modify_port_status(mlxp, port,
+		    MLXCX_PORT_STATUS_UP)) {
+			ret = EIO;
+		}
+	}
 	mutex_exit(&port->mlp_mtx);
 
 	return (ret);
@@ -1155,7 +1432,8 @@ mlxcx_mac_getprop(void *arg, const char *pr_name, mac_prop_id_t pr_num,
 			ret = EOVERFLOW;
 			break;
 		}
-		speed = mlxcx_speed_to_bits(port->mlp_oper_proto);
+		speed = mlxcx_speed_to_bits(port->mlp_oper_proto,
+		    port->mlp_ext_oper_proto);
 		bcopy(&speed, pr_val, sizeof (speed));
 		break;
 	case MAC_PROP_STATUS:
@@ -1182,12 +1460,115 @@ mlxcx_mac_getprop(void *arg, const char *pr_name, mac_prop_id_t pr_num,
 		}
 		*(uint8_t *)pr_val = port->mlp_autoneg;
 		break;
+	case MAC_PROP_ADV_FEC_CAP:
+		if (pr_valsize < sizeof (link_fec_t)) {
+			ret = EOVERFLOW;
+			break;
+		}
+		*(link_fec_t *)pr_val =
+		    mlxcx_fec_to_link_fec(port->mlp_fec_active);
+		break;
+	case MAC_PROP_EN_FEC_CAP:
+		if (pr_valsize < sizeof (link_fec_t)) {
+			ret = EOVERFLOW;
+			break;
+		}
+		*(link_fec_t *)pr_val = port->mlp_fec_requested;
+		break;
 	case MAC_PROP_MTU:
 		if (pr_valsize < sizeof (uint32_t)) {
 			ret = EOVERFLOW;
 			break;
 		}
 		*(uint32_t *)pr_val = port->mlp_mtu - MLXCX_MTU_OFFSET;
+		break;
+	case MAC_PROP_ADV_400GFDX_CAP:
+	case MAC_PROP_EN_400GFDX_CAP:
+		if (pr_valsize < sizeof (uint8_t)) {
+			ret = EOVERFLOW;
+			break;
+		}
+		*(uint8_t *)pr_val =
+		    (port->mlp_ext_max_proto & MLXCX_EXTPROTO_400G) != 0;
+		break;
+	case MAC_PROP_ADV_200GFDX_CAP:
+	case MAC_PROP_EN_200GFDX_CAP:
+		if (pr_valsize < sizeof (uint8_t)) {
+			ret = EOVERFLOW;
+			break;
+		}
+		*(uint8_t *)pr_val =
+		    (port->mlp_ext_max_proto & MLXCX_EXTPROTO_200G) != 0;
+		break;
+	case MAC_PROP_ADV_100GFDX_CAP:
+	case MAC_PROP_EN_100GFDX_CAP:
+		if (pr_valsize < sizeof (uint8_t)) {
+			ret = EOVERFLOW;
+			break;
+		}
+		*(uint8_t *)pr_val = (port->mlp_max_proto &
+		    MLXCX_PROTO_100G) != 0 ||
+		    (port->mlp_ext_max_proto & MLXCX_EXTPROTO_100G) != 0;
+		break;
+	case MAC_PROP_ADV_50GFDX_CAP:
+	case MAC_PROP_EN_50GFDX_CAP:
+		if (pr_valsize < sizeof (uint8_t)) {
+			ret = EOVERFLOW;
+			break;
+		}
+		*(uint8_t *)pr_val = (port->mlp_max_proto &
+		    MLXCX_PROTO_50G) != 0 ||
+		    (port->mlp_ext_max_proto & MLXCX_EXTPROTO_50G) != 0;
+		break;
+	case MAC_PROP_ADV_40GFDX_CAP:
+	case MAC_PROP_EN_40GFDX_CAP:
+		if (pr_valsize < sizeof (uint8_t)) {
+			ret = EOVERFLOW;
+			break;
+		}
+		*(uint8_t *)pr_val = (port->mlp_max_proto &
+		    MLXCX_PROTO_40G) != 0 ||
+		    (port->mlp_ext_max_proto & MLXCX_EXTPROTO_40G) != 0;
+		break;
+	case MAC_PROP_ADV_25GFDX_CAP:
+	case MAC_PROP_EN_25GFDX_CAP:
+		if (pr_valsize < sizeof (uint8_t)) {
+			ret = EOVERFLOW;
+			break;
+		}
+		*(uint8_t *)pr_val = (port->mlp_max_proto &
+		    MLXCX_PROTO_25G) != 0 ||
+		    (port->mlp_ext_max_proto & MLXCX_EXTPROTO_25G) != 0;
+		break;
+	case MAC_PROP_ADV_10GFDX_CAP:
+	case MAC_PROP_EN_10GFDX_CAP:
+		if (pr_valsize < sizeof (uint8_t)) {
+			ret = EOVERFLOW;
+			break;
+		}
+		*(uint8_t *)pr_val = (port->mlp_max_proto &
+		    MLXCX_PROTO_10G) != 0 ||
+		    (port->mlp_ext_max_proto & MLXCX_EXTPROTO_10G) != 0;
+		break;
+	case MAC_PROP_ADV_1000FDX_CAP:
+	case MAC_PROP_EN_1000FDX_CAP:
+		if (pr_valsize < sizeof (uint8_t)) {
+			ret = EOVERFLOW;
+			break;
+		}
+		*(uint8_t *)pr_val = (port->mlp_max_proto &
+		    MLXCX_PROTO_1G) != 0 ||
+		    (port->mlp_ext_max_proto & MLXCX_EXTPROTO_1G) != 0;
+		break;
+	case MAC_PROP_ADV_100FDX_CAP:
+	case MAC_PROP_EN_100FDX_CAP:
+		if (pr_valsize < sizeof (uint8_t)) {
+			ret = EOVERFLOW;
+			break;
+		}
+		*(uint8_t *)pr_val = (port->mlp_max_proto &
+		    MLXCX_PROTO_100M) != 0 ||
+		    (port->mlp_ext_max_proto & MLXCX_EXTPROTO_100M) != 0;
 		break;
 	default:
 		ret = ENOTSUP;
@@ -1231,6 +1612,8 @@ mlxcx_register_mac(mlxcx_t *mlxp)
 	VERIFY3U(mlxp->mlx_nports, ==, 1);
 	port = &mlxp->mlx_ports[0];
 
+	mutex_enter(&port->mlp_mtx);
+
 	mac->m_type_ident = MAC_PLUGIN_IDENT_ETHER;
 	mac->m_driver = mlxp;
 	mac->m_dip = mlxp->mlx_dip;
@@ -1247,6 +1630,8 @@ mlxcx_register_mac(mlxcx_t *mlxp)
 		mlxcx_warn(mlxp, "mac_register() returned %d", ret);
 	}
 	mac_free(mac);
+
+	mutex_exit(&port->mlp_mtx);
 
 	mlxcx_update_link_state(mlxp, port);
 

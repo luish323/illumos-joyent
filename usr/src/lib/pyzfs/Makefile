@@ -21,15 +21,14 @@
 #
 # Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
-# Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
 #
 
 include	../Makefile.lib
 
-SUBDIRS=
-$(BUILDPY2)SUBDIRS += $(MACH)
-$(BUILD64)$(BUILDPY2)SUBDIRS += $(MACH64)
-$(BUILD64)$(BUILDPY3)SUBDIRS += py3
+SUBDIRS= py3
+$(BUILDPY3b)SUBDIRS += py3b
+
 XGETTEXT=	$(GNUXGETTEXT)
 XGETFLAGS=	$(GNUXGETFLAGS)
 
@@ -37,7 +36,6 @@ all :=		TARGET= all
 install :=	TARGET= install
 clean :=	TARGET= clean
 clobber :=	TARGET= clobber
-lint :=		TARGET= lint
 
 MSGFIND =	$(FIND) . -name '*.py' -o -name '*.c'
 MSGFILES =	$(MSGFIND:sh)
@@ -47,7 +45,7 @@ POFILE =	pyzfs.po
 
 .KEEP_STATE:
 
-all install clean lint: $(SUBDIRS)
+all install clean: $(SUBDIRS)
 clobber: $(SUBDIRS)
 	$(RM) $(POFILE) $(PYCFILES)
 

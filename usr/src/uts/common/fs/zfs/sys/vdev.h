@@ -21,8 +21,9 @@
 
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2011, 2017 by Delphix. All rights reserved.
+ * Copyright (c) 2011, 2020 by Delphix. All rights reserved.
  * Copyright (c) 2017, Intel Corporation.
+ * Copyright (c) 2019, Datto Inc. All rights reserved.
  */
 
 #ifndef _SYS_VDEV_H
@@ -153,6 +154,8 @@ extern void vdev_state_dirty(vdev_t *vd);
 extern void vdev_state_clean(vdev_t *vd);
 
 extern void vdev_set_deferred_resilver(spa_t *spa, vdev_t *vd);
+extern void vdev_defer_resilver(vdev_t *vd);
+extern boolean_t vdev_clear_resilver_deferred(vdev_t *vd, dmu_tx_t *tx);
 
 typedef enum vdev_config_flag {
 	VDEV_CONFIG_SPARE = 1 << 0,
@@ -177,6 +180,8 @@ extern void vdev_uberblock_load(vdev_t *, struct uberblock *, nvlist_t **);
 extern void vdev_config_generate_stats(vdev_t *vd, nvlist_t *nv);
 extern void vdev_label_write(zio_t *zio, vdev_t *vd, int l, abd_t *buf, uint64_t
     offset, uint64_t size, zio_done_func_t *done, void *private, int flags);
+extern int vdev_label_read_bootenv(vdev_t *, nvlist_t *);
+extern int vdev_label_write_bootenv(vdev_t *, nvlist_t *);
 
 typedef enum {
 	VDEV_LABEL_CREATE,	/* create/add a new device */

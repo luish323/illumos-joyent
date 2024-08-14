@@ -20,7 +20,7 @@
 #
 #
 # Copyright (c) 2006, 2010, Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2019, Joyent, Inc.
+# Copyright 2020 Joyent, Inc.
 #
 
 LIBRARY = libtopo.a
@@ -43,6 +43,8 @@ LIBSRCS = \
 	topo_2xml.c \
 	topo_alloc.c \
 	topo_builtin.c \
+	topo_digraph.c \
+	topo_digraph_xml.c \
 	topo_error.c \
 	topo_file.c \
 	topo_fmri.c \
@@ -80,9 +82,6 @@ CSTD = $(CSTD_GNU99)
 CFLAGS += $(CCVERBOSE) $(C_BIGPICFLAGS)
 CFLAGS += -D_POSIX_PTHREAD_SEMANTICS
 CFLAGS64 += $(CCVERBOSE) $(C_BIGPICFLAGS)
-CERRWARN += $(CNOWARN_UNINIT)
-CERRWARN += -_gcc=-Wno-switch
-CERRWARN += -_gcc=-Wno-parentheses
 
 $(DYNLIB)  := LDLIBS += \
 	-lnvpair -lelf -lumem -lxml2 -lkstat -luuid -ldevinfo \

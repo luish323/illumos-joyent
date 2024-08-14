@@ -23,6 +23,7 @@
  * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2015, Joyent, Inc.
  * Copyright 2017 Sebastian Wiedenroth
+ * Copyright 2022 Garrett D'Amore
  */
 
 #include <sys/types.h>
@@ -47,7 +48,6 @@
 #include <inet/ipclassifier.h>
 #include <fs/sockfs/sockcommon.h>
 #include <fs/sockfs/sockfilter_impl.h>
-#include <fs/sockfs/nl7c.h>
 #include <fs/sockfs/socktpi.h>
 #include <fs/sockfs/sodirect.h>
 #include <inet/ip.h>
@@ -458,16 +458,16 @@ sonode_constructor(void *buf, void *cdrarg, int kmflags)
 	vp->v_data = so;
 	vn_setops(vp, socket_vnodeops);
 
-	so->so_priv 		= NULL;
+	so->so_priv		= NULL;
 	so->so_oobmsg		= NULL;
 
 	so->so_proto_handle	= NULL;
 
-	so->so_peercred 	= NULL;
+	so->so_peercred		= NULL;
 
 	so->so_rcv_queued	= 0;
-	so->so_rcv_q_head 	= NULL;
-	so->so_rcv_q_last_head 	= NULL;
+	so->so_rcv_q_head	= NULL;
+	so->so_rcv_q_last_head	= NULL;
 	so->so_rcv_head		= NULL;
 	so->so_rcv_last_head	= NULL;
 	so->so_rcv_wanted	= 0;

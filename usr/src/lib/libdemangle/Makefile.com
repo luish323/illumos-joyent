@@ -11,33 +11,36 @@
 
 #
 # Copyright 2018 Jason King
-# Copyright 2018, Joyent, Inc.
+# Copyright 2019 Joyent, Inc.
 #
 
 LIBRARY = libdemangle-sys.a
 VERS    = .1
-OBJECTS = str.o strview.o util.o cxx_util.o cxx.o demangle.o rust.o
+OBJECTS =		\
+	cxx.o		\
+	cxx_util.o	\
+	demangle.o	\
+	rust.o		\
+	rust-legacy.o	\
+	rust-v0puny.o	\
+	rust-v0.o	\
+	str.o		\
+	strview.o	\
+	util.o
 
 include ../../Makefile.lib
 
-LIBS =		$(DYNLIB) $(LINTLIB)
+LIBS =		$(DYNLIB)
 LDLIBS +=	-lc -lcustr
 
 SRCDIR =	../common
-$(LINTLIB) :=	SRCS = $(SRCDIR)/$(LINTSRC)
 
 CSTD =		$(CSTD_GNU99)
 CFLAGS +=	$(CCVERBOSE)
 CPPFLAGS +=	-I$(SRCDIR) -D_REENTRANT -D__EXTENSIONS__
 
-LINTFLAGS +=	-erroff=E_BAD_FORMAT_ARG_TYPE2
-LINTFLAGS64 +=	-erroff=E_BAD_FORMAT_ARG_TYPE2
-C99LMODE =	-Xc99=%all
-
 .KEEP_STATE:
 
 all:		$(LIBS)
-
-lint:		lintcheck
 
 include $(SRC)/lib/Makefile.targ

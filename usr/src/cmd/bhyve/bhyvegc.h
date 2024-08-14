@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2015 Tycho Nightingale <tycho.nightingale@pluribusnetworks.com>
  * All rights reserved.
@@ -24,12 +24,14 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _BHYVEGC_H_
 #define	_BHYVEGC_H_
+
+#ifndef __FreeBSD__
+#include <pthread.h>
+#endif
 
 struct bhyvegc;
 
@@ -38,6 +40,9 @@ struct bhyvegc_image {
 	int		width;
 	int		height;
 	uint32_t	*data;
+#ifndef __FreeBSD__
+	pthread_mutex_t	mtx;
+#endif
 };
 
 struct bhyvegc *bhyvegc_init(int width, int height, void *fbaddr);

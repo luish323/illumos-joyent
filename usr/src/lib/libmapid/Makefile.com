@@ -33,7 +33,7 @@ OBJECTS =	$(LIBOBJS) $(OTHOBJS)
 
 include $(SRC)/lib/Makefile.lib
 
-LIBS	=	$(DYNLIB) $(LINTLIB)
+LIBS	=	$(DYNLIB)
 
 #
 # This library will be installed w/all other nfs
@@ -46,10 +46,10 @@ ROOTLIBDIR   =	$(ROOT)/usr/lib/nfs
 #
 SRCDIR	=	../common
 LIBSRCS	= $(LIBOBJS:%.o=$(SRCDIR)/%.c)
-$(LINTLIB) := SRCS = $(LINTSRC:%=$(SRCDIR)/%)
-lintcheck  :=	SRCS = $(LIBSRCS)
 
 LDLIBS	+=	-lresolv -lc -lscf
+
+CSTD	=	$(CSTD_GNU99)
 
 CFLAGS	+=	$(CCVERBOSE)
 CPPFLAGS +=	-I$(SRCDIR) -I$(SMF_DIR) -D_REENTRANT
@@ -66,7 +66,6 @@ all:  $(LIBS)
 
 install: $(ROOTLIBDIR) all
 
-lint:	$(LINTLIB) lintcheck
 
 pics/%.o:	$(SMF_DIR)/%.c
 	$(COMPILE.c) -o $@ $<

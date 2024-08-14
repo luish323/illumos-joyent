@@ -1,8 +1,9 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2015 Tycho Nightingale <tycho.nightingale@pluribusnetworks.com>
  * Copyright 2018 Joyent, Inc.
+ * Copyright 2022 OmniOS Community Edition (OmniOSce) Association.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -25,18 +26,14 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _RFB_H_
 #define	_RFB_H_
 
-#define	RFB_PORT	5900
+#define	RFB_DEFAULT_PORT	5900
 
-int	rfb_init(char *hostname, int port, int wait, char *password);
-#ifndef __FreeBSD__
-int	rfb_init_unix(char *path, int wait, char *password);
-#endif
+int	rfb_init(char *hostname, int port, int wait, const char *password,
+    const char *name);
 
 #endif /* _RFB_H_ */

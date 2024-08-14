@@ -22,7 +22,7 @@
 #
 # Copyright 2003 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
-# 
+#
 
 LIBRARY = libtcp.a
 OBJECTS = tcp.o tcp_sack.o
@@ -35,5 +35,8 @@ CPPFLAGS += -I../inet $(SOCKCPPFLAGS)
 
 CERRWARN += -_gcc=-Wno-unused-label
 CERRWARN += $(CNOWARN_UNINIT)
+
+# tcp.c is too hairy.
+SMATCH=off
 
 include ../Makefile.targ

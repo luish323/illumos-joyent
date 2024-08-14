@@ -23,6 +23,7 @@
  * Copyright 2011 Nexenta Systems, Inc. All rights reserved.
  * Copyright (c) 2011, 2018 by Delphix. All rights reserved.
  * Copyright 2020 Joyent, Inc.
+ * Copyright 2024 Oxide Computer Company
  */
 
 /* Portions Copyright 2010 Robert Milkowski */
@@ -1079,6 +1080,7 @@ abuf_find(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 
 typedef struct dbgmsg_arg {
 	boolean_t da_verbose;
+	boolean_t da_verbose_hr;
 	boolean_t da_address;
 } dbgmsg_arg_t;
 
@@ -1092,6 +1094,7 @@ dbgmsg_cb(uintptr_t addr, const void *unknown, void *arg)
 
 	dbgmsg_arg_t *da = arg;
 	time_t timestamp;
+	hrtime_t hrtime;
 	char buf[1024];
 
 	if (!gotid) {
@@ -1113,6 +1116,12 @@ dbgmsg_cb(uintptr_t addr, const void *unknown, void *arg)
 		return (WALK_ERR);
 	}
 
+	if (da->da_verbose_hr) {
+		if (GETMEMBID(addr, &id, zdm_hrtime, hrtime)) {
+			return (WALK_ERR);
+		}
+	}
+
 	if (mdb_readstr(buf, sizeof (buf), addr + off) == -1) {
 		mdb_warn("failed to read zdm_msg at %p\n", addr + off);
 		return (DCMD_ERR);
@@ -1122,10 +1131,12 @@ dbgmsg_cb(uintptr_t addr, const void *unknown, void *arg)
 		mdb_printf("%p ", addr);
 	if (da->da_verbose)
 		mdb_printf("%Y ", timestamp);
+	if (da->da_verbose_hr)
+		mdb_printf("%016x ", hrtime);
 
 	mdb_printf("%s\n", buf);
 
-	if (da->da_verbose)
+	if (da->da_verbose || da->da_verbose_hr)
 		(void) mdb_call_dcmd("whatis", addr, DCMD_ADDRSPEC, 0, NULL);
 
 	return (WALK_NEXT);
@@ -1140,6 +1151,7 @@ dbgmsg(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 
 	if (mdb_getopts(argc, argv,
 	    'v', MDB_OPT_SETBITS, B_TRUE, &da.da_verbose,
+	    'r', MDB_OPT_SETBITS, B_TRUE, &da.da_verbose_hr,
 	    'a', MDB_OPT_SETBITS, B_TRUE, &da.da_address,
 	    NULL) != argc)
 		return (DCMD_USAGE);
@@ -3314,7 +3326,7 @@ typedef struct mdb_zfs_refcount {
 } mdb_zfs_refcount_t;
 
 typedef struct mdb_zfs_refcount_removed {
-	uint64_t rc_removed_count;
+	uint_t rc_removed_count;
 } mdb_zfs_refcount_removed_t;
 
 typedef struct mdb_zfs_refcount_tracked {
@@ -3362,10 +3374,10 @@ zfs_refcount(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 
 	if (rct.rc_tracked && rc.rc_count > 0)
 		mdb_printf("current holds:\n");
-	off = mdb_ctf_offsetof_by_name("zfs_refcount_t", "rc_list");
+	off = mdb_ctf_offsetof_by_name("zfs_refcount_t", "rc_tree");
 	if (off == -1)
 		return (DCMD_ERR);
-	mdb_pwalk("list", reference_cb, (void*)B_FALSE, addr + off);
+	mdb_pwalk("avl", reference_cb, (void *)B_FALSE, addr + off);
 
 	if (released && rcr.rc_removed_count > 0) {
 		mdb_printf("released holds:\n");
@@ -3373,7 +3385,7 @@ zfs_refcount(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		off = mdb_ctf_offsetof_by_name("zfs_refcount_t", "rc_removed");
 		if (off == -1)
 			return (DCMD_ERR);
-		mdb_pwalk("list", reference_cb, (void*)B_TRUE, addr + off);
+		mdb_pwalk("list", reference_cb, (void *)B_TRUE, addr + off);
 	}
 
 	return (DCMD_OK);
@@ -4637,7 +4649,7 @@ static const mdb_dcmd_t dcmds[] = {
 	    sa_attr_table},
 	{ "sa_attr", ": attr_id",
 	    "print SA attribute address when given sa_handle_t", sa_attr_print},
-	{ "zfs_dbgmsg", ":[-va]",
+	{ "zfs_dbgmsg", ":[-var]",
 	    "print zfs debug log", dbgmsg},
 	{ "rrwlock", ":",
 	    "print rrwlock_t, including readers", rrwlock},

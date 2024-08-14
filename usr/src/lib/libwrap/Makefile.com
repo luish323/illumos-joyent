@@ -36,11 +36,10 @@ OBJECTS =	hosts_access.o options.o shell_cmd.o rfc931.o eval.o \
 
 include ../../Makefile.lib
 
-LIBS =		$(DYNLIB) $(LINTLIB)
+LIBS =		$(DYNLIB)
 SONAME =	$(LIBRARY:.a=.so)$(MAJOR)
 ROOTLINKS +=	$(ROOTLIBDIR)/$(LIBLINKS)$(MAJOR)
 ROOTLINKS64 +=	$(ROOTLIBDIR64)/$(LIBLINKS)$(MAJOR)
-$(LINTLIB) :=	SRCS = $(SRCDIR)/$(LINTSRC)
 
 MAPFILES =	../mapfile-vers
 
@@ -51,10 +50,6 @@ CPPFLAGS +=	$(NETGROUP) $(TLI) $(ALWAYS_HOSTNAME) $(AUTH) \
 		-DRFC931_TIMEOUT=$(RFC931_TIMEOUT) \
 		-I$(SRCDIR)
 CFLAGS +=	$(CCVERBOSE)
-
-CERRWARN +=	-erroff=E_FUNC_EXPECTS_TO_RETURN_VALUE
-CERRWARN +=	-erroff=E_IMPLICIT_DECL_FUNC_RETURN_INT
-CERRWARN +=	-erroff=E_OLD_STYLE_DECL_HIDES_PROTO
 
 CERRWARN +=	-_gcc=-Wno-return-type
 CERRWARN +=	-_gcc=-Wno-parentheses
@@ -68,7 +63,6 @@ SMATCH=off
 
 all: $(LIBS)
 
-lint: lintcheck
 
 $(ROOTLIBDIR)/$(LIBLINKS)$(MAJOR): $(ROOTLIBDIR)/$(LIBLINKS)$(VERS)
 	$(INS.liblink)

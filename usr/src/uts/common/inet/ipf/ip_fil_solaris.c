@@ -731,6 +731,7 @@ ipf_hook_protocol_notify(hook_notify_cmd_t command, void *arg,
 	hook_hint_t hint;
 	boolean_t out;
 	int ret = 0;
+
 	const boolean_t gz = ifs->ifs_gz_controlled;
 
 	/* We currently only care about viona hooks notifications */
@@ -1572,7 +1573,7 @@ fr_info_t *fin;
  *	fin: packet information
  *	m: the message block where ip head starts
  *
- * Send a new packet through the IP stack. 
+ * Send a new packet through the IP stack.
  *
  * For IPv4 packets, ip_len must be in host byte order, and ip_v,
  * ip_ttl, ip_off, and ip_sum are ignored (filled in by this
@@ -1645,7 +1646,7 @@ mblk_t *m, **mpp;
 	qpi.qpi_data = ip;
 	fnew.fin_qpi = &qpi;
 	fnew.fin_ifp = fin->fin_ifp;
-	fnew.fin_flx = FI_NOCKSUM;
+	fnew.fin_flx = FI_NOCKSUM | FI_GENERATED;
 	fnew.fin_m = m;
 	fnew.fin_qfm = m;
 	fnew.fin_ip = ip;
@@ -1740,8 +1741,8 @@ int dst;
 	icmp = (struct icmp *)(m->b_rptr + hlen);
 	icmp->icmp_type = type & 0xff;
 	icmp->icmp_code = code & 0xff;
-	phy = (phy_if_t)qpi->qpi_ill; 
-	if (type == ICMP_UNREACH && (phy != 0) && 
+	phy = (phy_if_t)qpi->qpi_ill;
+	if (type == ICMP_UNREACH && (phy != 0) &&
 	    fin->fin_icode == ICMP_UNREACH_NEEDFRAG)
 		icmp->icmp_nextmtu = net_getmtu(ifs->ifs_ipf_ipv4, phy,0 );
 
@@ -2157,12 +2158,12 @@ fr_info_t *fin;
 	struct sockaddr	sin;
 	ipf_stack_t *ifs = fin->fin_ifs;
 
-	if (fin->fin_v == 4) { 
+	if (fin->fin_v == 4) {
 		net_data_p = ifs->ifs_ipf_ipv4;
-	} else if (fin->fin_v == 6) { 
+	} else if (fin->fin_v == 6) {
 		net_data_p = ifs->ifs_ipf_ipv6;
-	} else { 
-		return (0); 
+	} else {
+		return (0);
 	}
 
 	/* Get the index corresponding to the if name */
@@ -2170,7 +2171,7 @@ fr_info_t *fin;
 	bcopy(&fin->fin_saddr, &sin.sa_data, sizeof (struct in_addr));
 	phy_ifdata_routeto = net_routeto(net_data_p, &sin, NULL);
 
-	return (((phy_if_t)fin->fin_ifp == phy_ifdata_routeto) ? 1 : 0); 
+	return (((phy_if_t)fin->fin_ifp == phy_ifdata_routeto) ? 1 : 0);
 }
 
 /*
@@ -2250,9 +2251,10 @@ frdest_t *fdp;
 	 * If we're forwarding (vs. injecting), check the src here, fin_ifp is
 	 * the src interface.
 	 */
-	if (fdp != NULL &&
-	   !fr_forwarding_enabled((phy_if_t)fin->fin_ifp, net_data_p))
+	if (fdp != NULL && !(fin->fin_flx & FI_GENERATED) &&
+	    !fr_forwarding_enabled((phy_if_t)fin->fin_ifp, net_data_p)) {
 		return (-1);
+	}
 
 	inj = net_inject_alloc(NETINFO_VERSION);
 	if (inj == NULL)
@@ -2319,8 +2321,10 @@ frdest_t *fdp;
 	}
 
 	/* If we're forwarding (vs. injecting), check the destinatation here. */
-	if (fdp != NULL && !fr_forwarding_enabled(inj->ni_physical, net_data_p))
+	if (fdp != NULL && !(fin->fin_flx & FI_GENERATED) &&
+	    !fr_forwarding_enabled(inj->ni_physical, net_data_p)) {
 		goto bad_fastroute;
+	}
 
 	/*
 	 * Clear the hardware checksum flags from packets that we are doing
@@ -2438,42 +2442,6 @@ int ipf_hook6_loop_out(hook_event_token_t token, hook_data_t info, void *arg)
 	return ipf_hook6(info, 1, FI_NOCKSUM, arg);
 }
 
-/* ------------------------------------------------------------------------ */
-/* Function:    ipf_hookvndl3_in					    */
-/* Returns:     int - 0 == packet ok, else problem, free packet if not done */
-/* Parameters:  event(I)     - pointer to event                             */
-/*              info(I)      - pointer to hook information for firewalling  */
-/*                                                                          */
-/* The vnd hooks are private hooks to ON. They represents a layer 2         */
-/* datapath generally used to implement virtual machines. The driver sends  */
-/* along L3 packets of either type IP or IPv6. The ethertype to distinguish */
-/* them is in the upper 16 bits while the remaining bits are the            */
-/* traditional packet hook flags.                                           */
-/*                                                                          */
-/* They end up calling the appropriate traditional ip hooks.                */
-/* ------------------------------------------------------------------------ */
-/*ARGSUSED*/
-int ipf_hookvndl3v4_in(hook_event_token_t token, hook_data_t info, void *arg)
-{
-	return ipf_hook4_in(token, info, arg);
-}
-
-int ipf_hookvndl3v6_in(hook_event_token_t token, hook_data_t info, void *arg)
-{
-	return ipf_hook6_in(token, info, arg);
-}
-
-/*ARGSUSED*/
-int ipf_hookvndl3v4_out(hook_event_token_t token, hook_data_t info, void *arg)
-{
-	return ipf_hook4_out(token, info, arg);
-}
-
-int ipf_hookvndl3v6_out(hook_event_token_t token, hook_data_t info, void *arg)
-{
-	return ipf_hook6_out(token, info, arg);
-}
-
 /* Static constants used by ipf_hook_ether */
 static uint8_t ipf_eth_bcast_addr[ETHERADDRL] = {
 	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
@@ -2569,6 +2537,42 @@ int ipf_hook_ether(hook_event_token_t token, hook_data_t info, void *arg,
 }
 
 /* ------------------------------------------------------------------------ */
+/* Function:    ipf_hookvndl3_in					    */
+/* Returns:     int - 0 == packet ok, else problem, free packet if not done */
+/* Parameters:  event(I)     - pointer to event                             */
+/*              info(I)      - pointer to hook information for firewalling  */
+/*                                                                          */
+/* The vnd hooks are private hooks to ON. They represents a layer 2         */
+/* datapath generally used to implement virtual machines. The driver sends  */
+/* along L3 packets of either type IP or IPv6. The ethertype to distinguish */
+/* them is in the upper 16 bits while the remaining bits are the            */
+/* traditional packet hook flags.                                           */
+/*                                                                          */
+/* They end up calling the appropriate traditional ip hooks.                */
+/* ------------------------------------------------------------------------ */
+/*ARGSUSED*/
+int ipf_hookvndl3v4_in(hook_event_token_t token, hook_data_t info, void *arg)
+{
+	return ipf_hook4_in(token, info, arg);
+}
+
+int ipf_hookvndl3v6_in(hook_event_token_t token, hook_data_t info, void *arg)
+{
+	return ipf_hook6_in(token, info, arg);
+}
+
+/*ARGSUSED*/
+int ipf_hookvndl3v4_out(hook_event_token_t token, hook_data_t info, void *arg)
+{
+	return ipf_hook4_out(token, info, arg);
+}
+
+int ipf_hookvndl3v6_out(hook_event_token_t token, hook_data_t info, void *arg)
+{
+	return ipf_hook6_out(token, info, arg);
+}
+
+/* ------------------------------------------------------------------------ */
 /* Function:    ipf_hookviona_{in,out}                                      */
 /* Returns:     int - 0 == packet ok, else problem, free packet if not done */
 /* Parameters:  event(I)     - pointer to event                             */
@@ -2629,7 +2633,7 @@ int ipf_hook(hook_data_t info, int out, int loopback, void *arg)
 	qpktinfo_t qpi;
 	int rval, hlen;
 	u_short swap;
-	phy_if_t phy; 
+	phy_if_t phy;
 	ip_t *ip;
 
 	ifs = arg;
@@ -2679,7 +2683,7 @@ int ipf_hook6(hook_data_t info, int out, int loopback, void *arg)
 	hook_pkt_event_t *fw;
 	int rval, hlen;
 	qpktinfo_t qpi;
-	phy_if_t phy; 
+	phy_if_t phy;
 
 	fw = (hook_pkt_event_t *)info;
 
@@ -3046,7 +3050,7 @@ fr_info_t *fin;
 	 */
 	tcp = (tcphdr_t *) fin->fin_dp;
 
-	if ((fin->fin_p == IPPROTO_TCP) && 
+	if ((fin->fin_p == IPPROTO_TCP) &&
 	    ((tcp == NULL) || ((tcp->th_flags & (TH_SYN | TH_FIN)) == 0)))
 		return (-1);
 
@@ -3168,7 +3172,7 @@ fr_info_t *fin;
 	 */
 	sum = (sum >> 16) + (sum & 0xffff);
 	sum += (sum >> 16);
-	icmp->icmp_cksum = ~sum; 
+	icmp->icmp_cksum = ~sum;
 
 	/*
 	 * Step (6)
@@ -3233,7 +3237,7 @@ fr_info_t *fin;
 	 */
 	tcp = (tcphdr_t *) fin->fin_dp;
 
-	if ((fin->fin_p == IPPROTO_TCP) && 
+	if ((fin->fin_p == IPPROTO_TCP) &&
 	    ((tcp == NULL) || ((tcp->th_flags & (TH_SYN | TH_FIN)) == 0)))
 		return (-1);
 
@@ -3259,14 +3263,14 @@ fr_info_t *fin;
 
 	if (mblk_icmp == NULL)
 		return (-1);
-	
+
 	MTYPE(mblk_icmp) = M_DATA;
 	icmp6 =  (struct icmp6_hdr *) mblk_icmp->b_wptr;
 	icmp6->icmp6_type = ICMP6_DST_UNREACH;
 	icmp6->icmp6_code = fin->fin_icode & 0xFF;
 	icmp6->icmp6_data32[0] = 0;
 	mblk_icmp->b_wptr += sizeof (struct icmp6_hdr);
-	
+
 	/*
 	 * Step (3)
 	 *
@@ -3274,7 +3278,7 @@ fr_info_t *fin;
 	 */
 	linkb(mblk_icmp, mblk_ip);
 
-	/* 
+	/*
 	 * Step (4)
 	 *
 	 * Calculate chksum - this is much more easier task than in case of
@@ -3376,7 +3380,7 @@ int fr_make_icmp(fin)
 fr_info_t *fin;
 {
 	int rv;
-	
+
 	if (fin->fin_v == 4)
 		rv = fr_make_icmp_v4(fin);
 #ifdef USE_INET6

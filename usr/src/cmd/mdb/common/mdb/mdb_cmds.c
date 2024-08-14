@@ -26,7 +26,7 @@
 
 /*
  * Copyright (c) 2012 by Delphix. All rights reserved.
- * Copyright 2019 Joyent, Inc.
+ * Copyright 2021 Joyent, Inc.
  * Copyright (c) 2013 Josef 'Jeff' Sipek <jeffpc@josefsipek.net>
  * Copyright (c) 2015, 2017 by Delphix. All rights reserved.
  * Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
@@ -71,6 +71,7 @@
 #include <mdb/mdb_macalias.h>
 #include <mdb/mdb_tab.h>
 #include <mdb/mdb_typedef.h>
+#include <mdb/mdb_linkerset.h>
 #ifdef _KMDB
 #include <kmdb/kmdb_kdi.h>
 #endif
@@ -320,6 +321,9 @@ write_arglist(mdb_tgt_as_t as, mdb_tgt_addr_t addr,
 	case 'Z':
 		write_value = write_uint64;
 		break;
+	default:
+		write_value = NULL;
+		break;
 	}
 
 	for (argv++, i = 1; i < argc; i++, argv++) {
@@ -434,6 +438,10 @@ match_arglist(mdb_tgt_as_t as, uint_t flags, mdb_tgt_addr_t addr,
 	case 'M':
 		match_value = match_uint64;
 		break;
+	default:
+		mdb_warn("unknown match value %c\n",
+		    argv->a_un.a_char);
+		return (DCMD_ERR);
 	}
 
 	for (argv++, i = 1; i < argc; i++, argv++) {
@@ -1730,7 +1738,7 @@ showrev_objectversions(int showall)
 }
 
 /*
- * Display information similar to what showrev(1M) displays when invoked
+ * Display information similar to what showrev(8) displays when invoked
  * with no arguments.
  */
 static int
@@ -1747,7 +1755,7 @@ showrev_sysinfo(void)
 	}
 
 	/*
-	 * Match the order of the showrev(1M) output and put "Application
+	 * Match the order of the showrev(8) output and put "Application
 	 * architecture" before "Kernel version"
 	 */
 	if ((s = mdb_tgt_isa(mdb.m_target)) != NULL)
@@ -1956,14 +1964,14 @@ cmd_findsym(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		} else
 			value = argv[i].a_un.a_val;
 
-		if (value != NULL)
+		if (value != (uintptr_t)NULL)
 			symlist[len++] = value;
 	}
 
 	if (flags & DCMD_ADDRSPEC)
 		symlist[len++] = addr;
 
-	symlist[len] = NULL;
+	symlist[len] = (uintptr_t)NULL;
 
 	if (optg)
 		type = MDB_TGT_BIND_GLOBAL | MDB_TGT_TYPE_FUNC;
@@ -3171,6 +3179,8 @@ const mdb_dcmd_t mdb_dcmd_builtins[] = {
 	    head_help },
 	{ "help", "[cmd]", "list commands/command help", cmd_help, NULL,
 	    cmd_help_tab },
+	{ "linkerset", "[name]", "display linkersets", cmd_linkerset,
+	    linkerset_help, cmd_linkerset_tab },
 	{ "list", "?type member [variable]",
 	    "walk list using member as link pointer", cmd_list, NULL,
 	    mdb_tab_complete_mt },

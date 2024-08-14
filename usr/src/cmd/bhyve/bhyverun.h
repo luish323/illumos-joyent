@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011 NetApp, Inc.
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 /*
  * This file and its contents are supplied under the terms of the
@@ -46,30 +44,22 @@
 #define	VMEXIT_CONTINUE		(0)
 #define	VMEXIT_ABORT		(-1)
 
-struct vmctx;
 extern int guest_ncpus;
-extern uint16_t cores, sockets, threads;
-extern char *guest_uuid_str;
-extern char *vmname;
-#ifndef	__FreeBSD__
-extern int bcons_wait;
-extern int bcons_connected;
-extern pthread_mutex_t bcons_wait_lock;
-extern pthread_cond_t bcons_wait_done;
-#endif
+extern uint16_t cpu_cores, cpu_sockets, cpu_threads;
+
+struct vcpu;
+struct vmctx;
+struct vm_exit;
 
 void *paddr_guest2host(struct vmctx *ctx, uintptr_t addr, size_t len);
 
-void fbsdrun_set_capabilities(struct vmctx *ctx, int cpu);
-#ifdef __FreeBSD__
-void fbsdrun_addcpu(struct vmctx *ctx, int fromcpu, int newcpu, uint64_t rip);
-#else
-void fbsdrun_addcpu(struct vmctx *ctx, int fromcpu, int newcpu, uint64_t rip,
-    bool suspend);
-#endif
-int  fbsdrun_muxed(void);
-int  fbsdrun_vmexit_on_hlt(void);
-int  fbsdrun_vmexit_on_pause(void);
-int  fbsdrun_disable_x2apic(void);
 int  fbsdrun_virtio_msix(void);
+
+int vmexit_task_switch(struct vmctx *, struct vcpu *, struct vm_exit *);
+
+#ifndef	__FreeBSD__
+struct vcpu_info;
+void fbsdrun_addcpu(struct vcpu_info *, bool);
+#endif
+
 #endif

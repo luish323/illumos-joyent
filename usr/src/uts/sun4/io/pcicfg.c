@@ -21,6 +21,7 @@
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2023 Oxide Computer Company
  */
 
 /*
@@ -577,24 +578,24 @@ pcicfg_get_nslots(dev_info_t *dip, ddi_acc_handle_t handle)
 	    &cap_ptr)) == DDI_SUCCESS) {
 		uint32_t config;
 
-		PCI_CAP_PUT8(handle, NULL, cap_ptr, PCI_HP_DWORD_SELECT_OFF,
+		PCI_CAP_PUT8(handle, 0, cap_ptr, PCI_HP_DWORD_SELECT_OFF,
 		    PCI_HP_SLOT_CONFIGURATION_REG);
-		config = PCI_CAP_GET32(handle, NULL, cap_ptr,
+		config = PCI_CAP_GET32(handle, 0, cap_ptr,
 		    PCI_HP_DWORD_DATA_OFF);
 		num_slots = config & 0x1F;
 	} else if ((PCI_CAP_LOCATE(handle, PCI_CAP_ID_SLOT_ID, &cap_ptr))
 	    == DDI_SUCCESS) {
-		uint8_t esr_reg = PCI_CAP_GET8(handle, NULL,
+		uint8_t esr_reg = PCI_CAP_GET8(handle, 0,
 		    cap_ptr, PCI_CAP_ID_REGS_OFF);
 
 		num_slots = PCI_CAPSLOT_NSLOTS(esr_reg);
 	} else if ((PCI_CAP_LOCATE(handle, PCI_CAP_ID_PCI_E, &cap_ptr))
 	    == DDI_SUCCESS) {
-		int port_type = PCI_CAP_GET16(handle, NULL, cap_ptr,
+		int port_type = PCI_CAP_GET16(handle, 0, cap_ptr,
 		    PCIE_PCIECAP) & PCIE_PCIECAP_DEV_TYPE_MASK;
 
 		if ((port_type == PCIE_PCIECAP_DEV_TYPE_DOWN) &&
-		    (PCI_CAP_GET16(handle, NULL, cap_ptr, PCIE_PCIECAP)
+		    (PCI_CAP_GET16(handle, 0, cap_ptr, PCIE_PCIECAP)
 		    & PCIE_PCIECAP_SLOT_IMPL))
 				num_slots = 1;
 	}
@@ -614,7 +615,7 @@ pcicfg_is_chassis(dev_info_t *dip, ddi_acc_handle_t handle)
 	if ((PCI_CAP_LOCATE(handle, PCI_CAP_ID_SLOT_ID, &cap_ptr)) !=
 	    DDI_FAILURE) {
 
-		uint8_t esr_reg = PCI_CAP_GET8(handle, NULL, cap_ptr, 2);
+		uint8_t esr_reg = PCI_CAP_GET8(handle, 0, cap_ptr, 2);
 		if (PCI_CAPSLOT_FIC(esr_reg))
 			return (B_TRUE);
 	}
@@ -665,7 +666,7 @@ pcicfg_pcie_port_type(dev_info_t *dip, ddi_acc_handle_t handle)
 
 	if ((PCI_CAP_LOCATE(handle, PCI_CAP_ID_PCI_E, &cap_ptr)) !=
 	    DDI_FAILURE)
-		port_type = PCI_CAP_GET16(handle, NULL,
+		port_type = PCI_CAP_GET16(handle, 0,
 		    cap_ptr, PCIE_PCIECAP) & PCIE_PCIECAP_DEV_TYPE_MASK;
 
 	return (port_type);
@@ -718,7 +719,6 @@ pcicfg_configure(dev_info_t *devi, uint_t device, uint_t function,
 	dev_info_t *new_device;
 	pcicfg_bus_range_t pci_bus_range;
 	int rv;
-	int circ;
 	uint_t highest_bus = 0;
 	int ari_mode = B_FALSE;
 	int max_function = PCICFG_MAX_FUNCTION;
@@ -742,7 +742,7 @@ pcicfg_configure(dev_info_t *devi, uint_t device, uint_t function,
 
 	is_pcie = is_pcie_fabric(devi);
 
-	ndi_devi_enter(devi, &circ);
+	ndi_devi_enter(devi);
 	for (func = 0; func < max_function; ) {
 		if ((function != PCICFG_ALL_FUNC) && (function != func))
 			goto next;
@@ -841,7 +841,7 @@ next:
 		DEBUG1("Next Function - %x\n", func);
 	}
 
-	ndi_devi_exit(devi, circ);
+	ndi_devi_exit(devi);
 
 	if (func == 0)
 		return (PCICFG_FAILURE);	/* probe failed */
@@ -894,7 +894,7 @@ cleanup:
 		 */
 		(void) ndi_devi_offline(new_device, NDI_DEVI_REMOVE);
 	}
-	ndi_devi_exit(devi, circ);
+	ndi_devi_exit(devi);
 
 	return (PCICFG_FAILURE);
 }
@@ -1553,7 +1553,6 @@ pcicfg_unconfigure(dev_info_t *devi, uint_t device, uint_t function,
 	int i;
 	int max_function;
 	int trans_device;
-	int circ;
 	boolean_t is_pcie;
 
 	if (pcie_ari_is_enabled(devi) == PCIE_ARI_FORW_ENABLED)
@@ -1567,7 +1566,7 @@ pcicfg_unconfigure(dev_info_t *devi, uint_t device, uint_t function,
 	 */
 	is_pcie = is_pcie_fabric(devi);
 
-	ndi_devi_enter(devi, &circ);
+	ndi_devi_enter(devi);
 	for (func = 0; func < max_function; func++) {
 
 		if (max_function == PCICFG_MAX_ARI_FUNCTION)
@@ -1659,11 +1658,11 @@ pcicfg_unconfigure(dev_info_t *devi, uint_t device, uint_t function,
 		(void) pcie_ari_disable(devi);
 	}
 
-	ndi_devi_exit(devi, circ);
+	ndi_devi_exit(devi);
 	return (PCICFG_SUCCESS);
 
 fail:
-	ndi_devi_exit(devi, circ);
+	ndi_devi_exit(devi);
 	return (PCICFG_FAILURE);
 }
 
@@ -1872,7 +1871,6 @@ pcicfg_bridge_assign(dev_info_t *dip, void *hdl)
 	int offset;
 	uint64_t mem_answer;
 	uint32_t io_answer;
-	int count;
 	uint8_t header_type;
 	pcicfg_range_t range[PCICFG_RANGE_LEN];
 	int bus_range[2];
@@ -1912,10 +1910,10 @@ pcicfg_bridge_assign(dev_info_t *dip, void *hdl)
 		range[1].child_lo = range[1].parent_lo =
 		    entry->memory_last;
 
-		ndi_devi_enter(dip, &count);
+		ndi_devi_enter(dip);
 		ddi_walk_devs(ddi_get_child(dip),
 		    pcicfg_bridge_assign, (void *)entry);
-		ndi_devi_exit(dip, count);
+		ndi_devi_exit(dip);
 
 		(void) pcicfg_update_bridge(entry, handle);
 
@@ -2373,7 +2371,6 @@ pcicfg_allocate_chunk(dev_info_t *dip)
 	ndi_ra_request_t	*io_request;
 	uint64_t		mem_answer;
 	uint64_t		io_answer;
-	int			count;
 	uint64_t		alen;
 
 	/*
@@ -2392,9 +2389,9 @@ pcicfg_allocate_chunk(dev_info_t *dip)
 	 * the memory and I/O requirements and put them in
 	 * structure "phdl".
 	 */
-	ndi_devi_enter(ddi_get_parent(dip), &count);
+	ndi_devi_enter(ddi_get_parent(dip));
 	ddi_walk_devs(dip, pcicfg_sum_resources, (void *)phdl);
-	ndi_devi_exit(ddi_get_parent(dip), count);
+	ndi_devi_exit(ddi_get_parent(dip));
 
 	if (phdl->error != PCICFG_SUCCESS) {
 		DEBUG0("Failure summing resources\n");
@@ -3012,15 +3009,14 @@ static dev_info_t *
 pcicfg_devi_find(dev_info_t *dip, uint_t device, uint_t function)
 {
 	struct pcicfg_find_ctrl ctrl;
-	int count;
 
 	ctrl.device = device;
 	ctrl.function = function;
 	ctrl.dip = NULL;
 
-	ndi_devi_enter(dip, &count);
+	ndi_devi_enter(dip);
 	ddi_walk_devs(ddi_get_child(dip), pcicfg_match_dev, (void *)&ctrl);
-	ndi_devi_exit(dip, count);
+	ndi_devi_exit(dip);
 
 	return (ctrl.dip);
 }
@@ -3535,11 +3531,11 @@ pcicfg_set_standard_props(dev_info_t *dip, ddi_acc_handle_t config_handle,
 	ret = PCI_CAP_LOCATE(config_handle, PCI_CAP_ID_PCI_E, &cap_ptr);
 
 	if (pcie_dev && (ret == DDI_SUCCESS)) {
-		val = PCI_CAP_GET16(config_handle, NULL, cap_ptr,
+		val = PCI_CAP_GET16(config_handle, 0, cap_ptr,
 		    PCIE_PCIECAP) & PCIE_PCIECAP_SLOT_IMPL;
 		/* if slot implemented, get physical slot number */
 		if (val) {
-			wordval = (PCI_CAP_GET32(config_handle, NULL,
+			wordval = (PCI_CAP_GET32(config_handle, 0,
 			    cap_ptr, PCIE_SLOTCAP) >>
 			    PCIE_SLOTCAP_PHY_SLOT_NUM_SHIFT) &
 			    PCIE_SLOTCAP_PHY_SLOT_NUM_MASK;
@@ -3977,13 +3973,13 @@ pcicfg_disable_bridge_probe_err(dev_info_t *dip, ddi_acc_handle_t h,
 			return;
 
 		regs->pcie_cap_off = cap_ptr;
-		regs->devctl = devctl = PCI_CAP_GET16(h, NULL, cap_ptr,
+		regs->devctl = devctl = PCI_CAP_GET16(h, 0, cap_ptr,
 		    PCIE_DEVCTL);
 		devctl &= ~(PCIE_DEVCTL_UR_REPORTING_EN |
 		    PCIE_DEVCTL_CE_REPORTING_EN |
 		    PCIE_DEVCTL_NFE_REPORTING_EN |
 		    PCIE_DEVCTL_FE_REPORTING_EN);
-		PCI_CAP_PUT16(h, NULL, cap_ptr, PCIE_DEVCTL, devctl);
+		PCI_CAP_PUT16(h, 0, cap_ptr, PCIE_DEVCTL, devctl);
 	}
 }
 
@@ -4635,7 +4631,7 @@ pcicfg_fcode_probe(dev_info_t *parent, uint_t bus, uint_t device,
 			 * the status property if it exists.
 			 */
 			if (ddi_prop_lookup_string(DDI_DEV_T_ANY,
-			    new_child, NULL, "status", &status_prop) ==
+			    new_child, 0, "status", &status_prop) ==
 			    DDI_PROP_SUCCESS) {
 				if ((strncmp("disabled", status_prop, 8) ==
 				    0) || (strncmp("fail", status_prop, 4) ==
@@ -4910,7 +4906,6 @@ pcicfg_probe_bridge(dev_info_t *new_child, ddi_acc_handle_t h, uint_t bus,
 	pcicfg_range_t range[PCICFG_RANGE_LEN];
 	int bus_range[2];
 	pcicfg_phdl_t phdl;
-	int count;
 	uint64_t pcibus_base, pcibus_alen;
 	uint64_t max_bus;
 	uint8_t pcie_device_type = 0;
@@ -5252,7 +5247,7 @@ pcicfg_probe_bridge(dev_info_t *new_child, ddi_acc_handle_t h, uint_t bus,
 	 * Probe all children devices
 	 */
 	DEBUG0("Bridge Programming Complete - probe children\n");
-	ndi_devi_enter(new_child, &count);
+	ndi_devi_enter(new_child);
 	for (i = 0; ((i < PCICFG_MAX_DEVICE) && (ari_mode == B_FALSE));
 	    i++) {
 		for (j = 0; j < max_function; ) {
@@ -5331,7 +5326,7 @@ next:
 		}
 	}
 
-	ndi_devi_exit(new_child, count);
+	ndi_devi_exit(new_child);
 
 	/* if empty topology underneath, it is still a success. */
 	if (rval != PCICFG_FAILURE)
@@ -5356,9 +5351,9 @@ next:
 	phdl.io_base = (uint32_t)io_answer;
 	phdl.error = PCICFG_SUCCESS;    /* in case of empty child tree */
 
-	ndi_devi_enter(ddi_get_parent(new_child), &count);
+	ndi_devi_enter(ddi_get_parent(new_child));
 	ddi_walk_devs(new_child, pcicfg_find_resource_end, (void *)&phdl);
-	ndi_devi_exit(ddi_get_parent(new_child), count);
+	ndi_devi_exit(ddi_get_parent(new_child));
 
 	if (phdl.error != PCICFG_SUCCESS) {
 		DEBUG0("Failure summing resources\n");

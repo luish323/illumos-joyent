@@ -43,7 +43,6 @@ INPUTFILES1	= $(CODESETS:%=%+UTF-8.src)
 INPUTFILES2	= $(CODESETS:%=UTF-8+%.src)
 INPUTFILES	= $(INPUTFILES1) $(INPUTFILES2)
 BINARYTABLES	= $(INPUTFILES:%.src=%.bt)
-GENICONVTBL	= /usr/bin/geniconvtbl
 GENI_SRCS	= common/binarytables/srcs
 ICONV_DIR	= $(ROOT)/usr/lib/iconv
 BTS_DIR		= $(ICONV_DIR)/geniconvtbl/binarytables
@@ -53,7 +52,6 @@ all :=          TARGET = all
 clean :=        TARGET = clean
 clobber :=      TARGET = clobber
 install :=      TARGET = install
-lint :=         TARGET = lint
 echo :=         TARGET = echo
 
 $(ICONV_DIR)/alias:=	FILEMODE=0444
@@ -89,7 +87,7 @@ install: all $(BINARYTABLES) $(BTS_DIR) $(ICONV_DIR)/alias
 clean:
 	$(RM) $(BINARYTABLES)
 
-all clean clobber install lint echo: $(SUBDIRS)
+all clean clobber install echo: $(SUBDIRS)
 
 .PARALLEL: $(SUBDIRS)
 

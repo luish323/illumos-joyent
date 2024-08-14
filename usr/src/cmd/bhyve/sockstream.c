@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2015 Nahanni Systems, Inc.
  * All rights reserved.
@@ -24,15 +24,16 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/types.h>
 #include <unistd.h>
+
+#ifndef	__FreeBSD__
+#include <sys/socket.h>
+#endif
 
 #include <errno.h>
 
@@ -72,7 +73,11 @@ stream_write(int fd, const void *buf, ssize_t nbytes)
 	p = buf;
 
 	while (len < nbytes) {
+#ifdef	__FreeBSD__
 		n = write(fd, p + len, nbytes - len);
+#else
+		n = send(fd, p + len, nbytes - len, MSG_NOSIGNAL);
+#endif
 		if (n == 0)
 			break;
 		if (n < 0) {

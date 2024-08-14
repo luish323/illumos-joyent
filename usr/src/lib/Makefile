@@ -24,14 +24,14 @@
 # Copyright (c) 2012 by Delphix. All rights reserved.
 # Copyright 2020 Joyent, Inc.
 # Copyright (c) 2013 Gary Mills
-# Copyright 2014 Garrett D'Amore <garrett@damore.org>
 # Copyright (c) 2015 Gary Mills
+# Copyright 2022 Garrett D'Amore
 # Copyright 2016 Toomas Soome <tsoome@me.com>
 # Copyright 2018 Nexenta Systems, Inc.
 # Copyright (c) 2016, Chris Fraire <cfraire@me.com>.
 # Copyright 2017 RackTop Systems.
-# Copyirght 2018 Jason King
-# Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2018 Jason King
+# Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
 #
 
 include ../Makefile.master
@@ -47,6 +47,7 @@ include ../Makefile.master
 
 # Build libc and its dependencies
 SUBDIRS=			\
+	ssp_ns			\
 	crt			\
 	../cmd/sgs/libconv	\
 	../cmd/sgs/libdl	\
@@ -91,7 +92,6 @@ SUBDIRS +=				\
 	libadt_jni	\
 	libadutils	\
 	libaio		\
-	libast		\
 	libavl		\
 	libbe		\
 	libbrand	\
@@ -100,7 +100,6 @@ SUBDIRS +=				\
 	libbunyan	\
 	libc_db		\
 	libcfgadm	\
-	libcmd		\
 	libcmdutils	\
 	libcommputil	\
 	libcontract	\
@@ -119,7 +118,6 @@ SUBDIRS +=				\
 	libdisasm	\
 	libdiskmgt	\
 	libdladm	\
-	libdll		\
 	libdlpi		\
 	libdns_sd	\
 	libdoor		\
@@ -177,6 +175,7 @@ SUBDIRS +=				\
 	libndmp		\
 	libnisdb	\
 	libnls		\
+	libnvme		\
 	libnwam		\
 	libofmt		\
 	libpam		\
@@ -188,8 +187,6 @@ SUBDIRS +=				\
 	libpicltree	\
 	libpkg		\
 	libpool		\
-	libpp		\
-	libppt		\
 	libproc		\
 	libproject	\
 	libpthread	\
@@ -215,7 +212,6 @@ SUBDIRS +=				\
 	libsendfile	\
 	libsff		\
 	libshare	\
-	libshell	\
 	libsip		\
 	libsldap	\
 	libslp		\
@@ -227,19 +223,15 @@ SUBDIRS +=				\
 	libsrpt		\
 	libstmf		\
 	libstmfproxy	\
-	libsum		\
 	libsun_ima	\
-	libsys		\
 	libsysevent	\
 	libtecla	\
 	libtermcap	\
 	libthread	\
-	libtnf		\
-	libtnfctl	\
-	libtnfprobe	\
 	libtsnet	\
 	libtsol		\
 	libumem		\
+	libutempter	\
 	libuuid		\
 	libuutil	\
 	libvnd		\
@@ -253,6 +245,7 @@ SUBDIRS +=				\
 	libxnet		\
 	libzdoor	\
 	libzfs		\
+	libzfsbootenv	\
 	libzfs_core	\
 	libzfs_jni	\
 	libzonecfg	\
@@ -264,7 +257,6 @@ SUBDIRS +=				\
 	mpapi		\
 	mpss		\
 	nametoaddr	\
-	ncad_addr	\
 	nsswitch	\
 	pam_modules	\
 	passwdutil	\
@@ -286,13 +278,14 @@ SUBDIRS +=				\
 	$($(MACH)_SUBDIRS)
 
 i386_SUBDIRS=		\
+	lib9p		\
 	libfdisk	\
+	libppt		\
 	libsaveargs	\
 	libvmm		\
 	libvmmapi
 
 sparc_SUBDIRS=		\
-	efcode		\
 	libds		\
 	libdscp		\
 	libprtdiag	\
@@ -320,17 +313,14 @@ MSGSUBDIRS=		\
 	gss_mechs/mech_dh	\
 	gss_mechs/mech_krb5	\
 	krb5		\
-	libast		\
 	libbsm		\
 	libc		\
 	libcfgadm	\
-	libcmd		\
 	libcontract	\
 	libcurses	\
 	libdhcputil	\
 	libdiskmgt	\
 	libdladm	\
-	libdll		\
 	libgrubmgmt	\
 	libgss		\
 	libidmap	\
@@ -347,19 +337,16 @@ MSGSUBDIRS=		\
 	libpicl		\
 	libpkg		\
 	libpool		\
-	libpp		\
 	libreparse	\
 	libsasl		\
 	libscf		\
 	libsecdb	\
 	libshare	\
-	libshell	\
 	libsldap	\
 	libslp		\
 	libsmartsshd	\
 	libsmbfs	\
 	libsmedia	\
-	libsum		\
 	libtsol		\
 	libuutil	\
 	libvrrpadm	\
@@ -386,12 +373,10 @@ HDRSUBDIRS=				\
 	hal		\
 	hbaapi		\
 	libads		\
-	libast		\
 	libbrand	\
 	libbsm		\
 	libbunyan	\
 	libc		\
-	libcmd		\
 	libcmdutils	\
 	libcommputil	\
 	libcontract	\
@@ -409,7 +394,6 @@ HDRSUBDIRS=				\
 	libdisasm	\
 	libdiskmgt	\
 	libdladm	\
-	libdll		\
 	libdlpi		\
 	libdns_sd	\
 	libdtrace	\
@@ -446,6 +430,7 @@ HDRSUBDIRS=				\
 	libmtmalloc	\
 	libndmp		\
 	libnsl		\
+	libnvme		\
 	libnvpair	\
 	libnwam		\
 	libofmt		\
@@ -457,8 +442,6 @@ HDRSUBDIRS=				\
 	libpicl		\
 	libpicltree	\
 	libpool		\
-	libpp		\
-	libppt		\
 	libproc		\
 	libraidcfg	\
 	librcm		\
@@ -473,7 +456,6 @@ HDRSUBDIRS=				\
 	libsec		\
 	libsff		\
 	libshare	\
-	libshell	\
 	libsip		\
 	libslp		\
 	libsmbfs	\
@@ -484,17 +466,14 @@ HDRSUBDIRS=				\
 	libsrpt		\
 	libstmf		\
 	libstmfproxy	\
-	libsum		\
 	libsun_ima	\
 	libsysevent	\
 	libtecla	\
 	libtermcap	\
-	libtnf		\
-	libtnfctl	\
-	libtnfprobe	\
 	libtsnet	\
 	libtsol		\
 	libumem		\
+	libutempter	\
 	libuutil	\
 	libvnd		\
 	libvolmgt	\
@@ -519,7 +498,9 @@ HDRSUBDIRS=				\
 	$($(MACH)_HDRSUBDIRS)
 
 i386_HDRSUBDIRS=	\
+	lib9p		\
 	libfdisk	\
+	libppt		\
 	libsaveargs	\
 	libvmm		\
 	libvmmapi
@@ -565,7 +546,6 @@ install_extra:
 
 clean clobber:		$(NOWAIT_SUBDIRS:%=%-nodepend)
 
-lint:
 
 install_h check:	$(HDRSUBDIRS:%=%-nodepend)
 
@@ -590,7 +570,8 @@ basedeps :=	TARGET=install
 
 # The following dependencies are currently required by libdbus-1 and should
 # be used for anything linking against it.
-dbusdeps:	libsecdb libtsol libinetutil libscf libuutil libgen libsmbios
+dbusdeps:	libsecdb libtsol libinetutil libscf libuutil libgen libsmbios \
+		libbsm
 
 # The following dependencies don't need to be listed below as they are built
 # before everything else:
@@ -602,7 +583,7 @@ brand:		libzonecfg libmapmalloc libipadm libcustr libproc librpcsvc
 cfgadm_plugins:	libdevice libdevinfo libhotplug librcm hbaapi libkstat libscf
 fm:		libexacct libipmi libzfs scsi libdevinfo libdevid libcfgadm \
 		libcontract libsysevent ../cmd/sgs/libelf libdladm libsff \
-		libpcidb libdiskmgt
+		libpcidb libdiskmgt libjedec libnvme
 $(SPARC_BLD)fm:	libpri
 gss_mechs/mech_dh: libgss
 gss_mechs/mech_dummy: libgss
@@ -610,19 +591,20 @@ gss_mechs/mech_krb5: libgss libresolv2 pkcs11 libkstat
 gss_mechs/mech_spnego: gss_mechs/mech_krb5
 hal:		dbusdeps
 krb5:		gss_mechs/mech_krb5 libtecla libldap5
+lib9p:		libsec libcustr
 libads:		libnsl
 libadt_jni:	libbsm
 libadutils:	libldap5 libresolv2
-libbe:		libzfs libinstzones libuuid libgen libdevinfo libefi libficl
+libbe:		libzfs libinstzones libuuid libgen libdevinfo libefi libficl \
+		libzfsbootenv
 libbsm:		libinetutil libscf libsecdb libtsol
 libbunyan:	libumem
 libcfgadm:	libdevinfo
 libcontract:	libnvpair
-libcmd:		libsum libast
 libcmdutils:	libavl libnvpair
 libcpc:		libpctx
 libcrypt:	libgen
-libctf:		libdwarf
+libctf:		libavl libdwarf
 libdemangle:	libcustr
 libdevice:	libnvpair
 libdevid:	libdevinfo
@@ -633,7 +615,6 @@ libdiskmgt:	libdevid libdevinfo libadm libefi libkstat libsysevent
 $(INTEL_BLD)libdiskmgt: libfdisk
 libdladm:	libdevinfo libinetutil libscf librcm libexacct libkstat \
 		libpool varpd
-libdll:		libast
 libdlpi:	libinetutil libdladm
 libds:		libsysevent
 libdtrace:	libproc libgen libctf libmapmalloc libzonecfg ../cmd/sgs/libelf
@@ -655,7 +636,8 @@ libidspace:	libumem
 libinetsvc:	libscf
 libinetutil:	libsocket
 libinstzones:	libzonecfg libcontract
-libipadm:	libinetutil libdlpi libdhcpagent libdladm libsecdb libdhcputil
+libipadm:	libinetutil libdlpi libdhcpagent libdladm libsecdb libdhcputil \
+		libcmdutils libipmp
 libipmi:	libm libnvpair libsocket libnsl
 libipmp:	libinetutil
 libipsecutil:	libtecla libtsol libkmf
@@ -668,13 +650,13 @@ libmapid:	libresolv2 libscf
 libmlrpc:	libsmbfs libuuid
 libndmp:	libscf
 libnisdb:	libldap5
+libnvme:	libdevinfo libnvpair
 libnwam:	libscf libbsm libdladm libipadm
 libpcp:		libumem libdevinfo
 libpctx:	libproc
 libperiodic:	libumem libavl librefhash libidspace
 libpkg:		libscf libadm
 libpool:	libscf libexacct
-libpp:		libast
 libppt:		libpcidb libdevinfo libcmdutils
 libproc:	../cmd/sgs/librtld_db ../cmd/sgs/libelf libctf
 $(INTEL_BLD)libproc: libsaveargs
@@ -692,7 +674,6 @@ libsec:		libavl libidmap
 libsecdb:	libnsl
 libsff:		libnvpair
 libshare:	libscf libzfs libuuid libfsmgt libsecdb libumem libsmbfs
-libshell:	libast libcmd libdll libsecdb
 libsip:		libmd5
 libsldap:	libldap5 libscf
 libsmartsshd:	libc libcontract
@@ -701,12 +682,10 @@ libsmbios:	libdevinfo
 libsrpt:	libstmf
 libstmf:	libscf
 libstmfproxy:	libstmf libpthread
-libsum:		libast
 libsun_ima:	libdevinfo libsysevent
 libsysevent:	libsecdb
 libtecla:	libcurses
 libtermcap:	libcurses
-libtnfctl:	../cmd/sgs/libelf
 libtsalarm:	libpcp
 libtsnet:	libtsol libsecdb
 libtsol:	libsecdb
@@ -719,6 +698,7 @@ libvscan:	libscf libsecdb
 libzdoor:	libc libzonecfg libcontract
 libzfs:		libdevid libgen libuutil libavl libefi libidmap \
 		libumem libtsol libzfs_core libcryptoutil pkcs11 libmd libzutil
+libzfsbootenv:	libzfs libnvpair
 libzfs_core:	libnvpair
 libzfs_jni:	libdiskmgt libzfs libzutil
 libzonecfg:	libuuid libsysevent libsec libbrand libpool libscf libproc \
@@ -761,17 +741,9 @@ varpd:		libavl libidspace libumem libnsl libnvpair libmd5 librename \
 # OpenSolaris).
 #
 $(SUBDIRS): FRC
-	@if [ -f $@/Makefile  ]; then \
-		cd $@; pwd; $(MAKE) $(TARGET); \
-	else \
-		true; \
-	fi
+	cd $@; pwd; $(MAKE) $(TARGET)
 
 $(SUBDIRS:%=%-nodepend):
-	@if [ -f $(@:%-nodepend=%)/Makefile  ]; then \
-		cd $(@:%-nodepend=%); pwd; $(MAKE) $(TARGET); \
-	else \
-		true; \
-	fi
+	cd $(@:%-nodepend=%); pwd; $(MAKE) $(TARGET)
 
 FRC:

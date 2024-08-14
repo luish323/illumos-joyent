@@ -20,7 +20,8 @@
 #
 #
 # Copyright (c) 2006, 2010, Oracle and/or its affiliates. All rights reserved.
-# Copyright 2019 Joyent, Inc.
+# Copyright 2020 Joyent, Inc.
+# Copyright 2023 Oxide Computer Company
 #
 
 #
@@ -42,7 +43,16 @@ $mapfile_version 2
 SYMBOL_VERSION SUNWprivate {
     global:
 	topo_close;
+	topo_create_props;
 	topo_debug_set;
+	topo_digraph_deserialize;
+	topo_digraph_destroy;
+	topo_digraph_get;
+	topo_digraph_new;
+	topo_digraph_paths;
+	topo_digraph_serialize;
+	topo_edge_iter;
+	topo_edge_new;
 	topo_fmri_asru;
 	topo_fmri_compare;
 	topo_fmri_contains;
@@ -68,6 +78,7 @@ SYMBOL_VERSION SUNWprivate {
 	topo_fmri_unretire;
 	topo_fmri_unusable;
 	topo_hdl_alloc;
+	topo_hdl_asprintf;
 	topo_hdl_devinfo;
 	topo_hdl_errmsg;
 	topo_hdl_errno;
@@ -79,6 +90,7 @@ SYMBOL_VERSION SUNWprivate {
 	topo_hdl_strfree;
 	topo_hdl_strfreev;
 	topo_hdl_strsplit;
+	topo_hdl_vasprintf;
 	topo_hdl_zalloc;
 	topo_led_state_name;
 	topo_led_type_name;
@@ -92,10 +104,13 @@ SYMBOL_VERSION SUNWprivate {
 	topo_method_unregister;
 	topo_method_unregister_all;
 	topo_mod_alloc;
+	topo_mod_asprintf;
+	topo_mod_vasprintf;
 	topo_mod_auth;
 	topo_mod_clean_str;
 	topo_mod_create_ufm;
 	topo_mod_create_ufm_slot;
+	topo_mod_clean_strn;
 	topo_mod_clrdebug;
 	topo_mod_cpufmri;
 	topo_mod_create_ufm;
@@ -160,7 +175,9 @@ SYMBOL_VERSION SUNWprivate {
 	topo_node_resource;
 	topo_node_setspecific;
 	topo_node_unbind;
+	topo_node_vertex;
 	topo_open;
+	topo_path_destroy;
 	topo_pgroup_create;
 	topo_pgroup_destroy;
 	topo_pgroup_info;
@@ -201,6 +218,7 @@ SYMBOL_VERSION SUNWprivate {
 	topo_prop_setmutable;
 	topo_prop_setnonvolatile;
 	topo_name2stability;
+	topo_scheme_walk;
 	topo_sensor_state_name;
 	topo_sensor_type_name;
 	topo_sensor_units_name;
@@ -208,6 +226,10 @@ SYMBOL_VERSION SUNWprivate {
 	topo_snap_hold;
 	topo_snap_release;
 	topo_strerror;
+	topo_vertex_destroy;
+	topo_vertex_iter;
+	topo_vertex_node;
+	topo_vertex_new;
 	topo_walk_fini;
 	topo_walk_init;
 	topo_walk_step;

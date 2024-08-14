@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011 NetApp, Inc.
  * All rights reserved.
@@ -24,12 +24,9 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/types.h>
 
@@ -40,6 +37,7 @@ __FBSDID("$FreeBSD$");
 #include <vmmapi.h>
 
 #include "acpi.h"
+#include "config.h"
 #include "pci_lpc.h"
 #include "rtc.h"
 
@@ -58,23 +56,38 @@ __FBSDID("$FreeBSD$");
 /*
  * Returns the current RTC time as number of seconds since 00:00:00 Jan 1, 1970
  */
+#ifdef __FreeBSD__
 static time_t
-rtc_time(struct vmctx *ctx, int use_localtime)
+rtc_time(void)
 {
 	struct tm tm;
 	time_t t;
 
 	time(&t);
-	if (use_localtime) {
+	if (get_config_bool_default("rtc.use_localtime", true)) {
 		localtime_r(&t, &tm);
 		t = timegm(&tm);
 	}
 	return (t);
 }
+#else /* __FreeBSD__ */
+static void
+rtc_time(timespec_t *ts)
+{
+	(void) clock_gettime(CLOCK_REALTIME, ts);
+
+	if (get_config_bool_default("rtc.use_localtime", true)) {
+		struct tm tm;
+
+		localtime_r(&ts->tv_sec, &tm);
+		ts->tv_sec = timegm(&tm);
+	}
+}
+#endif /* __FreeBSD__ */
 
 void
-rtc_init(struct vmctx *ctx, int use_localtime)
-{	
+rtc_init(struct vmctx *ctx)
+{
 	size_t himem;
 	size_t lomem;
 	int err;
@@ -101,7 +114,14 @@ rtc_init(struct vmctx *ctx, int use_localtime)
 	err = vm_rtc_write(ctx, RTC_HMEM_MSB, himem >> 16);
 	assert(err == 0);
 
-	err = vm_rtc_settime(ctx, rtc_time(ctx, use_localtime));
+#ifdef __FreeBSD__
+	err = vm_rtc_settime(ctx, rtc_time());
+#else
+	timespec_t ts;
+
+	rtc_time(&ts);
+	err = vm_rtc_settime(ctx, &ts);
+#endif
 	assert(err == 0);
 }
 

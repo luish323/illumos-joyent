@@ -85,6 +85,8 @@ extern void umem_cache_free(umem_cache_t *, void *);
 
 extern void umem_reap(void);
 
+extern void umem_setmtbf(uint32_t);
+
 #ifdef	__cplusplus
 }
 #endif

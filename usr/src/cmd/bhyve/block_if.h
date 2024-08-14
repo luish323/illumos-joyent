@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013  Peter Grehan <grehan@freebsd.org>
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -38,6 +36,7 @@
 #ifndef _BLOCK_IF_H_
 #define _BLOCK_IF_H_
 
+#include <sys/nv.h>
 #include <sys/uio.h>
 #include <sys/unistd.h>
 
@@ -58,8 +57,16 @@ struct blockif_req {
 	struct iovec	br_iov[BLOCKIF_IOV_MAX];
 };
 
+struct pci_devinst;
 struct blockif_ctxt;
-struct blockif_ctxt *blockif_open(const char *optstr, const char *ident);
+
+typedef void blockif_resize_cb(struct blockif_ctxt *, void *, size_t);
+
+int	blockif_legacy_config(nvlist_t *nvl, const char *opts);
+int 	blockif_add_boot_device(struct pci_devinst *const pi, struct blockif_ctxt *const bc);
+struct blockif_ctxt *blockif_open(nvlist_t *nvl, const char *ident);
+int	blockif_register_resize_callback(struct blockif_ctxt *bc,
+    blockif_resize_cb *cb, void *cb_arg);
 off_t	blockif_size(struct blockif_ctxt *bc);
 void	blockif_chs(struct blockif_ctxt *bc, uint16_t *c, uint8_t *h,
     uint8_t *s);

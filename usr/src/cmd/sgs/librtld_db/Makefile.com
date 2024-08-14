@@ -32,6 +32,7 @@ BLTOBJ=		msg.o
 OBJECTS =	$(BLTOBJ) $(COMOBJS) $(COMOBJS64) $(PLTOBJS)
 
 include		$(SRC)/lib/Makefile.lib
+include		$(SRC)/lib/Makefile.rootfs
 include		$(SRC)/cmd/sgs/Makefile.com
 
 SRCDIR =	../common
@@ -67,6 +68,3 @@ ROOTFS_LINKS64=		$(ROOTFS_LIBDIR64)/$(LIBLINKS)
 
 $(ROOTFS_DYNLIB) :=	FILEMODE= 755
 $(ROOTFS_DYNLIB64) :=	FILEMODE= 755
-
-pics/rd_elf.o :=	CERRWARN += -erroff=E_END_OF_LOOP_CODE_NOT_REACHED
-pics/rd_elf64.o :=	CERRWARN += -erroff=E_END_OF_LOOP_CODE_NOT_REACHED

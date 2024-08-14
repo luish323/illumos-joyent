@@ -38,12 +38,9 @@ include $(SRC)/lib/Makefile.rootfs
 SRCDIR=	../common
 INCDIR=	../inc
 
-LIBS=	$(DYNLIB) $(LINTLIB)
+LIBS=	$(DYNLIB)
 
-$(LINTLIB) := SRCS = $(SRCDIR)/$(LINTSRC)
 
-CFLAGS		+=	$(CCVERBOSE) -xCC
-CFLAGS64	+=	$(CCVERBOSE) -xCC
 CPPFLAGS	+=	-I$(ADJUNCT_PROTO)/usr/include/libxml2 \
 			-I$(INCDIR) -I../../include
 CPPFLAGS64	+=	-I$(ADJUNCT_PROTO)/usr/include/libxml2 \
@@ -59,6 +56,5 @@ SMATCH=off
 
 all:    $(LIBS)
 
-lint:	lintcheck
 
 include $(SRC)/lib/Makefile.targ

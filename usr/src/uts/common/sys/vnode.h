@@ -21,9 +21,9 @@
 
 /*
  * Copyright (c) 1988, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2018, Joyent, Inc.
+ * Copyright 2020 Joyent, Inc.
  * Copyright (c) 2011, 2017 by Delphix. All rights reserved.
- * Copyright 2017 RackTop Systems.
+ * Copyright 2016-2023 RackTop Systems, Inc.
  */
 
 /*	Copyright (c) 1983, 1984, 1985, 1986, 1987, 1988, 1989 AT&T	*/
@@ -197,6 +197,7 @@ struct vsd_node {
  *   v_count
  *   v_shrlocks
  *   v_path
+ *   v_phantom_count
  *   v_vsd
  *   v_xattrdir
  *
@@ -214,6 +215,7 @@ struct vsd_node {
  *     v_lock
  *     v_flag
  *     v_count
+ *     v_phantom_count
  *     v_data
  *     v_vfsp
  *     v_stream
@@ -285,6 +287,8 @@ typedef struct vnode {
 	kmutex_t	v_lock;		/* protects vnode fields */
 	uint_t		v_flag;		/* vnode flags (see below) */
 	uint_t		v_count;	/* reference count */
+				/* non vn_count() ref count (see below) */
+	uint_t		v_phantom_count;
 	void		*v_data;	/* private data for fs */
 	struct vfs	*v_vfsp;	/* ptr to containing VFS */
 	struct stdata	*v_stream;	/* associated stream */
@@ -811,9 +815,9 @@ typedef enum vnevent	{
 	VE_REMOVE	= 3,	/* Remove of vnode's name */
 	VE_RMDIR	= 4,	/* Remove of directory vnode's name */
 	VE_CREATE	= 5,	/* Create with vnode's name which exists */
-	VE_LINK		= 6, 	/* Link with vnode's name as source */
-	VE_RENAME_DEST_DIR = 7,	/* Rename with vnode as target dir */
-	VE_MOUNTEDOVER	= 8, 	/* File or Filesystem got mounted over vnode */
+	VE_LINK		= 6,	/* Link with vnode's name as source */
+	VE_RENAME_DEST_DIR	= 7,	/* Rename with vnode as target dir */
+	VE_MOUNTEDOVER	= 8,	/* File or Filesystem got mounted over vnode */
 	VE_TRUNCATE = 9,	/* Truncate */
 	VE_PRE_RENAME_SRC = 10,	/* Pre-rename, with vnode as source */
 	VE_PRE_RENAME_DEST = 11, /* Pre-rename, with vnode as target/dest. */
@@ -1262,6 +1266,8 @@ extern int	fop_retzcbuf(vnode_t *, xuio_t *, cred_t *, caller_context_t *);
 #define	LOOKUP_XATTR		0x02	/* lookup up extended attr dir */
 #define	CREATE_XATTR_DIR	0x04	/* Create extended attr dir */
 #define	LOOKUP_HAVE_SYSATTR_DIR	0x08	/* Already created virtual GFS dir */
+/* LOOKUP_CHECKREAD		0x10	- private lookuppnvp flag */
+#define	LOOKUP_NOACLCHECK	0x20	/* Dont check ACL when checking perms */
 
 /*
  * Flags for VOP_READDIR
@@ -1294,9 +1300,9 @@ void	vn_recycle(vnode_t *);
 void	vn_free(vnode_t *);
 
 int	vn_is_readonly(vnode_t *);
-int   	vn_is_opened(vnode_t *, v_mode_t);
-int   	vn_is_mapped(vnode_t *, v_mode_t);
-int   	vn_has_other_opens(vnode_t *, v_mode_t);
+int	vn_is_opened(vnode_t *, v_mode_t);
+int	vn_is_mapped(vnode_t *, v_mode_t);
+int	vn_has_other_opens(vnode_t *, v_mode_t);
 void	vn_open_upgrade(vnode_t *, int);
 void	vn_open_downgrade(vnode_t *, int);
 
@@ -1335,10 +1341,12 @@ int	vn_createat(char *pnamep, enum uio_seg seg, struct vattr *vap,
 int	vn_rdwr(enum uio_rw rw, struct vnode *vp, caddr_t base, ssize_t len,
 		offset_t offset, enum uio_seg seg, int ioflag, rlim64_t ulimit,
 		cred_t *cr, ssize_t *residp);
+uint_t	vn_count(struct vnode *vp);
 void	vn_rele(struct vnode *vp);
 void	vn_rele_async(struct vnode *vp, struct taskq *taskq);
 void	vn_rele_dnlc(struct vnode *vp);
 void	vn_rele_stream(struct vnode *vp);
+void	vn_phantom_rele(struct vnode *vp);
 int	vn_link(char *from, char *to, enum uio_seg seg);
 int	vn_linkat(vnode_t *fstartvp, char *from, enum symfollow follow,
 		vnode_t *tstartvp, char *to, enum uio_seg seg);
@@ -1443,6 +1451,16 @@ extern uint_t pvn_vmodsort_supported;
  *	    this->vp->v_path == NULL ? "NULL" : stringof(this->vp->v_path),
  *	    this->vp->v_count)
  * }'
+ *
+ * There are some situations where we don't want a hold to make the vnode
+ * 'busy'. For example, watching a directory via port events or inotify
+ * should not prevent a filesystem from mounting on a watched directory.
+ * For those instances, a phantom hold is used via VN_PHANTOM_HOLD().
+ *
+ * A phantom hold works identically to regular hold, except that those holds
+ * are excluded from the return value of vn_count().
+ *
+ * A phantom hold must be released by VN_PHANTOM_RELE().
  */
 #define	VN_HOLD_LOCKED(vp) {			\
 	ASSERT(mutex_owned(&(vp)->v_lock));	\
@@ -1471,6 +1489,22 @@ extern uint_t pvn_vmodsort_supported;
 	DTRACE_PROBE1(vn__rele, vnode_t *, vp);	\
 }
 
+#define	VN_PHANTOM_HOLD_LOCKED(vp) {			\
+	VN_HOLD_LOCKED(vp);				\
+	(vp)->v_phantom_count++;			\
+	DTRACE_PROBE1(vn__phantom_hold, vnode_t *, vp);	\
+}
+
+#define	VN_PHANTOM_HOLD(vp) {		\
+	mutex_enter(&(vp)->v_lock);	\
+	VN_PHANTOM_HOLD_LOCKED(vp);	\
+	mutex_exit(&(vp)->v_lock);	\
+}
+
+#define	VN_PHANTOM_RELE(vp) {	\
+	vn_phantom_rele(vp);	\
+}
+
 #define	VN_SET_VFS_TYPE_DEV(vp, vfsp, type, dev)	{ \
 	(vp)->v_vfsp = (vfsp); \
 	(vp)->v_type = (type); \
@@ -1481,7 +1515,7 @@ extern uint_t pvn_vmodsort_supported;
  * Compare two vnodes for equality.  In general this macro should be used
  * in preference to calling VOP_CMP directly.
  */
-#define	VN_CMP(VP1, VP2)	((VP1) == (VP2) ? 1 : 	\
+#define	VN_CMP(VP1, VP2)	((VP1) == (VP2) ? 1 :	\
 	((VP1) && (VP2) && (vn_getops(VP1) == vn_getops(VP2)) ? \
 	VOP_CMP(VP1, VP2, NULL) : 0))
 
@@ -1515,6 +1549,7 @@ typedef enum {
 #define	ATTR_REAL	0x10	/* yield attributes of the real vp */
 #define	ATTR_NOACLCHECK	0x20	/* Don't check ACL when checking permissions */
 #define	ATTR_TRIGGER	0x40	/* Mount first if vnode is a trigger mount */
+#define	ATTR_NOIMPLICIT	0x80	/* Disable any implicit owner rights */
 /*
  * Generally useful macros.
  */

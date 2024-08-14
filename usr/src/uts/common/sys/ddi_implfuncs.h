@@ -25,6 +25,8 @@
  */
 /*
  * Copyright 2012 Garrett D'Amore <garrett@damore.org>.  All rights reserved.
+ * Copyright 2020 Joshua M. Clulow <josh@sysmgr.org>
+ * Copyright 2023 Oxide Computer Company
  */
 
 #ifndef _SYS_DDI_IMPLFUNCS_H
@@ -60,14 +62,14 @@ extern int i_ddi_map_fault(dev_info_t *dip, dev_info_t *rdip,
  */
 extern int i_ddi_mem_alloc(dev_info_t *dip, ddi_dma_attr_t *attributes,
     size_t length, int cansleep, int streaming,
-    ddi_device_acc_attr_t *accattrp, caddr_t *kaddrp,
+    const ddi_device_acc_attr_t *accattrp, caddr_t *kaddrp,
     size_t *real_length, ddi_acc_hdl_t *handlep);
 extern void i_ddi_mem_free(caddr_t kaddr, ddi_acc_hdl_t *ap);
 
 extern int i_ddi_devi_get_ppa(dev_info_t *);
 extern void i_ddi_devi_set_ppa(dev_info_t *, int);
 
-extern void i_ddi_devacc_to_hatacc(ddi_device_acc_attr_t *devaccp,
+extern void i_ddi_devacc_to_hatacc(const ddi_device_acc_attr_t *devaccp,
     uint_t *hataccp);
 extern void i_ddi_cacheattr_to_hatacc(uint_t flags, uint_t *hataccp);
 extern boolean_t i_ddi_check_cache_attr(uint_t flags);
@@ -88,8 +90,7 @@ extern void i_ddi_rootnex_init_events(dev_info_t *);
 extern int i_ddi_rootnex_get_eventcookie(dev_info_t *, dev_info_t *, char *,
     ddi_eventcookie_t *);
 extern int i_ddi_rootnex_add_eventcall(dev_info_t *, dev_info_t *,
-    ddi_eventcookie_t, void (*)(dev_info_t *, ddi_eventcookie_t, void *,
-    void *), void *, ddi_callback_id_t *);
+    ddi_eventcookie_t, ddi_event_cb_f, void *, ddi_callback_id_t *);
 extern int i_ddi_rootnex_remove_eventcall(dev_info_t *, ddi_callback_id_t);
 extern int i_ddi_rootnex_post_event(dev_info_t *, dev_info_t *,
     ddi_eventcookie_t, void *);
@@ -148,7 +149,7 @@ extern void impl_ddi_free_nodeid(int);
  * minorname/devtspectype conversions
  */
 extern char *i_ddi_devtspectype_to_minorname(dev_info_t *, dev_t, int);
-extern int i_ddi_minorname_to_devtspectype(dev_info_t *, char *, dev_t *,
+extern int i_ddi_minorname_to_devtspectype(dev_info_t *, const char *, dev_t *,
     int *);
 
 /*
@@ -163,7 +164,7 @@ extern int peekpoke_mem(ddi_ctl_enum_t, peekpoke_ctlops_t *);
 /*
  * Helper functions
  */
-extern char *i_ddi_strdup(char *, uint_t);
+extern char *i_ddi_strdup(const char *, uint_t);
 extern void i_ddi_prop_list_delete(ddi_prop_t *);
 extern ddi_prop_t *i_ddi_prop_list_dup(ddi_prop_t *, uint_t);
 extern int i_ddi_load_drvconf(major_t);
@@ -182,7 +183,7 @@ struct devnames;
 extern void i_ddi_prop_list_hold(ddi_prop_list_t *, struct devnames *);
 extern void i_ddi_prop_list_rele(ddi_prop_list_t *, struct devnames *);
 extern ddi_prop_t *i_ddi_prop_search(dev_t, char *, uint_t, ddi_prop_t **);
-extern int resolve_pathname(char *, dev_info_t **, dev_t *, int *);
+extern int resolve_pathname(const char *, dev_info_t **, dev_t *, int *);
 extern int i_ddi_prompath_to_devfspath(char *, char *);
 extern int i_ddi_attach_node_hierarchy(dev_info_t *);
 extern dev_info_t *i_ddi_attach_pseudo_node(char *);
@@ -214,7 +215,8 @@ extern int i_ddi_devi_get_devid(dev_t, dev_info_t *, ddi_devid_t *);
 extern int e_ddi_devid_discovery(ddi_devid_t);
 extern int e_devid_cache_register(dev_info_t *, ddi_devid_t);
 extern void e_devid_cache_unregister(dev_info_t *);
-extern int e_devid_cache_to_devt_list(ddi_devid_t, char *, int *, dev_t **);
+extern int e_devid_cache_to_devt_list(ddi_devid_t, const char *, int *,
+    dev_t **);
 extern void e_devid_cache_free_devt_list(int, dev_t *);
 
 /*
@@ -236,6 +238,16 @@ extern void i_ddi_decr_locked_memory(proc_t *, rctl_qty_t);
  * Direct I/O support functions
  */
 extern void translate_devid(dev_info_t *dip);
+
+/*
+ * Support routine for file systems that need to scan block devices searching
+ * for a label as part of mounting the root file system.
+ */
+extern void preroot_walk_block_devices(int (*)(const char *, void *), void *);
+
+#define	PREROOT_WALK_BLOCK_DEVICES_NEXT		1
+#define	PREROOT_WALK_BLOCK_DEVICES_CANCEL	2
+
 
 #endif	/* _KERNEL */
 

@@ -11,7 +11,7 @@
 .\"
 .\" Copyright 2015 Joyent, Inc.
 .\"
-.Dd May 11, 2016
+.Dd May 16, 2020
 .Dt PCLEARSIG 3PROC
 .Os
 .Sh NAME
@@ -50,7 +50,7 @@ The
 function is identical to the
 .Fn Pclearsig
 function, except rather than operating on the process and its
-representive thread, it instead operates on the thread handle
+representative thread, it instead operates on the thread handle
 .Fa L .
 .Pp
 The
@@ -74,7 +74,7 @@ and no faults are cleared.
 For a full list of possible errors see the
 .Sy DIAGNOSTICS
 section in
-.Xr proc 4 .
+.Xr proc 5 .
 .Sh INTERFACE STABILITY
 .Sy Uncommitted
 .Sh MT-LEVEL
@@ -85,4 +85,4 @@ in
 .Sh SEE ALSO
 .Xr signal.h 3HEAD ,
 .Xr libproc 3LIB ,
-.Xr proc 4
+.Xr proc 5

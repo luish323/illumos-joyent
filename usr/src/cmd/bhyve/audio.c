@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2016 Alex Teaca <iateaca@FreeBSD.org>
  * All rights reserved.
@@ -28,7 +28,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #ifndef WITHOUT_CAPSICUM
 #include <sys/capsicum.h>
@@ -92,7 +91,7 @@ audio_init(const char *dev_name, uint8_t dir)
 	if (strlen(dev_name) < sizeof(aud->dev_name))
 		memcpy(aud->dev_name, dev_name, strlen(dev_name) + 1);
 	else {
-		DPRINTF("dev_name too big\n");
+		DPRINTF("dev_name too big");
 		free(aud);
 		return NULL;
 	}
@@ -101,7 +100,7 @@ audio_init(const char *dev_name, uint8_t dir)
 
 	aud->fd = open(aud->dev_name, aud->dir ? O_WRONLY : O_RDONLY, 0);
 	if (aud->fd == -1) {
-		DPRINTF("Failed to open dev: %s, errno: %d\n",
+		DPRINTF("Failed to open dev: %s, errno: %d",
 		    aud->dev_name, errno);
 		free(aud);
 		return (NULL);
@@ -137,7 +136,7 @@ audio_set_params(struct audio *aud, struct audio_params *params)
 	assert(params);
 
 	if ((audio_fd = aud->fd) < 0) {
-		DPRINTF("Incorrect audio device descriptor for %s\n",
+		DPRINTF("Incorrect audio device descriptor for %s",
 		    aud->dev_name);
 		return (-1);
 	}
@@ -146,7 +145,7 @@ audio_set_params(struct audio *aud, struct audio_params *params)
 	if (aud->inited) {
 		err = ioctl(audio_fd, SNDCTL_DSP_RESET, NULL);
 		if (err == -1) {
-			DPRINTF("Failed to reset fd: %d, errno: %d\n",
+			DPRINTF("Failed to reset fd: %d, errno: %d",
 			    aud->fd, errno);
 			return (-1);
 		}
@@ -157,14 +156,14 @@ audio_set_params(struct audio *aud, struct audio_params *params)
 	format = params->format;
 	err = ioctl(audio_fd, SNDCTL_DSP_SETFMT, &format);
 	if (err == -1) {
-		DPRINTF("Fail to set fmt: 0x%x errno: %d\n",
+		DPRINTF("Fail to set fmt: 0x%x errno: %d",
 		    params->format, errno);
 		return -1;
 	}
 
 	/* The device does not support the requested audio format */
 	if (format != params->format) {
-		DPRINTF("Mismatch format: 0x%x params->format: 0x%x\n",
+		DPRINTF("Mismatch format: 0x%x params->format: 0x%x",
 		    format, params->format);
 		return -1;
 	}
@@ -173,14 +172,14 @@ audio_set_params(struct audio *aud, struct audio_params *params)
 	channels = params->channels;
 	err = ioctl(audio_fd, SNDCTL_DSP_CHANNELS, &channels);
 	if (err == -1) {
-		DPRINTF("Fail to set channels: %d errno: %d\n",
+		DPRINTF("Fail to set channels: %d errno: %d",
 		    params->channels, errno);
 		return -1;
 	}
 
 	/* The device does not support the requested no. of channels */
 	if (channels != params->channels) {
-		DPRINTF("Mismatch channels: %d params->channels: %d\n",
+		DPRINTF("Mismatch channels: %d params->channels: %d",
 		    channels, params->channels);
 		return -1;
 	}
@@ -189,14 +188,14 @@ audio_set_params(struct audio *aud, struct audio_params *params)
 	rate = params->rate;
 	err = ioctl(audio_fd, SNDCTL_DSP_SPEED, &rate);
 	if (err == -1) {
-		DPRINTF("Fail to set speed: %d errno: %d\n",
+		DPRINTF("Fail to set speed: %d errno: %d",
 		    params->rate, errno);
 		return -1;
 	}
 
 	/* The device does not support the requested rate / speed */
 	if (rate != params->rate) {
-		DPRINTF("Mismatch rate: %d params->rate: %d\n",
+		DPRINTF("Mismatch rate: %d params->rate: %d",
 		    rate, params->rate);
 		return -1;
 	}
@@ -205,10 +204,10 @@ audio_set_params(struct audio *aud, struct audio_params *params)
 	err = ioctl(audio_fd, aud->dir ? SNDCTL_DSP_GETOSPACE :
 	    SNDCTL_DSP_GETISPACE, &info);
 	if (err == -1) {
-		DPRINTF("Fail to get audio buf info errno: %d\n", errno);
+		DPRINTF("Fail to get audio buf info errno: %d", errno);
 		return -1;
 	}
-	DPRINTF("fragstotal: 0x%x fragsize: 0x%x\n",
+	DPRINTF("fragstotal: 0x%x fragsize: 0x%x",
 	    info.fragstotal, info.fragsize);
 #endif
 	return 0;
@@ -221,10 +220,11 @@ audio_set_params(struct audio *aud, struct audio_params *params)
  * @count - the number of bytes in buffer
  */
 int
-audio_playback(struct audio *aud, const void *buf, size_t count)
+audio_playback(struct audio *aud, const uint8_t *buf, size_t count)
 {
-	int audio_fd = -1;
-	ssize_t len = 0, total = 0;
+	ssize_t len;
+	size_t total;
+	int audio_fd;
 
 	assert(aud);
 	assert(aud->dir);
@@ -233,16 +233,13 @@ audio_playback(struct audio *aud, const void *buf, size_t count)
 	audio_fd = aud->fd;
 	assert(audio_fd != -1);
 
-	total = 0;
-	while (total < count) {
+	for (total = 0; total < count; total += len) {
 		len = write(audio_fd, buf + total, count - total);
-		if (len == -1) {
-			DPRINTF("Fail to write to fd: %d, errno: %d\n",
+		if (len < 0) {
+			DPRINTF("Fail to write to fd: %d, errno: %d",
 			    audio_fd, errno);
 			return -1;
 		}
-
-		total += len;
 	}
 
 	return 0;
@@ -257,10 +254,11 @@ audio_playback(struct audio *aud, const void *buf, size_t count)
  * Returns -1 on error and 0 on success
  */
 int
-audio_record(struct audio *aud, void *buf, size_t count)
+audio_record(struct audio *aud, uint8_t *buf, size_t count)
 {
-	int audio_fd = -1;
-	ssize_t len = 0, total = 0;
+	ssize_t len;
+	size_t total;
+	int audio_fd;
 
 	assert(aud);
 	assert(!aud->dir);
@@ -269,16 +267,13 @@ audio_record(struct audio *aud, void *buf, size_t count)
 	audio_fd = aud->fd;
 	assert(audio_fd != -1);
 
-	total = 0;
-	while (total < count) {
+	for (total = 0; total < count; total += len) {
 		len = read(audio_fd, buf + total, count - total);
-		if (len == -1) {
-			DPRINTF("Fail to write to fd: %d, errno: %d\n",
+		if (len < 0) {
+			DPRINTF("Fail to write to fd: %d, errno: %d",
 			    audio_fd, errno);
 			return -1;
 		}
-
-		total += len;
 	}
 
 	return 0;

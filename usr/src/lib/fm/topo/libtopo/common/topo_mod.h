@@ -23,7 +23,8 @@
  * Copyright (c) 2006, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 /*
- * Copyright 2019 Joyent, Inc.
+ * Copyright 2020 Joyent, Inc.
+ * Copyright 2023 Oxide Computer Company
  */
 
 #ifndef _TOPO_MOD_H
@@ -36,6 +37,7 @@
 #include <libdevinfo.h>
 #include <smbios.h>
 #include <pcidb.h>
+#include <stdarg.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -226,13 +228,18 @@ extern char *topo_mod_strsplit(topo_mod_t *, const char *, const char *,
     char **);
 extern int topo_mod_nvalloc(topo_mod_t *, nvlist_t **, uint_t);
 extern int topo_mod_nvdup(topo_mod_t *, nvlist_t *, nvlist_t **);
+extern int topo_mod_vasprintf(topo_mod_t *, char **, const char *,
+    va_list) __VPRINTFLIKE(3);
+extern int topo_mod_asprintf(topo_mod_t *, char **, const char *,
+    ...) __PRINTFLIKE(3);
 
 extern void topo_mod_clrdebug(topo_mod_t *);
 extern void topo_mod_setdebug(topo_mod_t *);
-extern void topo_mod_dprintf(topo_mod_t *, const char *, ...);
+extern void topo_mod_dprintf(topo_mod_t *, const char *, ...) __PRINTFLIKE(2);
 extern const char *topo_mod_errmsg(topo_mod_t *);
 extern int topo_mod_errno(topo_mod_t *);
 extern char *topo_mod_clean_str(topo_mod_t *, const char *);
+extern char *topo_mod_clean_strn(topo_mod_t *, const char *, size_t);
 
 /*
  * Topo node utilities: callable from module enumeration, topo_mod_enumerate()
@@ -258,14 +265,20 @@ extern int topo_prop_inherit(tnode_t *, const char *, const char *, int *);
 extern int topo_pgroup_create(tnode_t *, const topo_pgroup_info_t *, int *);
 
 /*
+ * Conveience property group and property creation.
+ */
+extern int topo_create_props(topo_mod_t *, tnode_t *, int,
+    const topo_pgroup_info_t *, ...);
+
+/*
  * Topo property method registration
  */
 extern int topo_prop_method_register(tnode_t *, const char *, const char *,
     topo_type_t, const char *, const nvlist_t *, int *);
 extern void topo_prop_method_unregister(tnode_t *, const char *, const char *);
 
-extern tnode_t *topo_mod_create_ufm(topo_mod_t *, tnode_t *, const char *,
-    topo_ufm_slot_info_t *);
+extern tnode_t *topo_mod_create_ufm(topo_mod_t *, tnode_t *, topo_instance_t,
+    const char *, topo_ufm_slot_info_t *);
 extern tnode_t *topo_mod_create_ufm_slot(topo_mod_t *, tnode_t *,
     topo_ufm_slot_info_t *);
 
@@ -296,6 +309,7 @@ typedef enum topo_mod_errno {
     EMOD_NONCANON,		/* non-canonical component name requested */
     EMOD_MOD_NOENT,		/* module lookup failed */
     EMOD_UKNOWN_ENUM,		/* unknown enumeration error */
+    EMOD_DIGRAPH_MAXSZ,		/* max digraph size exceeded */
     EMOD_END			/* end of mod errno list (to ease auto-merge) */
 } topo_mod_errno_t;
 
@@ -307,6 +321,19 @@ extern int topo_mod_seterrno(topo_mod_t *, int);
 extern int topo_mod_file_search(topo_mod_t *, const char *file, int oflags);
 
 extern topo_method_f topo_mod_hc_occupied;
+
+/*
+ * Directed Graph topology interfaces
+ */
+extern topo_digraph_t *topo_digraph_new(topo_hdl_t *, topo_mod_t *,
+    const char *);
+extern void topo_digraph_destroy(topo_digraph_t *);
+
+extern topo_vertex_t *topo_vertex_new(topo_mod_t *, const char *,
+    topo_instance_t);
+extern void topo_vertex_destroy(topo_mod_t *mod, topo_vertex_t *vtx);
+
+extern int topo_edge_new(topo_mod_t *, topo_vertex_t *, topo_vertex_t *);
 
 #ifdef	__cplusplus
 }

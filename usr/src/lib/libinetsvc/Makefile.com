@@ -30,13 +30,12 @@ OBJECTS =	inetsvc.o
 
 include ../../Makefile.lib
 
-LIBS =		$(DYNLIB) $(LINTLIB)
+LIBS =		$(DYNLIB)
 LDLIBS +=	-lscf -lc -lsocket -lnsl -lmd -luutil
 
 SRCDIR =	../common
-$(LINTLIB) :=	SRCS = $(SRCDIR)/$(LINTSRC)
 
-CFLAGS +=			$(CCVERBOSE) -Wp,$(CSTD_GNU99)
+CFLAGS +=			$(CCVERBOSE)
 CPPFLAGS +=			-I../common -D_REENTRANT
 $(RELEASE_BUILD)CPPFLAGS +=     -DNDEBUG
 
@@ -51,6 +50,5 @@ SMATCH=off
 
 all: $(LIBS)
 
-lint: lintcheck
 
 include ../../Makefile.targ

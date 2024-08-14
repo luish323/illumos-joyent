@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2012 NetApp, Inc.
  * All rights reserved.
@@ -24,12 +24,12 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _ACPI_H_
 #define _ACPI_H_
+
+#include "acpi_device.h"
 
 #define	SCI_INT			9
 
@@ -42,9 +42,20 @@
 
 #define	IO_PMTMR		0x408	/* 4-byte i/o port for the timer */
 
+#define	IO_GPE0_BLK		0x40c	/* 2x 1-byte IO port for GPE0_STS/EN */
+#define	IO_GPE0_LEN		0x2
+
+#define	IO_GPE0_STS		IO_GPE0_BLK
+#define	IO_GPE0_EN		(IO_GPE0_BLK + (IO_GPE0_LEN / 2))
+
+/* Allocated GPE bits. */
+#define	GPE_VMGENC		0
+
 struct vmctx;
 
 int	acpi_build(struct vmctx *ctx, int ncpu);
+void	acpi_raise_gpe(struct vmctx *ctx, unsigned bit);
+int 	acpi_tables_add_device(const struct acpi_device *const dev);
 void	dsdt_line(const char *fmt, ...);
 void	dsdt_fixed_ioport(uint16_t iobase, uint16_t length);
 void	dsdt_fixed_irq(uint8_t irq);
@@ -52,5 +63,8 @@ void	dsdt_fixed_mem32(uint32_t base, uint32_t length);
 void	dsdt_indent(int levels);
 void	dsdt_unindent(int levels);
 void	sci_init(struct vmctx *ctx);
+#ifndef	__FreeBSD__
+void	pmtmr_init(struct vmctx *ctx);
+#endif
 
 #endif /* _ACPI_H_ */

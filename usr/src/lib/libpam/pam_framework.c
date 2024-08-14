@@ -24,7 +24,7 @@
  */
 
 /*
- * Copyright (c) 2019, Joyent, Inc.
+ * Copyright 2020, Joyent, Inc.
  */
 
 #include <syslog.h>
@@ -103,7 +103,7 @@ static void	free_env(env_list *);
 
 static void	free_resp(int, struct pam_response *);
 static int	do_conv(pam_handle_t *, int, int,
-    char messages[PAM_MAX_NUM_MSG][PAM_MAX_MSG_SIZE], void *,
+    char messages[][PAM_MAX_MSG_SIZE], void *,
     struct pam_response **);
 
 static int	log_priority;	/* pam_trace syslog priority & facility */
@@ -656,9 +656,10 @@ parse_user_name(char *user_input, char **ret_username)
 	 * - we skip leading whitespaces and ignore trailing whitespaces
 	 */
 	while (*ptr != '\0') {
-		if ((*ptr == ' ') || (*ptr == '\t'))
+		if ((*ptr == ' ') || (*ptr == '\t') ||
+		    (index >= PAM_MAX_RESP_SIZE)) {
 			break;
-		else {
+		} else {
 			username[index] = *ptr;
 			index++;
 			ptr++;
@@ -666,9 +667,9 @@ parse_user_name(char *user_input, char **ret_username)
 	}
 
 	/* ret_username will be freed in pam_get_user(). */
-	if ((*ret_username = malloc(index + 1)) == NULL)
+	if (index >= PAM_MAX_RESP_SIZE ||
+	    (*ret_username = strdup(username)) == NULL)
 		return (PAM_BUF_ERR);
-	(void) strcpy(*ret_username, username);
 	return (PAM_SUCCESS);
 }
 
@@ -2642,7 +2643,7 @@ free_resp(int num_msg, struct pam_response *resp)
 
 static int
 do_conv(pam_handle_t *pamh, int msg_style, int num_msg,
-    char messages[PAM_MAX_NUM_MSG][PAM_MAX_MSG_SIZE], void *conv_apdp,
+    char messages[][PAM_MAX_MSG_SIZE], void *conv_apdp,
     struct pam_response *ret_respp[])
 {
 	struct pam_message	*msg;
@@ -2756,13 +2757,16 @@ do_conv(pam_handle_t *pamh, int msg_style, int num_msg,
 
 int
 __pam_display_msg(pam_handle_t *pamh, int msg_style, int num_msg,
-    char messages[PAM_MAX_NUM_MSG][PAM_MAX_MSG_SIZE], void *conv_apdp)
+    char messages[][PAM_MAX_MSG_SIZE], void *conv_apdp)
 {
 	struct pam_response	*ret_respp = NULL;
 	int ret;
 
-	ret = do_conv(pamh, msg_style, num_msg, messages,
-	    conv_apdp, &ret_respp);
+	if (num_msg <= 0 || num_msg > PAM_MAX_NUM_MSG)
+		ret = PAM_CONV_ERR;
+	else
+		ret = do_conv(pamh, msg_style, num_msg, messages,
+		    conv_apdp, &ret_respp);
 
 	if (ret_respp != NULL)
 		free_resp(num_msg, ret_respp);

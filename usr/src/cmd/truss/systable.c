@@ -22,6 +22,7 @@
 /*
  * Copyright (c) 1989, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2015, Joyent, Inc.  All rights reserved.
+ * Copyright 2020 Oxide Computer Company
  */
 
 /*	Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T	*/
@@ -281,7 +282,7 @@ const struct systable systable[] = {
 {"fchownat",	5, DEC, NOV, ATC, STG, DEC, DEC, SNF},		/*  56 */
 {"utssys",	4, DEC, NOV, HEX, DEC, UTS, HEX},		/*  57 */
 {"fdsync",	2, DEC, NOV, DEC, FFG},				/*  58 */
-{"execve",	3, DEC, NOV, STG, HEX, HEX},			/*  59 */
+{"execvex",	4, DEC, NOV, STG, HEX, HEX, EXC},		/*  59 */
 {"umask",	1, OCT, NOV, OCT},				/*  60 */
 {"chroot",	1, DEC, NOV, STG},				/*  61 */
 {"fcntl",	3, DEC, NOV, DEC, FCN, HEX},			/*  62 */
@@ -347,7 +348,7 @@ const struct systable systable[] = {
 {"writev",	3, DEC, NOV, DEC, HEX, DEC},			/* 122 */
 {"preadv",	4, DEC, NOV, DEC, HEX, DEC, DEC},		/* 123 */
 {"pwritev",	4, DEC, NOV, DEC, HEX, DEC, DEC},		/* 124 */
-{ NULL,		8, HEX, HEX, HEX, HEX, HEX, HEX, HEX, HEX, HEX, HEX},
+{"upanic",	2, DEC, NOV, HEX, DEC},				/* 125 */
 {"getrandom",	3, DEC, NOV, IOB, UNS, GRF},			/* 126 */
 {"mmapobj",	5, DEC, NOV, DEC, MOB, HEX, HEX, HEX},		/* 127 */
 {"setrlimit",	2, DEC, NOV, RLM, HEX},				/* 128 */
@@ -680,6 +681,7 @@ const	struct systable ctxtable[] = {
 {"setcontext",	2, DEC, NOV, HID, HEX},				/* 1 */
 {"getustack",	2, DEC, NOV, HID, HEX},				/* 2 */
 {"setustack",	2, DEC, NOV, HID, HEX},				/* 3 */
+{"getcontext_extd", 2, DEC, NOV, HID, HEX},			/* 4 */
 };
 #define	NCTXCODE	(sizeof (ctxtable) / sizeof (struct systable))
 
@@ -971,7 +973,9 @@ const	struct sysalias sysalias[] = {
 	{ "execv",	SYS_execve	},
 	{ "execle",	SYS_execve	},
 	{ "execlp",	SYS_execve	},
+	{ "execve",	SYS_execve	},
 	{ "execvp",	SYS_execve	},
+	{ "fexecve",	SYS_execve	},
 	{ "sigfillset",	SYS_sigpending	},
 	{ "getcontext",	SYS_context	},
 	{ "setcontext",	SYS_context	},

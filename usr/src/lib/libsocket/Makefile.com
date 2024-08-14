@@ -41,17 +41,12 @@ include ../../Makefile.lib
 # install this library in the root filesystem
 include ../../Makefile.rootfs
 
-LIBS =		$(DYNLIB) $(LINTLIB)
+LIBS =		$(DYNLIB)
 
 SRCS =		$(INETOBJS:%.o=../inet/%.c) $(SOCKOBJS:%.o=../socket/%.c)
 LDLIBS +=	-lnsl -lc
 
 SRCDIR =	../common
-$(LINTLIB):=	SRCS = $(SRCDIR)/$(LINTSRC)
-
-# Make string literals read-only to save memory.
-CFLAGS +=	$(XSTRCONST)
-CFLAGS64 +=	$(XSTRCONST)
 
 CPPFLAGS +=	-DSYSV -D_REENTRANT -I../../common/inc
 %/rcmd.o :=	CPPFLAGS += -DNIS
@@ -68,7 +63,6 @@ SMATCH=off
 
 all:
 
-lint:	lintcheck
 
 # libsocket build rules
 pics/%.o: ../inet/%.c

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2016 Alex Teaca <iateaca@FreeBSD.org>
  * All rights reserved.
@@ -28,7 +28,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <pthread.h>
 #include <pthread_np.h>
@@ -205,7 +204,7 @@ struct hda_codec_softc {
  * HDA Codec module function declarations
  */
 static int hda_codec_init(struct hda_codec_inst *hci, const char *play,
-    const char *rec, const char *opts);
+    const char *rec);
 static int hda_codec_reset(struct hda_codec_inst *hci);
 static int hda_codec_command(struct hda_codec_inst *hci, uint32_t cmd_data);
 static int hda_codec_notify(struct hda_codec_inst *hci, uint8_t run,
@@ -391,7 +390,7 @@ verb_func_t hda_codec_verb_handlers[HDA_CODEC_NODES_COUNT] = {
 
 static int
 hda_codec_init(struct hda_codec_inst *hci, const char *play,
-    const char *rec, const char *opts)
+    const char *rec)
 {
 	struct hda_codec_softc *sc = NULL;
 	struct hda_codec_stream *st = NULL;
@@ -399,8 +398,6 @@ hda_codec_init(struct hda_codec_inst *hci, const char *play,
 
 	if (!(play || rec))
 		return (-1);
-
-	DPRINTF("cad: 0x%x opts: %s\n", hci->cad, opts);
 
 	sc = calloc(1, sizeof(*sc));
 	if (!sc)
@@ -420,7 +417,7 @@ hda_codec_init(struct hda_codec_inst *hci, const char *play,
 	sc->conf_default = hda_codec_conf_default;
 	sc->pin_ctrl_default = hda_codec_pin_ctrl_default;
 	sc->verb_handlers = hda_codec_verb_handlers;
-	DPRINTF("HDA Codec nodes: %d\n", sc->no_nodes);
+	DPRINTF("HDA Codec nodes: %d", sc->no_nodes);
 
 	/*
 	 * Initialize the Audio Output stream
@@ -435,7 +432,7 @@ hda_codec_init(struct hda_codec_inst *hci, const char *play,
 
 		st->aud = audio_init(play, 1);
 		if (!st->aud) {
-			DPRINTF("Fail to init the output audio player\n");
+			DPRINTF("Fail to init the output audio player");
 			return (-1);
 		}
 	}
@@ -453,7 +450,7 @@ hda_codec_init(struct hda_codec_inst *hci, const char *play,
 
 		st->aud = audio_init(rec, 0);
 		if (!st->aud) {
-			DPRINTF("Fail to init the input audio player\n");
+			DPRINTF("Fail to init the input audio player");
 			return (-1);
 		}
 	}
@@ -467,7 +464,7 @@ hda_codec_init(struct hda_codec_inst *hci, const char *play,
 static int
 hda_codec_reset(struct hda_codec_inst *hci)
 {
-	struct hda_ops *hops = NULL;
+	const struct hda_ops *hops = NULL;
 	struct hda_codec_softc *sc = NULL;
 	struct hda_codec_stream *st = NULL;
 	int i;
@@ -488,11 +485,11 @@ hda_codec_reset(struct hda_codec_inst *hci)
 		st->right_mute = HDA_CODEC_SET_AMP_GAIN_MUTE_MUTE;
 	}
 
-	DPRINTF("cad: 0x%x\n", hci->cad);
+	DPRINTF("cad: 0x%x", hci->cad);
 
 	if (!hops->signal) {
 		DPRINTF("The controller ops does not implement \
-			 the signal function\n");
+			 the signal function");
 		return (-1);
 	}
 
@@ -502,8 +499,8 @@ hda_codec_reset(struct hda_codec_inst *hci)
 static int
 hda_codec_command(struct hda_codec_inst *hci, uint32_t cmd_data)
 {
+	const struct hda_ops *hops = NULL;
 	struct hda_codec_softc *sc = NULL;
-	struct hda_ops *hops = NULL;
 	uint8_t cad = 0, nid = 0;
 	uint16_t verb = 0, payload = 0;
 	uint32_t res = 0;
@@ -538,7 +535,7 @@ hda_codec_command(struct hda_codec_inst *hci, uint32_t cmd_data)
 
 	if (!hops->response) {
 		DPRINTF("The controller ops does not implement \
-			 the response function\n");
+			 the response function");
 		return (-1);
 	}
 
@@ -566,11 +563,11 @@ hda_codec_command(struct hda_codec_inst *hci, uint32_t cmd_data)
 		if (sc->verb_handlers[nid])
 			res = sc->verb_handlers[nid](sc, verb, payload);
 		else
-			DPRINTF("Unknown VERB: 0x%x\n", verb);
+			DPRINTF("Unknown VERB: 0x%x", verb);
 		break;
 	}
 
-	DPRINTF("cad: 0x%x nid: 0x%x verb: 0x%x payload: 0x%x response: 0x%x\n",
+	DPRINTF("cad: 0x%x nid: 0x%x verb: 0x%x payload: 0x%x response: 0x%x",
 	    cad, nid, verb, payload, res);
 
 	return (hops->response(hci, res, HDA_CODEC_RESPONSE_EX_SOL));
@@ -595,11 +592,11 @@ hda_codec_notify(struct hda_codec_inst *hci, uint8_t run,
 	i = dir ? HDA_CODEC_STREAM_OUTPUT : HDA_CODEC_STREAM_INPUT;
 	st = &sc->streams[i];
 
-	DPRINTF("run: %d, stream: 0x%x, st->stream: 0x%x dir: %d\n",
+	DPRINTF("run: %d, stream: 0x%x, st->stream: 0x%x dir: %d",
 	    run, stream, st->stream, dir);
 
 	if (stream != st->stream) {
-		DPRINTF("Stream not found\n");
+		DPRINTF("Stream not found");
 		return (0);
 	}
 
@@ -653,7 +650,7 @@ hda_codec_parse_format(uint16_t fmt, struct audio_params *params)
 		params->format = AFMT_S32_LE;
 		break;
 	default:
-		DPRINTF("Unknown format bits: 0x%x\n",
+		DPRINTF("Unknown format bits: 0x%x",
 		    fmt & HDA_CODEC_FMT_BITS_MASK);
 		return (-1);
 	}
@@ -679,9 +676,9 @@ hda_codec_audio_output_nid(struct hda_codec_softc *sc, uint16_t verb,
 static void
 hda_codec_audio_output_do_transfer(void *arg)
 {
+	const struct hda_ops *hops = NULL;
 	struct hda_codec_softc *sc = (struct hda_codec_softc *)arg;
 	struct hda_codec_inst *hci = NULL;
-	struct hda_ops *hops = NULL;
 	struct hda_codec_stream *st = NULL;
 	struct audio *aud = NULL;
 	int err;
@@ -719,7 +716,7 @@ hda_codec_audio_output_do_setup(void *arg)
 	if (err)
 		return (-1);
 
-	DPRINTF("rate: %d, channels: %d, format: 0x%x\n",
+	DPRINTF("rate: %d, channels: %d, format: 0x%x",
 	    params.rate, params.channels, params.format);
 
 	return (audio_set_params(aud, &params));
@@ -740,9 +737,9 @@ hda_codec_audio_input_nid(struct hda_codec_softc *sc, uint16_t verb,
 static void
 hda_codec_audio_input_do_transfer(void *arg)
 {
+	const struct hda_ops *hops = NULL;
 	struct hda_codec_softc *sc = (struct hda_codec_softc *)arg;
 	struct hda_codec_inst *hci = NULL;
-	struct hda_ops *hops = NULL;
 	struct hda_codec_stream *st = NULL;
 	struct audio *aud = NULL;
 	int err;
@@ -778,7 +775,7 @@ hda_codec_audio_input_do_setup(void *arg)
 	if (err)
 		return (-1);
 
-	DPRINTF("rate: %d, channels: %d, format: 0x%x\n",
+	DPRINTF("rate: %d, channels: %d, format: 0x%x",
 	    params.rate, params.channels, params.format);
 
 	return (audio_set_params(aud, &params));
@@ -792,7 +789,7 @@ hda_codec_audio_inout_nid(struct hda_codec_stream *st, uint16_t verb,
 	uint8_t mute = 0;
 	uint8_t gain = 0;
 
-	DPRINTF("%s verb: 0x%x, payload, 0x%x\n", st->actx.name, verb, payload);
+	DPRINTF("%s verb: 0x%x, payload, 0x%x", st->actx.name, verb, payload);
 
 	switch (verb) {
 	case HDA_CMD_VERB_GET_CONV_FMT:
@@ -804,10 +801,10 @@ hda_codec_audio_inout_nid(struct hda_codec_stream *st, uint16_t verb,
 	case HDA_CMD_VERB_GET_AMP_GAIN_MUTE:
 		if (payload & HDA_CMD_GET_AMP_GAIN_MUTE_LEFT) {
 			res = st->left_gain | st->left_mute;
-			DPRINTF("GET_AMP_GAIN_MUTE_LEFT: 0x%x\n", res);
+			DPRINTF("GET_AMP_GAIN_MUTE_LEFT: 0x%x", res);
 		} else {
 			res = st->right_gain | st->right_mute;
-			DPRINTF("GET_AMP_GAIN_MUTE_RIGHT: 0x%x\n", res);
+			DPRINTF("GET_AMP_GAIN_MUTE_RIGHT: 0x%x", res);
 		}
 		break;
 	case HDA_CMD_VERB_SET_AMP_GAIN_MUTE:
@@ -818,14 +815,14 @@ hda_codec_audio_inout_nid(struct hda_codec_stream *st, uint16_t verb,
 			st->left_mute = mute;
 			st->left_gain = gain;
 			DPRINTF("SET_AMP_GAIN_MUTE_LEFT: \
-			    mute: 0x%x gain: 0x%x\n", mute, gain);
+			    mute: 0x%x gain: 0x%x", mute, gain);
 		}
 
 		if (payload & HDA_CMD_SET_AMP_GAIN_MUTE_RIGHT) {
 			st->right_mute = mute;
 			st->right_gain = gain;
 			DPRINTF("SET_AMP_GAIN_MUTE_RIGHT: \
-			    mute: 0x%x gain: 0x%x\n", mute, gain);
+			    mute: 0x%x gain: 0x%x", mute, gain);
 		}
 		break;
 	case HDA_CMD_VERB_GET_CONV_STREAM_CHAN:
@@ -834,29 +831,27 @@ hda_codec_audio_inout_nid(struct hda_codec_stream *st, uint16_t verb,
 	case HDA_CMD_VERB_SET_CONV_STREAM_CHAN:
 		st->channel = payload & 0x0f;
 		st->stream = (payload >> 4) & 0x0f;
-		DPRINTF("st->channel: 0x%x st->stream: 0x%x\n",
+		DPRINTF("st->channel: 0x%x st->stream: 0x%x",
 		    st->channel, st->stream);
 		if (!st->stream)
 			hda_audio_ctxt_stop(&st->actx);
 		break;
 	default:
-		DPRINTF("Unknown VERB: 0x%x\n", verb);
+		DPRINTF("Unknown VERB: 0x%x", verb);
 		break;
 	}
 
 	return (res);
 }
 
-struct hda_codec_class hda_codec  = {
+static const struct hda_codec_class hda_codec = {
 	.name		= "hda_codec",
 	.init		= hda_codec_init,
 	.reset		= hda_codec_reset,
 	.command	= hda_codec_command,
 	.notify		= hda_codec_notify,
 };
-
 HDA_EMUL_SET(hda_codec);
-
 
 /*
  * HDA Audio Context module function definitions
@@ -867,7 +862,7 @@ hda_audio_ctxt_thr(void *arg)
 {
 	struct hda_audio_ctxt *actx = arg;
 
-	DPRINTF("Start Thread: %s\n", actx->name);
+	DPRINTF("Start Thread: %s", actx->name);
 
 	pthread_mutex_lock(&actx->mtx);
 	while (1) {

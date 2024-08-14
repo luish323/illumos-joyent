@@ -23,7 +23,8 @@
  * Copyright (c) 2006, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 /*
- * Copyright (c) 2019, Joyent, Inc.
+ * Copyright 2020 Joyent, Inc.
+ * Copyright 2024 Oxide Computer Company
  */
 
 #include <alloca.h>
@@ -37,6 +38,7 @@
 #include <sys/utsname.h>
 
 #include <topo_error.h>
+#include <topo_digraph.h>
 #include <topo_subr.h>
 
 void
@@ -220,11 +222,17 @@ tnode_t *
 topo_hdl_root(topo_hdl_t *thp, const char *scheme)
 {
 	ttree_t *tp;
+	topo_digraph_t *tdg;
 
 	for (tp = topo_list_next(&thp->th_trees); tp != NULL;
 	    tp = topo_list_next(tp)) {
 		if (strcmp(scheme, tp->tt_scheme) == 0)
 			return (tp->tt_root);
+	}
+	for (tdg = topo_list_next(&thp->th_digraphs); tdg != NULL;
+	    tdg = topo_list_next(tdg)) {
+		if (strcmp(scheme, tdg->tdg_scheme) == 0)
+			return (tdg->tdg_rootnode);
 	}
 
 	return (NULL);
@@ -294,26 +302,26 @@ topo_search_path(topo_mod_t *mod, const char *rootdir, const char *file)
 }
 
 /*
- * SMBIOS serial numbers can contain characters (particularly ':' and ' ')
- * that are invalid for the authority and can break FMRI parsing.  We translate
- * any invalid characters to a safe '-', as well as trimming any leading or
- * trailing whitespace.  Similarly, '/' can be found in some product names
- * so we translate that to '-'.
+ * SMBIOS serial numbers (and many other strings from devices) can contain
+ * characters (particularly ':' and ' ') that are invalid for the authority and
+ * can break FMRI parsing.  We translate any invalid characters to a safe '-',
+ * as well as trimming any leading or trailing whitespace.  Similarly, '/' can
+ * be found in some product names so we translate that to '-'.
  */
 char *
-topo_cleanup_auth_str(topo_hdl_t *thp, const char *begin)
+topo_cleanup_strn(topo_hdl_t *thp, const char *begin, size_t max)
 {
 	char buf[MAXNAMELEN];
 	const char *end, *cp;
 	char *pp;
 	char c;
-	int i;
+	size_t i;
 
-	end = begin + strlen(begin);
+	end = begin + max;
 
 	while (begin < end && isspace(*begin))
 		begin++;
-	while (begin < end && isspace(*(end - 1)))
+	while (begin < end && (isspace(*(end - 1)) || *(end - 1) == '\0'))
 		end--;
 
 	if (begin >= end)
@@ -337,6 +345,12 @@ topo_cleanup_auth_str(topo_hdl_t *thp, const char *begin)
 	return (pp);
 }
 
+char *
+topo_cleanup_auth_str(topo_hdl_t *thp, const char *begin)
+{
+	return (topo_cleanup_strn(thp, begin, strlen(begin)));
+}
+
 void
 topo_sensor_type_name(uint32_t type, char *buf, size_t len)
 {
@@ -353,7 +367,7 @@ topo_sensor_type_name(uint32_t type, char *buf, size_t len)
 }
 
 void
-topo_sensor_units_name(uint8_t type, char *buf, size_t len)
+topo_sensor_units_name(uint32_t type, char *buf, size_t len)
 {
 	topo_name_trans_t *ntp;
 
@@ -368,7 +382,7 @@ topo_sensor_units_name(uint8_t type, char *buf, size_t len)
 }
 
 void
-topo_led_type_name(uint8_t type, char *buf, size_t len)
+topo_led_type_name(uint32_t type, char *buf, size_t len)
 {
 	topo_name_trans_t *ntp;
 
@@ -383,7 +397,7 @@ topo_led_type_name(uint8_t type, char *buf, size_t len)
 }
 
 void
-topo_led_state_name(uint8_t type, char *buf, size_t len)
+topo_led_state_name(uint32_t type, char *buf, size_t len)
 {
 	topo_name_trans_t *ntp;
 
@@ -398,7 +412,7 @@ topo_led_state_name(uint8_t type, char *buf, size_t len)
 }
 
 void
-topo_sensor_state_name(uint32_t sensor_type, uint8_t state, char *buf,
+topo_sensor_state_name(uint32_t sensor_type, uint32_t state, char *buf,
     size_t len)
 {
 	topo_name_trans_t *ntp;

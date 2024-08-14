@@ -22,20 +22,22 @@
 #
 # Copyright (c) 1996, 2010, Oracle and/or its affiliates. All rights reserved.
 # Copyright 2014 Garrett D'Amore <garrett@damore.org>
-# Copyright 2018, Joyent, Inc.
+# Copyright 2018 Joyent, Inc.
+# Copyright 2022 Garrett D'Amore
+# Copyright 2024 MNX Cloud, Inc.
 #
 
 SUBDIRS=	bridged ilbd in.chargend in.daytimed \
 		in.discardd in.echod in.mpathd in.ndpd \
-		in.ripngd in.timed inetd mdnsd ncaconfd pppoe \
+		in.ripngd in.timed inetd mdnsd pppoe \
 		slpd vrrpd wpad in.ikev2d
 
-MSGSUBDIRS=	ilbd inetd ncaconfd vrrpd
+MSGSUBDIRS=	ilbd inetd vrrpd
 
 include ../../Makefile.cmd
 include ./Makefile.lib
 
-POFILES=	inetd/inetd.po ncaconfd/ncaconfd.po vrrpd/vrrpd.po
+POFILES=	inetd/inetd.po vrrpd/vrrpd.po
 POFILE=		usr.lib.po
 
 all:=		TARGET= all
@@ -57,6 +59,6 @@ install: $(SUBDIRS)
 _msg: $(MSGSUBDIRS)
 
 $(SUBDIRS): FRC
-	@cd $@; pwd; $(MAKE) $(MFLAGS) $(TARGET)
+	@cd $@; pwd; $(MAKE) $(TARGET)
 
 FRC:

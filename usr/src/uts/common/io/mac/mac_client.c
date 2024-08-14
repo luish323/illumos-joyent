@@ -23,7 +23,7 @@
  * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2019 Joyent, Inc.
  * Copyright 2017 RackTop Systems.
- * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2022 OmniOS Community Edition (OmniOSce) Association.
  */
 
 /*
@@ -1612,7 +1612,6 @@ mac_rx_set(mac_client_handle_t mch, mac_rx_t rx_fn, void *arg)
 	mcip->mci_rx_fn = rx_fn;
 	mcip->mci_rx_arg = arg;
 	mac_rx_client_restart(mch);
-	i_mac_perim_exit(mip);
 
 	/*
 	 * If we're changing the Rx function on the primary MAC of a VNIC,
@@ -1622,6 +1621,8 @@ mac_rx_set(mac_client_handle_t mch, mac_rx_t rx_fn, void *arg)
 		ASSERT((umip->mi_state_flags & MIS_IS_VNIC) != 0);
 		mac_vnic_secondary_update(umip);
 	}
+
+	i_mac_perim_exit(mip);
 }
 
 /*
@@ -4243,7 +4244,7 @@ mac_promisc_dispatch(mac_impl_t *mip, mblk_t *mp_chain,
 			    mpip->mpi_type == MAC_CLIENT_PROMISC_ALL ||
 			    is_mcast) {
 				mac_promisc_dispatch_one(mpip, mp, is_sender,
-					local);
+				    local);
 			}
 		}
 	}
@@ -4274,7 +4275,7 @@ mac_promisc_client_dispatch(mac_client_impl_t *mcip, mblk_t *mp_chain)
 			if (mpip->mpi_type == MAC_CLIENT_PROMISC_FILTERED &&
 			    !is_mcast) {
 				mac_promisc_dispatch_one(mpip, mp, B_FALSE,
-					B_FALSE);
+				    B_FALSE);
 			}
 		}
 	}
@@ -4352,12 +4353,27 @@ i_mac_capab_get(mac_handle_t mh, mac_capab_t cap, void *cap_data)
 {
 	mac_impl_t *mip = (mac_impl_t *)mh;
 
-	if (mip->mi_bridge_link != NULL && cap == MAC_CAPAB_NO_ZCOPY)
+	if (mip->mi_bridge_link != NULL && cap == MAC_CAPAB_NO_ZCOPY) {
 		return (B_TRUE);
-	else if (mip->mi_callbacks->mc_callbacks & MC_GETCAPAB)
-		return (mip->mi_getcapab(mip->mi_driver, cap, cap_data));
-	else
+	} else if (mip->mi_callbacks->mc_callbacks & MC_GETCAPAB) {
+		boolean_t res;
+
+		res = mip->mi_getcapab(mip->mi_driver, cap, cap_data);
+		/*
+		 * Until we have suppport for TSOv6 emulation in the MAC
+		 * loopback path, do not allow the TSOv6 capability to be
+		 * advertised to consumers.
+		 */
+		if (res && cap == MAC_CAPAB_LSO) {
+			mac_capab_lso_t *cap_lso = cap_data;
+
+			cap_lso->lso_flags &= ~LSO_TX_BASIC_TCP_IPV6;
+			cap_lso->lso_basic_tcp_ipv6.lso_max = 0;
+		}
+		return (res);
+	} else {
 		return (B_FALSE);
+	}
 }
 
 /*

@@ -12,6 +12,8 @@
 #
 # Copyright 2014 Pluribus Networks Inc.
 # Copyright 2020 Joyent, Inc.
+# Copyright 2020 Oxide Computer Company
+# Copyright 2022 OmniOS Community Edition (OmniOSce) Association.
 #
 
 PROG =		bhyve
@@ -26,24 +28,29 @@ all	:=	TARGET = all
 install	:=	TARGET = install
 clean	:=	TARGET = clean
 clobber	:=	TARGET = clobber
-lint	:=	TARGET = lint
 
 SRCS =	acpi.c			\
+	acpi_device.c		\
 	atkbdc.c		\
+	basl.c			\
 	bhyvegc.c		\
 	bhyverun.c		\
 	block_if.c		\
 	bootrom.c		\
+	config.c		\
 	console.c		\
-	consport.c		\
-	dbgport.c		\
+	crc16.c			\
+	e820.c			\
 	fwctl.c			\
 	gdb.c			\
+	hexdump.c		\
 	inout.c			\
 	ioapic.c		\
+	iov.c			\
 	mem.c			\
 	mevent.c		\
 	mptbl.c			\
+	net_backends.c		\
 	net_utils.c		\
 	pci_ahci.c		\
 	pci_e82545.c		\
@@ -55,33 +62,45 @@ SRCS =	acpi.c			\
 	pci_nvme.c		\
 	pci_passthru.c		\
 	pci_uart.c		\
+	pci_virtio_9p.c		\
 	pci_virtio_block.c	\
 	pci_virtio_console.c	\
 	pci_virtio_net.c	\
 	pci_virtio_rnd.c	\
 	pci_virtio_viona.c	\
 	pci_xhci.c		\
+	pctestdev.c		\
 	pm.c			\
 	post.c			\
+	privileges.c		\
 	ps2kbd.c		\
 	ps2mouse.c		\
+	qemu_fwcfg.c		\
+	qemu_loader.c		\
 	rfb.c			\
 	rtc.c			\
 	smbiostbl.c		\
 	sockstream.c		\
+	spinup_ap.c		\
 	task_switch.c		\
+	tpm_device.c		\
+	tpm_emul_passthru.c	\
+	tpm_intf_crb.c		\
+	tpm_ppi_qemu.c		\
 	uart_emul.c		\
 	usb_emul.c		\
 	usb_mouse.c		\
 	vga.c			\
 	virtio.c		\
-	vmm_instruction_emul.c	\
+	vmgenc.c		\
 	xmsr.c			\
-	spinup_ap.c		\
-	iov.c			\
 	bhyve_sol_glue.c
 
-# The virtio-scsi driver appears to include  a slew of materials from FreeBSD's
+# We are not yet performing instruction emulation in userspace, so going to the
+# trouble of fixing the header tangle for this is not worth the complexity.
+	#kernemu_dev.c		\
+
+# The virtio-scsi driver appears to include a slew of materials from FreeBSD's
 # native SCSI implementation.  We will omit that complexity for now.
 	#ctl_util.c		\
 	#ctl_scsi_all.c		\
@@ -92,14 +111,10 @@ SRCS =	acpi.c			\
 	#hda_codec.c		\
 	#pci_hda.c		\
 
-# The bhyve generic net-backend stuff has been ignored by us at the moment
-# because SmartOS users prefer to use viona for its superior network perf.
-	#net_backends.c		\
-
+# The virtio input device expects to link to a FreeBSD /dev/input/eventX device
+	#pci_virtio_input.c	\
 
 OBJS = $(SRCS:.c=.o)
-
-CLOBBERFILES =	$(ROOTUSRSBINPROG) $(ZHYVE)
 
 ZHYVE_DIR =	$(ROOT)/usr/lib/brand/bhyve
 ZHYVE_PROG =	zhyve
@@ -109,42 +124,50 @@ MEVENT_TEST_PROG = mevent_test
 MEVENT_TEST_SRCS = mevent.c mevent_test.c
 MEVENT_TEST_OBJS = $(MEVENT_TEST_SRCS:.c=.o)
 
-CLEANFILES =	$(PROG) $(ZHYVE_PROG) $(MEVENT_TEST_PROG) $(MEVENT_TEST_OBJS)
+CLEANFILES =	$(OBJS) $(MEVENT_TEST_OBJS)
+CLOBBERFILES =	$(PROG) $(MEVENT_TEST_PROG) $(ZHYVE_PROG)
 
-CFLAGS +=	$(CCVERBOSE) -_gcc=-Wimplicit-function-declaration -_gcc=-Wno-parentheses
-CPPFLAGS =	-I$(COMPAT)/freebsd -I$(CONTRIB)/freebsd \
-		-I$(COMPAT)/freebsd/amd64 -I$(CONTRIB)/freebsd/amd64 \
-		-I$(CONTRIB)/freebsd/dev/usb/controller \
-		-I$(CONTRIB)/freebsd/dev/mii \
+CFLAGS +=	$(CCVERBOSE)
+CFLAGS +=	-_gcc=-Wimplicit-function-declaration
+CPPFLAGS =	-I$(COMPAT)/bhyve -I$(CONTRIB)/bhyve \
+		-I$(COMPAT)/bhyve/amd64 -I$(CONTRIB)/bhyve/amd64 \
+		-I$(CONTRIB)/bhyve/dev/usb/controller \
+		-I$(CONTRIB)/bhyve/dev/mii \
+		-I$(SRC)/lib/lib9p/common \
 		-I$(SRC)/uts/common/io/e1000api \
 		$(CPPFLAGS.master) \
-		-I$(ROOT)/usr/platform/i86pc/include \
-		-I$(SRC)/uts/i86pc/io/vmm \
+		-I$(SRC)/uts/intel/io/vmm \
 		-I$(SRC)/uts/common \
-		-I$(SRC)/uts/i86pc \
+		-I$(SRC)/uts/intel \
 		-I$(SRC)/lib/libdladm/common \
-		-DWITHOUT_CAPSICUM
+		-DWITHOUT_CAPSICUM \
+		-DOPENSSL_API_COMPAT=0x10100000L
 
-pci_nvme.o := CERRWARN += -_gcc=-Wno-pointer-sign
-
-SMOFF += all_func_returns,leaks,no_if_block
+SMOFF += all_func_returns
+rfb.o := SMOFF=
 
 # Force c99 for everything
 CSTD=		$(CSTD_GNU99)
-C99MODE=	-xc99=%all
 
-$(PROG) := LDLIBS +=	\
-	-lsocket	\
-	-lnsl		\
-	-ldlpi		\
-	-ldladm		\
-	-lmd		\
-	-lsunw_crypto	\
-	-luuid		\
-	-lvmmapi	\
+$(PROG) := LDLIBS += \
+	-l9p \
+	-lcmdutils \
+	-ldladm \
+	-ldlpi \
+	-lidspace \
+	-lmd \
+	-lnsl \
+	-lnvpair \
+	-lsocket \
+	-lsunw_crypto \
+	-lumem \
+	-luuid \
+	-lvmmapi \
 	-lz
+NATIVE_LIBS += libz.so libsunw_crypto.so
 $(ZHYVE_PROG) := LDLIBS += -lnvpair
 $(MEVENT_TEST_PROG) := LDLIBS += -lsocket
+$(PROG) := LDFLAGS += $(ZASLR)
 
 .KEEP_STATE:
 
@@ -160,7 +183,7 @@ $(MEVENT_TEST_PROG): $(MEVENT_TEST_OBJS)
 install: all $(ZHYVE) $(ROOTUSRSBINPROG) $(SUBDIRS)
 
 clean: $(SUBDIRS)
-	$(RM) $(OBJS) $(CLEANFILES)
+	$(RM) $(CLEANFILES)
 
 clobber: clean $(SUBDIRS)
 	$(RM) $(CLOBBERFILES)
@@ -175,6 +198,6 @@ include ../Makefile.targ
 $(ZHYVE_DIR)/%: %
 	$(INS.file)
 
-%.o: $(SRC)/uts/i86pc/io/vmm/%.c
+%.o: $(SRC)/uts/intel/io/vmm/%.c
 	$(COMPILE.c) $<
 	$(POST_PROCESS_O)

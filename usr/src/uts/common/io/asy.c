@@ -27,6 +27,7 @@
  * Copyright (c) 1992, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2012 Milan Jurik. All rights reserved.
  * Copyright (c) 2016 by Delphix. All rights reserved.
+ * Copyright 2023 Oxide Computer Company
  */
 
 
@@ -262,15 +263,15 @@ ushort_t asyspdtab[] = {
 	0x0,	/* 0x8002 (SMC chip) 230400 baud rate not supported */
 	0x0,	/* 307200 baud rate not supported */
 	0x0,	/* 0x8001 (SMC chip) 460800 baud rate not supported */
-	0x0,	/* unused */
-	0x0,	/* unused */
-	0x0,	/* unused */
-	0x0,	/* unused */
-	0x0,	/* unused */
-	0x0,	/* unused */
-	0x0,	/* unused */
-	0x0,	/* unused */
-	0x0,	/* unused */
+	0x0,	/* 921600 baud rate not supported */
+	0x0,	/* 1000000 baud rate not supported */
+	0x0,	/* 1152000 baud rate not supported */
+	0x0,	/* 1500000 baud rate not supported */
+	0x0,	/* 2000000 baud rate not supported */
+	0x0,	/* 2500000 baud rate not supported */
+	0x0,	/* 3000000 baud rate not supported */
+	0x0,	/* 3500000 baud rate not supported */
+	0x0,	/* 4000000 baud rate not supported */
 };
 
 static int asyrsrv(queue_t *q);
@@ -322,7 +323,7 @@ static int asyattach(dev_info_t *, ddi_attach_cmd_t);
 static int asydetach(dev_info_t *, ddi_detach_cmd_t);
 static int asyquiesce(dev_info_t *);
 
-static 	struct cb_ops cb_asy_ops = {
+static struct cb_ops cb_asy_ops = {
 	nodev,			/* cb_open */
 	nodev,			/* cb_close */
 	nodev,			/* cb_strategy */
@@ -1548,8 +1549,8 @@ asyopen(queue_t *rq, dev_t *dev, int flag, int sflag, cred_t *cr)
 	struct asyncline *async;
 	int		mcr;
 	int		unit;
-	int 		len;
-	struct termios 	*termiosp;
+	int		len;
+	struct termios	*termiosp;
 
 	unit = UNIT(*dev);
 	DEBUGCONT1(ASY_DEBUG_CLOSE, "asy%dopen\n", unit);
@@ -1990,7 +1991,7 @@ asy_waiteot(struct asycom *asy)
 static void
 asy_reset_fifo(struct asycom *asy, uchar_t flush)
 {
-	uchar_t lcr;
+	uchar_t lcr = 0;
 
 	/* On a 16750, we have to set DLAB in order to set FIFOEXTRA. */
 
@@ -2231,19 +2232,17 @@ uint_t
 asyintr(caddr_t argasy)
 {
 	struct asycom		*asy = (struct asycom *)argasy;
-	struct asyncline	*async;
+	struct asyncline	*async = asy->asy_priv;
 	int			ret_status = DDI_INTR_UNCLAIMED;
-	uchar_t			interrupt_id, lsr;
-
-	interrupt_id = ddi_get8(asy->asy_iohandle,
-	    asy->asy_ioaddr + ISR) & 0x0F;
-	async = asy->asy_priv;
 
 	if ((async == NULL) ||
 	    !(async->async_flags & (ASYNC_ISOPEN|ASYNC_WOPEN))) {
-		if (interrupt_id & NOINTERRUPT)
+		const uint8_t intr_id = ddi_get8(asy->asy_iohandle,
+		    asy->asy_ioaddr + ISR) & 0x0F;
+
+		if (intr_id & NOINTERRUPT) {
 			return (DDI_INTR_UNCLAIMED);
-		else {
+		} else {
 			/*
 			 * reset the device by:
 			 *	reading line status
@@ -2271,33 +2270,55 @@ asyintr(caddr_t argasy)
 	 * We will loop until the interrupt line is pulled low. asy
 	 * interrupt is edge triggered.
 	 */
-	/* CSTYLED */
-	for (;; interrupt_id =
-	    (ddi_get8(asy->asy_iohandle, asy->asy_ioaddr + ISR) & 0x0F)) {
+	for (;;) {
+		const uint8_t intr_id = ddi_get8(asy->asy_iohandle,
+		    asy->asy_ioaddr + ISR) & 0x0F;
 
-		if (interrupt_id & NOINTERRUPT)
+		if (intr_id & NOINTERRUPT)
 			break;
 		ret_status = DDI_INTR_CLAIMED;
 
 		DEBUGCONT1(ASY_DEBUG_INTR, "asyintr: interrupt_id = 0x%d\n",
-		    interrupt_id);
-		lsr = ddi_get8(asy->asy_iohandle, asy->asy_ioaddr + LSR);
-		switch (interrupt_id) {
+		    intr_id);
+		const uint8_t lsr = ddi_get8(asy->asy_iohandle,
+		    asy->asy_ioaddr + LSR);
+
+		switch (intr_id) {
+		case TxRDY:
+			/*
+			 * The transmit-ready interrupt implies an empty
+			 * transmit-hold register (or FIFO).  Check that it is
+			 * present before attempting to transmit more data.
+			 */
+			if ((lsr & XHRE) == 0) {
+				/*
+				 * Taking a TxRDY interrupt only to find XHRE
+				 * absent would be a surprise, except for a
+				 * racing asyputchar(), which ignores the
+				 * excl_hi mutex when writing to the device.
+				 */
+				continue;
+			}
+			async_txint(asy);
+			/*
+			 * Unlike the other interrupts which fall through to
+			 * attempting to fill the output register/FIFO, TxRDY
+			 * has no need having just done so.
+			 */
+			continue;
+
 		case RxRDY:
 		case RSTATUS:
 		case FFTMOUT:
 			/* receiver interrupt or receiver errors */
 			async_rxint(asy, lsr);
 			break;
-		case TxRDY:
-			/* transmit interrupt */
-			async_txint(asy);
-			continue;
 		case MSTATUS:
 			/* modem status interrupt */
 			async_msint(asy);
 			break;
 		}
+		/* Refill the output FIFO if it has gone empty */
 		if ((lsr & XHRE) && (async->async_flags & ASYNC_BUSY) &&
 		    (async->async_ocnt > 0))
 			async_txint(asy);
@@ -2319,6 +2340,8 @@ async_txint(struct asycom *asy)
 {
 	struct asyncline *async = asy->asy_priv;
 	int		fifo_len;
+
+	ASSERT(MUTEX_HELD(&asy->asy_excl_hi));
 
 	/*
 	 * If ASYNC_BREAK or ASYNC_OUT_SUSPEND has been set, return to
@@ -2359,6 +2382,8 @@ async_txint(struct asycom *asy)
 static void
 asy_ppsevent(struct asycom *asy, int msr)
 {
+	ASSERT(MUTEX_HELD(&asy->asy_excl_hi));
+
 	if (asy->asy_flags & ASY_PPS_EDGE) {
 		/* Have seen leading edge, now look for and record drop */
 		if ((msr & DCD) == 0)
@@ -2431,6 +2456,8 @@ async_rxint(struct asycom *asy, uchar_t lsr)
 	uint_t s, needsoft = 0;
 	tty_common_t *tp;
 	int looplim = asy->asy_fifo_buf * 2;
+
+	ASSERT(MUTEX_HELD(&asy->asy_excl_hi));
 
 	tp = &async->async_ttycommon;
 	if (!(tp->t_cflag & CREAD)) {
@@ -2549,8 +2576,9 @@ check_looplim:
 	}
 
 	if ((async->async_flags & ASYNC_SERVICEIMM) || needsoft ||
-	    (RING_FRAC(async)) || (async->async_polltid == 0))
+	    (RING_FRAC(async)) || (async->async_polltid == 0)) {
 		ASYSETSOFT(asy);	/* need a soft interrupt */
+	}
 }
 
 /*
@@ -2567,6 +2595,8 @@ async_msint(struct asycom *asy)
 #ifdef DEBUG
 	int instance = UNIT(async->async_dev);
 #endif
+
+	ASSERT(MUTEX_HELD(&asy->asy_excl_hi));
 
 async_msint_retry:
 	/* this resets the interrupt */
@@ -2887,12 +2917,13 @@ begin:
 	 * character as an argument. Let ldterm
 	 * figure out what to do with the error.
 	 */
-	if (cc) {
+	if (cc)
 		(void) putctl1(q, M_BREAK, c);
-		ASYSETSOFT(async->async_common);	/* finish cc chars */
-	}
 	mutex_enter(&asy->asy_excl);
 	mutex_enter(&asy->asy_excl_hi);
+	if (cc) {
+		ASYSETSOFT(asy);	/* finish cc chars */
+	}
 rv:
 	if ((RING_CNT(async) < (RINGSIZE/4)) &&
 	    (async->async_inflow_source & IN_FLOW_RINGBUFF)) {
@@ -3704,10 +3735,12 @@ async_ioctl(struct asyncline *async, queue_t *wq, mblk_t *mp)
 				break;
 			}
 
+			mutex_enter(&asy->asy_excl_hi);
 			if (*(intptr_t *)mp->b_cont->b_rptr)
 				asy->asy_flags |= ASY_CONSOLE;
 			else
 				asy->asy_flags &= ~ASY_CONSOLE;
+			mutex_exit(&asy->asy_excl_hi);
 
 			mp->b_datap->db_type = M_IOCACK;
 			iocp->ioc_error = 0;
@@ -3748,12 +3781,16 @@ asyrsrv(queue_t *q)
 {
 	mblk_t *bp;
 	struct asyncline *async;
+	struct asycom *asy;
 
 	async = (struct asyncline *)q->q_ptr;
+	asy = (struct asycom *)async->async_common;
 
 	while (canputnext(q) && (bp = getq(q)))
 		putnext(q, bp);
-	ASYSETSOFT(async->async_common);
+	mutex_enter(&asy->asy_excl_hi);
+	ASYSETSOFT(asy);
+	mutex_exit(&asy->asy_excl_hi);
 	async->async_polltid = 0;
 	return (0);
 }
