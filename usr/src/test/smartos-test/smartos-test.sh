@@ -317,8 +317,11 @@ function zfs_test_check {
 	echo "export DISKS" >> $zprofile
     fi
 
+    # Allow access to ZFS unit tests driver.
+    add_drv zut
     # OKAY, now we can run it!
     log_test zfstest su - ztest -c /opt/zfs-tests/bin/zfstest
+    rem_drv zut
 }
 
 function nvme_test_check {
@@ -348,6 +351,7 @@ function execute_tests {
     log_testrunner elf-tests /opt/elf-tests/runfiles/default.run
     log_testrunner libc-tests /opt/libc-tests/runfiles/default.run
     log_testrunner libsec-tests /opt/libsec-tests/runfiles/default.run
+    log_testrunner libproc-tests /opt/libproc-tests/runfiles/default.run
     log_test vndtest /opt/vndtest/bin/vndtest -a
     log_testrunner util-tests /opt/util-tests/runfiles/default.run
     log_testrunner os-tests /opt/os-tests/runfiles/default.run
