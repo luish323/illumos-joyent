@@ -277,9 +277,10 @@ uart_intr_callback(int fd __unused, enum ev_type type __unused, void *param)
  * (We could ASSERT() this if we wanted to.)
  */
 void
-uart_intr_throttled(struct uart_softc *sc, uart_intr_func_t intr_assert,
-    void *arg)
+uart_intr_throttled(struct uart_softc *sc, void *intr_assert_ptr, void *arg)
 {
+	uart_intr_func_t intr_assert = (uart_intr_func_t)intr_assert_ptr;
+
 	if (sc->intr_throttle != NULL)
 		return;
 

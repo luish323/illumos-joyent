@@ -40,7 +40,7 @@ struct vm_snapshot_meta;
 void	uart_rxfifo_drain(struct uart_softc *sc, bool loopback);
 #ifndef	__FreeBSD__
 void	uart_rxfifo_sock_drain(struct uart_softc *sc, bool loopback);
-void	uart_intr_throttled(struct uart_softc *, uart_intr_func_t, void *);
+void	uart_intr_throttled(struct uart_softc *, void *, void *);
 #endif
 int	uart_rxfifo_getchar(struct uart_softc *sc);
 int	uart_rxfifo_numchars(struct uart_softc *sc);
