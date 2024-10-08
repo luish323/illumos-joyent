@@ -89,6 +89,10 @@ struct uart_softc {
 #endif
 	struct fifo	rxfifo;
 	struct mevent	*mev;
+#ifndef	__FreeBSD__
+	/* XXX SmartOS - see uart_intr_throttled(). */
+	struct mevent	*intr_throttle;
+#endif
 	pthread_mutex_t mtx;
 };
 
@@ -236,6 +240,53 @@ uart_rxfifo_drain(struct uart_softc *sc, bool loopback)
 }
 
 #ifndef	__FreeBSD__
+/*
+ * XXX SmartOS -- the functions that implement OS-8556.
+ *
+ * This checks if we've scheduled our small 1ms delay or not in
+ * uart_toggle_intr() in uart_emul.c. If we haven't, we schedule one and
+ * enable the interrupt; future callers here will NOT enable the interrupt
+ * until the delay has been cleared. See the aforementioned function/file for
+ * the motivation behind this.
+ */
+
+/*
+ * Clear the IIR_RXTOUT timer, allowing uart_rxfifo_sock_drain() to continue
+ * processing. Not under sc->mtx protection, so we must acquire and release
+ * the lock.
+ */
+static void
+uart_intr_callback(int fd __unused, enum ev_type type __unused, void *param)
+{
+	struct uart_softc *sc = param;
+
+	pthread_mutex_lock(&sc->mtx);
+
+	mevent_delete(sc->intr_throttle);
+	sc->intr_throttle = NULL;
+
+	pthread_mutex_unlock(&sc->mtx);
+}
+
+/*
+ * Called from the uart_emul interrupt toggler's enable path.  Will actually
+ * intr_assert() the interrupt if no existing throttle timer is on the soft
+ * state.  Otherwise it just return and nothing happens.
+ *
+ * NOTE:  We are already under the sc->mtx's protection before being called.
+ * (We could ASSERT() this if we wanted to.)
+ */
+void
+uart_intr_throttled(struct uart_softc *sc, uart_intr_func_t intr_assert,
+    void *arg)
+{
+	if (sc->intr_throttle != NULL)
+		return;
+
+	intr_assert(arg);
+	sc->intr_throttle = mevent_add(1, EVF_TIMER, uart_intr_callback, sc);
+}
+
 void
 uart_rxfifo_sock_drain(struct uart_softc *sc, bool loopback)
 {
@@ -246,7 +297,7 @@ uart_rxfifo_sock_drain(struct uart_softc *sc, bool loopback)
 	} else {
 		bool err_close = false;
 
-		while (rxfifo_available(sc)) {
+		while (rxfifo_available(sc) && sc->intr_throttle == NULL) {
 			int res;
 
 			res = read(sc->usc_sock.clifd, &ch, 1);

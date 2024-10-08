@@ -176,6 +176,15 @@ uart_reset(struct uart_ns16550_softc *sc)
 /*
  * Toggle the COM port's intr pin depending on whether or not we have an
  * interrupt condition to report to the processor.
+ *
+ * XXX SmartOS -- For the IIR_RXTOUT path, interrupts are limited to no more
+ * than 1 per millisecond, otherwise it's possible to overflow a VM's TTY
+ * queue before it has a chance to process the incoming data, resulting in
+ * lost data.
+ *
+ * It would be nice to hook this properly into the baudrate, but until high
+ * resolution timers are supported we're effectively running at around 16000
+ * baud (one interrupt per full FIFO).
  */
 static void
 uart_toggle_intr(struct uart_ns16550_softc *sc)
@@ -186,8 +195,10 @@ uart_toggle_intr(struct uart_ns16550_softc *sc)
 
 	if (intr_reason == IIR_NOPEND)
 		(*sc->intr_deassert)(sc->arg);
-	else
+	else if (intr_reason != IIR_RXTOUT)
 		(*sc->intr_assert)(sc->arg);
+	else
+		uart_intr_throttled(sc->backend, sc->intr_assert, sc->arg);
 }
 
 static void
