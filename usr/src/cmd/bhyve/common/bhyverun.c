@@ -81,6 +81,7 @@
 #endif
 #ifdef	__FreeBSD__
 #include <machine/vmm_instruction_emul.h>
+#include <sys/stat.h>	/* XXX SmartOS -- see mark_provisioned() below */
 #endif
 #include <vmmapi.h>
 
@@ -672,6 +673,33 @@ bhyve_parse_gdb_options(const char *opt)
 	set_config_value("gdb.port", sport);
 }
 
+#ifndef __FreeBSD__
+
+/*
+ * XXX SmartOS: Use this to signal SmartOS brand scripts that this VM
+ * is officially provisioned. We do this with signalling files in the
+ * zone's /var/svc directory.
+ */
+#define FILE_PROVISIONING       "/var/svc/provisioning"
+#define FILE_PROVISION_SUCCESS  "/var/svc/provision_success"
+
+static void
+mark_provisioned(void)
+{
+        struct stat stbuf;
+
+        if (lstat(FILE_PROVISIONING, &stbuf) != 0)
+                return;
+
+        if (rename(FILE_PROVISIONING, FILE_PROVISION_SUCCESS) != 0) {
+                (void) fprintf(stderr, "Cannot rename %s to %s: %s\n",
+                    FILE_PROVISIONING, FILE_PROVISION_SUCCESS,
+                    strerror(errno));
+        }
+}
+
+#endif
+
 int
 main(int argc, char *argv[])
 {
@@ -849,9 +877,7 @@ main(int argc, char *argv[])
 		errx(EX_OSERR, "cap_enter() failed");
 #endif
 
-#ifndef __FreeBSD__
-	illumos_priv_lock();
-#endif
+/*  XXX SmartOS:  Upstream drops privs here, but we can't yet.  See below... */
 
 #ifndef	__FreeBSD__
 	if (vmentry_init(guest_ncpus) != 0)
@@ -871,6 +897,18 @@ main(int argc, char *argv[])
 		bhyve_start_vcpu(vcpu_info[vcpuid].vcpu, vcpuid == BSP,
 		    suspend);
 	}
+
+#ifndef __FreeBSD__
+	mark_provisioned();
+        /*
+         * XXX SmartOS:  The mark_provisioned() call above required file-access
+         * privileges that are dropped by illumos_priv_lock.  We must widen the
+         * full-privilege window a bit.  A better solution might be to have
+         * a way to keep file-access a bit longer, and only have THAT privilege
+         * to drop here.
+         */
+	illumos_priv_lock();
+#endif
 
 	/*
 	 * Head off to the main event dispatch loop
