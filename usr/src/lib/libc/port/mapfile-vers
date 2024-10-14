@@ -407,7 +407,7 @@ SYMBOL_VERSION ILLUMOS_0.9 {
 	wcsnrtombs_l;
 } ILLUMOS_0.8;
 
-SYMBOL_VERSION ILLUMOS_0.8 {	# POSIX 2008 newlocale and friends
+SYMBOL_VERSION ILLUMOS_0.8 {	# POSIX 2008 newlocale
     protected:
 	__global_locale;
 	__mb_cur_max;
